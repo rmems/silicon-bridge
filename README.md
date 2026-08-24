@@ -166,3 +166,21 @@ training orchestrator so it works with any SNN framework.
 ## License
 
 Licensed under either of [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE) at your option.
+
+## CI
+
+GitHub Actions (`.github/workflows/ci.yml`) runs three job groups on every push
+to `main` and every pull request. No secrets are required.
+
+| Job | Runner | What it runs |
+|-----|--------|--------------|
+| `fmt (ubuntu-latest)` | Linux | `cargo fmt --check` (once — formatting is OS-independent) |
+| `test (ubuntu-latest)` | Linux | `cargo clippy --all-targets -- -D warnings`, `cargo build`, `cargo test` |
+| `test (macos-latest)` | macOS | same as above |
+| `test (windows-latest)` | Windows | same as above |
+| `uart (ubuntu-latest)` | Linux | installs `libudev-dev`, then `cargo check --features uart` and `cargo test --features uart` |
+
+The `test` matrix uses default features and has `fail-fast: false`, so one OS
+failing does not cancel the others. The `uart` job is Linux-only because
+`serialport` needs `libudev` there; it runs unit tests only — no serial
+hardware is attached to CI runners.
