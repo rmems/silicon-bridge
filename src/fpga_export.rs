@@ -160,6 +160,11 @@ pub struct FpgaMetadata {
     ///
     /// Together with `num_neurons` this describes how `FpgaParameters::weights`
     /// is addressed: `row * num_channels + channel`.
+    ///
+    /// That addressing holds only for a rectangular weight matrix. Rows of
+    /// unequal length are flattened unchanged, so the pair describes a matrix
+    /// the buffer does not contain, and indexing misreads or overruns from the
+    /// first short row onward.
     pub num_channels: usize,
     /// Per-tick latency budget for the silicon-hdl deployment, in
     /// microseconds.
