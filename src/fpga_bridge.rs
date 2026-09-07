@@ -22,7 +22,7 @@
 //! | Byte order | raw binary, big-endian (MSB first) | ASCII hex, one `{:04X}` word per line |
 //! | Use it for | host stimuli, RX membrane potentials | weights, thresholds, decay rates |
 
-use serialport::{SerialPort, SerialPortInfo};
+use serialport::{SerialPort, SerialPortInfo, SerialPortType};
 use std::io::{Read, Write};
 use std::time::Duration;
 
@@ -118,6 +118,34 @@ fn candidate_ports(discovered: Vec<String>) -> Vec<String> {
     discovered
 }
 
+/// USB vendor id of FTDI, whose FT2232H is the Basys3's USB-UART bridge.
+const VID_FTDI: u16 = 0x0403;
+
+/// Digilent's own USB vendor id, used by some of their boards.
+const VID_DIGILENT: u16 = 0x1443;
+
+/// Probe-order preference for a serial port, lowest first.
+///
+/// This is a *preference*, not identification — a serial port cannot be
+/// identified as an FPGA without writing to it. It only means that when several
+/// adapters are attached, the one whose vendor id matches the Basys3's bridge
+/// is tried before a generic USB-serial cable or an unclassified device.
+fn usb_rank(vid: Option<u16>) -> u8 {
+    match vid {
+        Some(VID_FTDI | VID_DIGILENT) => 0,
+        Some(_) => 1,
+        None => 2,
+    }
+}
+
+/// Extract the USB vendor id from a port, when the OS reported one.
+fn port_vid(info: &SerialPortInfo) -> Option<u16> {
+    match &info.port_type {
+        SerialPortType::UsbPort(usb) => Some(usb.vid),
+        _ => None,
+    }
+}
+
 impl FpgaBridge {
     /// Open the first FPGA-looking serial port that accepts a connection.
     ///
@@ -126,13 +154,26 @@ impl FpgaBridge {
     /// unavailable, for instance — the historical Linux probe list
     /// (`/dev/ttyUSB0`, `/dev/ttyUSB1`, `/dev/ttyUSB2`) is tried instead.
     ///
-    /// Use [`FpgaBridge::open`] when the port is already known; on a host with
-    /// several USB serial adapters, discovery order decides which one wins.
+    /// # This does not verify the peer
+    ///
+    /// A port that opens is assumed to be the board. Nothing handshakes first,
+    /// and deliberately so: the only way to confirm an FPGA is on the other end
+    /// is to send it a SiliconBridge frame, which means writing 33 bytes of
+    /// protocol into whatever device actually answered. Attaching a GPS puck or
+    /// a 3D printer alongside the board can therefore win the race.
+    ///
+    /// Two things narrow it. Candidates are ordered by USB vendor id, so a port
+    /// from FTDI or Digilent — the Basys3's bridge — is tried before a generic
+    /// adapter or an unclassified device. And [`FpgaBridge::open`] takes a port
+    /// name, so a caller that knows which device it wants never has to guess —
+    /// [`find_fpga_ports`] returns the full [`SerialPortInfo`], serial number
+    /// included, to pick from.
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
-        let discovered: Vec<String> = find_fpga_ports()
-            .into_iter()
-            .map(|info| info.port_name)
-            .collect();
+        let mut found = find_fpga_ports();
+        // Stable sort: within one rank the OS's own ordering is preserved.
+        found.sort_by_key(|info| usb_rank(port_vid(info)));
+
+        let discovered: Vec<String> = found.into_iter().map(|info| info.port_name).collect();
 
         let candidates = candidate_ports(discovered);
 
@@ -309,6 +350,35 @@ mod tests {
     fn discovered_ports_are_probed_in_order_without_the_legacy_list() {
         let discovered = vec!["COM7".to_string(), "COM3".to_string()];
         assert_eq!(candidate_ports(discovered.clone()), discovered);
+    }
+
+    /// `new` cannot confirm an FPGA without writing protocol bytes to whatever
+    /// answered, so it prefers the Basys3's own bridge vendor instead.
+    #[test]
+    fn basys3_bridge_vendors_are_probed_before_generic_adapters() {
+        assert_eq!(usb_rank(Some(VID_FTDI)), 0);
+        assert_eq!(usb_rank(Some(VID_DIGILENT)), 0);
+        assert_eq!(
+            usb_rank(Some(0x10C4)),
+            1,
+            "CP210x: plausible, not preferred"
+        );
+        assert_eq!(usb_rank(None), 2, "no USB descriptor at all");
+
+        assert!(usb_rank(Some(VID_FTDI)) < usb_rank(Some(0x10C4)));
+        assert!(usb_rank(Some(0x10C4)) < usb_rank(None));
+    }
+
+    /// Ranking must be a total order over the three tiers, so `sort_by_key`
+    /// gives a deterministic probe order.
+    #[test]
+    fn ranking_orders_a_mixed_bus_deterministically() {
+        let mut ranks: Vec<u8> = [None, Some(0x10C4), Some(VID_FTDI), Some(0x1A86)]
+            .into_iter()
+            .map(usb_rank)
+            .collect();
+        ranks.sort_unstable();
+        assert_eq!(ranks, [0, 1, 1, 2]);
     }
 
     /// When enumeration comes back empty the historical Linux probe list is
