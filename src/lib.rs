@@ -82,4 +82,4 @@ pub use fpga_export::{
 pub use fpga_metrics::FpgaMetrics;
 
 #[cfg(feature = "uart")]
-pub use fpga_bridge::{FpgaBridge, find_fpga_ports};
+pub use fpga_bridge::{FpgaBridge, find_fpga_ports, is_fpga_port_name};
