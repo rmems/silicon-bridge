@@ -66,6 +66,13 @@
 //! silicon-bridge = { version = "0.1", features = ["uart"] }
 //! ```
 
+// AGENTS.md bans `unsafe` without an explicit safety justification and requires
+// a `///` comment on every public item. Both are enforced here rather than left
+// to review: this crate emits `.mem` files that get baked into a bitstream, so
+// an undocumented public item is a hardware-facing ambiguity.
+#![forbid(unsafe_code)]
+#![deny(missing_docs)]
+
 mod fpga_export;
 mod fpga_metrics;
 

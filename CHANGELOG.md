@@ -61,3 +61,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `REVIEW.md`, `.codacy.yml`, `.gitignore`, and `.github/` are no longer shipped
   to crates.io; the tarball drops from 19 files / 99.5 KiB to 12 / 81.5 KiB.
   `docs/` stays unpublished, as it was under the previous `exclude`.
+- The crate root now carries `#![forbid(unsafe_code)]` and
+  `#![deny(missing_docs)]`, and `FpgaMetadata` and its fields gained the `///`
+  comments they were missing.
