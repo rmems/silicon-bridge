@@ -10,8 +10,9 @@ permissions:
   contents: read
 
 jobs:
-  validate:
-    name: Build & Test
+  # Formatting is OS-independent, so it runs once on Linux to save runner minutes.
+  fmt:
+    name: fmt (ubuntu-latest)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,7 +22,29 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # stable
         with:
-          components: clippy, rustfmt
+          components: rustfmt
+          toolchain: stable
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+  # Default features (no `uart`) on every supported host OS.
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # stable
+        with:
+          components: clippy
           toolchain: stable
 
       - name: Cache cargo registry
@@ -30,12 +53,10 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
+          key: ${{ runner.os }}-cargo-default-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: |
+            ${{ runner.os }}-cargo-default-
             ${{ runner.os }}-cargo-
-
-      - name: Check formatting
-        run: cargo fmt --check
 
       - name: Clippy (lint)
         run: cargo clippy --all-targets -- -D warnings
@@ -45,3 +66,40 @@ jobs:
 
       - name: Test
         run: cargo test
+
+  # `uart` pulls in `serialport`, which needs libudev on Linux.
+  # Unit tests only — no serial hardware is attached to CI runners.
+  uart:
+    name: uart (ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # stable
+        with:
+          toolchain: stable
+
+      - name: Install libudev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libudev-dev
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-uart-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-uart-
+            ${{ runner.os }}-cargo-
+
+      - name: Check (uart feature)
+        run: cargo check --features uart
+
+      - name: Test (uart feature)
+        run: cargo test --features uart
