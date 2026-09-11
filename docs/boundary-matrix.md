@@ -15,9 +15,11 @@ parameters and FPGA hardware in the Limen-Neural stack. It:
    `$readmemh` `.mem` files
 2. Optionally exchanges stimuli / spikes with the FPGA over **UART**
    (`uart` feature)
-3. Parses **Vivado timing reports for WNS** (worst negative slack) for CI gating.
-   `FpgaMetrics` also *exposes* a `lut_utilization` field, but loaders currently leave
-   it at `0.0` and **do not parse TNS** — do not treat TNS or LUT % as enforced gates yet
+3. Parses **Vivado timing reports for WNS and TNS** (worst / total negative slack)
+   and **LUT utilization** from `report_utilization` output for CI gating.
+   `FpgaMetrics` fills `tns_ns` and `lut_utilization` when the reports carry them and
+   falls back to `0.0` when they do not — a gate must therefore treat `0.0` as
+   "not reported", not as "clean"
 
 It is **not** a spiking runtime, training loop, or HDL library.
 
@@ -48,7 +50,7 @@ training / runtime crates
 | `.mem` generation | Hex lines for `$readmemh` (thresholds, weights, decay) |
 | Export trait surface | Traits such as fixed-point encode / parameter export / mem write (for silicon-hdl alignment) |
 | UART host client | SiliconBridge-style host protocol when `uart` is enabled |
-| Timing metrics | Parse WNS from Vivado timing summary reports for CI gates (TNS / LUT % not yet) |
+| Timing metrics | Parse WNS / TNS from Vivado timing summary reports, and LUT % from utilization reports, for CI gates |
 | Deployment metadata | Version/timestamp/size of exported parameter sets |
 
 ## Does not own
