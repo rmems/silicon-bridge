@@ -5,9 +5,22 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "SNN-to-FPGA deployment pipeline: Q8.8 fixed-point parameter export, .mem file generation, UART spike readback, and Vivado timing report parsing for neuromorphic hardware"
 repository = "https://github.com/rmems/silicon-bridge"
+documentation = "https://docs.rs/silicon-bridge"
+readme = "README.md"
 keywords = ["snn", "fpga", "neuromorphic", "silicon", "q8-8"]
 categories = ["science", "hardware-support", "algorithms"]
-exclude = ["docs/"]
+# Allow-list rather than `exclude = ["docs/"]`: an exclude list silently ships
+# anything added later, which is how AGENTS.md, CLAUDE.md, REVIEW.md, .codacy.yml
+# and .github/ ended up in the published tarball. docs/ stays out — logo.png
+# alone is 2.4 MB, and crates.io resolves the README's relative links against
+# `repository`.
+include = [
+    "src/**/*.rs",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE-MIT",
+    "LICENSE-APACHE",
+]
 
 [lib]
 name = "silicon_bridge"

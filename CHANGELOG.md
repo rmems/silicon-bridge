@@ -34,3 +34,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Documented the two coexisting Q8.8 conventions (unsigned `u16` export vs
   signed `i16` UART stimuli) with a side-by-side table in the crate, module, and
   README docs, plus tests covering both clamp boundaries (#23).
+- The published crate is now an `include` allow-list. `AGENTS.md`, `CLAUDE.md`,
+  `REVIEW.md`, `.codacy.yml`, `.gitignore`, and `.github/` are no longer shipped
+  to crates.io; the tarball drops from 19 files / 99.5 KiB to 12 / 81.5 KiB.
+  `docs/` stays unpublished, as it was under the previous `exclude`.
