@@ -1,6 +1,7 @@
 [package]
 name = "silicon-bridge"
 version = "0.1.0"
+authors = ["Raul Cardenas Montoya <montoyaraul34@gmail.com>"]
 edition = "2024"
 # Declared as current stable by policy, not as the dependency-derived floor:
 # edition 2024 only requires 1.85.0, and `getrandom` 0.4 (via the `tempfile`
