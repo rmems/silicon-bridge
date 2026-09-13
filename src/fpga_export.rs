@@ -154,6 +154,12 @@ pub struct FpgaMetadata {
     /// RFC 3339 UTC timestamp of the export, from `chrono::Utc::now`.
     pub timestamp: String,
     /// Number of neurons, taken from the threshold count.
+    ///
+    /// Not cross-checked against the weight-row count: `weights.len()` can
+    /// disagree with `thresholds.len()`, in which case this field and
+    /// `num_channels` describe a matrix the weight buffer does not actually
+    /// have that many rows of. That is a deliberate, tracked limitation, not
+    /// an oversight — not enforced here yet.
     pub num_neurons: usize,
     /// Weight-matrix width, taken from the first weight row (`0` when there
     /// are no weights).
