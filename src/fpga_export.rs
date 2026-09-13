@@ -100,13 +100,43 @@ pub struct FpgaParameters {
     pub metadata: FpgaMetadata,
 }
 
+/// Layout and provenance of an exported parameter bundle.
+///
+/// Serialized alongside the Q8.8 vectors as `parameters.json`, so a `.mem` set
+/// on disk can be matched back to the shape it was generated for.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FpgaMetadata {
+    /// Format tag for the `.mem` bundle — always [`EXPORT_FORMAT_VERSION`].
+    ///
+    /// Not the crate version: downstream tooling keys on this string, so it
+    /// moves only when the on-disk layout does.
     pub version: String,
+    /// RFC 3339 UTC timestamp of the export, from `chrono::Utc::now`.
     pub timestamp: String,
+    /// Number of neurons, taken from the threshold count.
     pub num_neurons: usize,
+    /// Weight-matrix width, taken from the first weight row (`0` when there
+    /// are no weights).
+    ///
+    /// Together with `num_neurons` this describes how `FpgaParameters::weights`
+    /// is addressed: `row * num_channels + channel`.
+    ///
+    /// That addressing holds only for a rectangular weight matrix. Rows of
+    /// unequal length are flattened unchanged, so the pair describes a matrix
+    /// the buffer does not contain, and indexing misreads or overruns from the
+    /// first short row onward.
     pub num_channels: usize,
+    /// Per-tick latency budget for the silicon-hdl deployment, in
+    /// microseconds.
+    ///
+    /// A fixed design target (35 µs) recorded for downstream tooling, not a
+    /// measurement of this export.
     pub target_latency_us: f32,
+    /// Total size of the three Q8.8 vectors in kibibytes, at 2 bytes per
+    /// parameter.
+    ///
+    /// Counts parameters only — it excludes `$readmemh` ASCII overhead and any
+    /// padding the target RAM applies.
     pub memory_usage_kb: f32,
 }
 

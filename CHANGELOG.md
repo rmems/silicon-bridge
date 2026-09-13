@@ -27,3 +27,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Documented the two coexisting Q8.8 conventions (unsigned `u16` export vs
   signed `i16` UART stimuli) with a side-by-side table in the crate, module, and
   README docs, plus tests covering both clamp boundaries (#23).
+- The crate root now carries `#![forbid(unsafe_code)]` and
+  `#![deny(missing_docs)]`, and `FpgaMetadata` and its fields gained the `///`
+  comments they were missing.
