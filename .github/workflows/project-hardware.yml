@@ -105,9 +105,30 @@ jobs:
           #    is what PROJECTS_TOKEN is documented to be, above) report their
           #    grants in the X-OAuth-Scopes response header; confirm 'project'
           #    is actually one of them before attempting any mutation.
-          TOKEN_SCOPES=$(gh api -i /rate_limit 2>/dev/null | grep -i '^x-oauth-scopes:' | tr -d '\r')
-          if ! echo "$TOKEN_SCOPES" | grep -qw 'project'; then
-            skip_or_fail "secrets.PROJECTS_TOKEN does not carry the 'project' scope (${TOKEN_SCOPES:-no X-OAuth-Scopes header returned}); it can read $PROJECT_ID but item mutations will fail."
+          #
+          #    The header is captured with `|| true` so a run under
+          #    `set -e` doesn't abort here when grep finds no such header at
+          #    all (fine-grained tokens don't send one) - the missing-header
+          #    case is handled explicitly below, not by errexit. And scopes
+          #    are compared as whole comma-separated entries, not with
+          #    `grep -w`: `:` is a word-boundary character to grep, so `-w`
+          #    would treat "project" as matching inside "read:project" too.
+          SCOPES_HEADER=$(gh api -i /rate_limit 2>/dev/null | grep -i '^x-oauth-scopes:' | tr -d '\r' || true)
+          has_project_scope=0
+          if [ -n "$SCOPES_HEADER" ]; then
+            IFS=',' read -ra SCOPE_ARR <<< "${SCOPES_HEADER#*:}"
+            for scope in "${SCOPE_ARR[@]}"; do
+              # Trim surrounding whitespace.
+              scope="${scope#"${scope%%[![:space:]]*}"}"
+              scope="${scope%"${scope##*[![:space:]]}"}"
+              if [ "$scope" = "project" ]; then
+                has_project_scope=1
+                break
+              fi
+            done
+          fi
+          if [ "$has_project_scope" -ne 1 ]; then
+            skip_or_fail "secrets.PROJECTS_TOKEN does not carry the 'project' scope (${SCOPES_HEADER:-no X-OAuth-Scopes header returned}); it can read $PROJECT_ID but item mutations will fail."
           fi
 
           sync_one() {
