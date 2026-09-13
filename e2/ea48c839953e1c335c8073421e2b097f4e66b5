@@ -1,0 +1,32 @@
+README.md
+  s_3426dc21ad5321::t_1385539080e973 32-38
+  s_3426dc21ad5321::t_1ea320aa973899 80-84
+src/fpga_bridge.rs
+  s_c7a686db5ac1e5::t_8871172d17324e 175-176
+  s_3426dc21ad5321::t_ce427736ae77b9 166-173,177-180
+  s_c7a686db5ac1e5::t_0c54c997a187db 159-165
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e2ea48c839953e1c335c8073421e2b097f4e66b5",
+  "prompts": {},
+  "sessions": {
+    "s_3426dc21ad5321": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7138bdcc-6ef1-4199-b06e-6725cb5f3ccf",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    },
+    "s_c7a686db5ac1e5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e3ecf17c-0c1f-4f56-bc93-e08ac6c2f86e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
