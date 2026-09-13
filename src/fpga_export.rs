@@ -269,7 +269,7 @@ impl FpgaParameterExporter {
     /// Check that the weight matrix is rectangular.
     ///
     /// [`ParameterExport::export`] flattens the weight rows row-major into a
-    /// single `Vec<u16>` and reports the width as `FpgaMetadata::num_channels`,
+    /// single `Vec<i16>` and reports the width as `FpgaMetadata::num_channels`,
     /// taken from the *first* row. If the rows disagree in length, that pair no
     /// longer describes the buffer: `WeightRam` addressed as
     /// `row * num_channels + channel` reads the wrong words from the second row
@@ -340,7 +340,7 @@ impl FpgaParameterExporter {
             + self.weights.iter().map(|row| row.len()).sum::<usize>()
             + self.decay_rates.len();
 
-        // Each parameter is 2 bytes (u16) in Q8.8 format
+        // Each parameter is 2 bytes (i16) in Q8.8 format
         (total_params * 2) as f32 / 1024.0
     }
 
