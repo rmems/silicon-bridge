@@ -22,11 +22,11 @@ stimuli and reading back spike states at runtime.
 ## Features
 
 - **Export traits** for hardware alignment with [silicon-hdl](https://github.com/rmems/silicon-hdl):
-  - `FixedPointEncode` — `f32` → Q8.8 (`u16`)
+  - `FixedPointEncode` — `f32` → signed Q8.8 (`i16`)
   - `ParameterExport` — build the FPGA parameter bundle
   - `MemFileWriter` — write `$readmemh` `.mem` files
 - `FpgaParameterExporter` — default implementation of those traits
-- `format_q88_hex` / `q88_to_f32` — Q8.8 helpers
+- `format_q88_hex` / `encode_q88_signed` / `q88_signed_to_f32` — Q8.8 helpers
 - `FpgaBridge` — blocking UART host protocol for host–FPGA spike exchange,
   backed by `serialport` (`uart` feature); no async runtime is involved.
   `FpgaBridge::new()` probes only `/dev/ttyUSB0`, `/dev/ttyUSB1`, and
@@ -55,7 +55,8 @@ exporter.set_weights(vec![vec![0.5; 16]; 16]);
 exporter.set_decay_rates(vec![0.9; 16]);
 
 let params = ParameterExport::export(&exporter);
-// → params.thresholds, .weights, .decay_rates are Vec<u16> (Q8.8 format)
+// → params.thresholds, .weights, .decay_rates are Vec<i16> (signed Q8.8)
+// → negative (Dale-inhibitory) weights survive: -1.0 → -256 → `FF00`
 // → ready for silicon-hdl WeightRam / NeuronParamRam via Vivado $readmemh
 ```
 
@@ -85,28 +86,41 @@ executor is required.
 
 ## Q8.8 Fixed-Point Format
 
-Q8.8 always means “value × 256 packed into a 16-bit word”, but this crate
-carries **two signedness conventions** that are not interchangeable:
-parameters baked into the bitstream are unsigned; host stimuli sent over UART
-are signed.
+Q8.8 always means “value × 256 packed into a 16-bit word”. Everything this
+crate hands to silicon-hdl — `.mem` parameter images *and* UART host stimuli —
+uses **one** convention: signed two's complement. `0xFF00` is `-1.0`, not
+`65280`.
 
 | Aspect | Parameter export (`.mem`) | Host stimuli (UART TX/RX) |
 |---|---|---|
-| Encode with | `FixedPointEncode::encode_q88` / `encode_q88_unsigned` | `encode_q88_signed` |
-| Decode with | `q88_to_f32` | `q88_signed_to_f32` |
-| Raw type | `u16` (unsigned) | `i16` (two's complement) |
+| Encode with | `FixedPointEncode::encode_q88` / `encode_q88_signed` | `encode_q88_signed` |
+| Decode with | `q88_signed_to_f32` | `q88_signed_to_f32` |
+| Raw type | `i16` (two's complement) | `i16` (two's complement) |
 | Width | 16 bits — 8 integer + 8 fractional | 16 bits — 8 integer + 8 fractional |
 | Scaling | `raw = value × 256`, truncated toward zero | `raw = value × 256`, truncated toward zero |
-| Encoder input clamp | `[0.0, 255.99609375]` (scaled clamp `0..=65535`) | `[-127.99, 127.99]` |
-| Encoder raw output | `0..=65535` | `-32765..=32765` (saturates inside the `i16` limits) |
-| Decoder accepts | any `u16`: `0..=65535` → `0.0..=255.99609375` | any `i16`: `-32768..=32767` → `-128.0..=127.99609375` |
-| Serialized as | ASCII hex, one `{:04X}` word per line (`$readmemh`) | raw binary, big-endian (MSB first) |
+| Encoder input clamp | `[-127.99, 127.99]` | same |
+| Encoder raw output | `-32765..=32765` (saturates inside the `i16` limits) | same |
+| Decoder accepts | any `i16`: `-32768..=32767` → `-128.0..=127.99609375` | same |
+| Serialized as | ASCII hex, one `{:04X}` word of the raw pattern per line (`$readmemh`) | raw binary, big-endian (MSB first) |
 | Use it for | weights, thresholds, decay rates | host stimuli, RX membrane potentials |
 
-The export path **cannot represent negative values** — anything below `0.0`
-clamps to raw `0`. Both encoders truncate toward zero and map `NaN` to raw `0`.
-The signed decoder is wider than its encoder: the FPGA may send any `i16`, so
-`0x8000` decodes to `-128.0` even though TX saturates at `±32765`.
+The two columns differ only in how the word reaches the FPGA — hex text in a
+file versus big-endian bytes on a wire. Encoding truncates toward zero and maps
+`NaN` to raw `0`. The decoder is wider than the encoder: the FPGA may send any
+`i16`, so `0x8000` decodes to `-128.0` even though encoding saturates at
+`±32765`.
+
+**Why signed.** silicon-hdl reads every `.mem` image as signed — `LifNeuron` /
+`LifNeuronArray` and `OutputLayer` all `$signed`-compare at runtime, so a
+Dale-inhibitory weight subtracts from the membrane instead of adding a large
+positive (see silicon-hdl `spikenaut-core-sv/mem/README.md`, “Signedness
+contract (GH#73)”). The clamp bounds above are mirrored bit-for-bit by
+silicon-hdl's `scripts/q88.py`.
+
+`encode_q88_unsigned` / `q88_to_f32` remain public as an unsigned-magnitude
+pair over `0.0..=255.99609375`, but they are **not** the hardware convention.
+Building a parameter bank with them flattens every negative weight to `0x0000`
+— a well-formed word that loads cleanly and silently drops the inhibition.
 
 Exported `.mem` files are directly loadable by silicon-hdl `WeightRam.sv` and
 `NeuronParamRam.sv`
