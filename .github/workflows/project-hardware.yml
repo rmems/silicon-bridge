@@ -18,12 +18,20 @@ jobs:
   sync-project:
     runs-on: ubuntu-latest
     steps:
-      - name: Sync issue(s) with org Hardware project
+      - name: Sync issue(s) with the rmems consolidation project
         env:
-          GH_TOKEN: ${{ secrets.PROJECTS_TOKEN || secrets.LIMEN_NEURAL_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
-          PROJECT_ID: PVT_kwDOEEyGS84BfB8y
-          STATUS_FIELD_ID: PVTSSF_lADOEEyGS84BfB8yzhZX2Lc
-          OPT_READY: "856cdede"
+          # PROJECTS_TOKEN is a classic PAT carrying the `project` scope. The
+          # default GITHUB_TOKEN cannot touch ProjectsV2, so without
+          # PROJECTS_TOKEN this job no-ops (see the preflight below) rather than
+          # failing the run.
+          GH_TOKEN: ${{ secrets.PROJECTS_TOKEN || secrets.GITHUB_TOKEN }}
+          HAS_PROJECTS_TOKEN: ${{ secrets.PROJECTS_TOKEN != '' }}
+          # rmems user project #5 "Limen-Neural Consolidation".
+          # The previous IDs pointed at Limen-Neural org project #8 "Hardware",
+          # which this repository left during the org transfer (#27).
+          PROJECT_ID: PVT_kwHODs2Zb84BfcTG
+          STATUS_FIELD_ID: PVTSSF_lAHODs2Zb84BfcTGzhZvKog
+          OPT_READY: "61e4505c"
           OPT_DONE: "98236657"
           EVENT_NAME: ${{ github.event_name }}
           ISSUE_NUM_EVENT: ${{ github.event.issue.number }}
@@ -33,6 +41,74 @@ jobs:
           REPO: ${{ github.event.repository.name }}
         run: |
           set -euo pipefail
+
+          # Skip on a setup gap, fail on a real error. An `issues` event fires on
+          # every open and close, so an unusable token must not paint the whole
+          # repository red; an explicit workflow_dispatch must never silently
+          # no-op. Anything past this preflight is a genuine failure.
+          skip_or_fail() {
+            echo "::warning title=Project board sync skipped::$1"
+            if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+              echo "workflow_dispatch was explicit - failing instead of skipping." >&2
+              exit 1
+            fi
+            exit 0
+          }
+
+          # 1. Is a token configured at all? Without PROJECTS_TOKEN, GH_TOKEN
+          #    falls back to GITHUB_TOKEN, which cannot touch ProjectsV2 under
+          #    any circumstances.
+          if [ "$HAS_PROJECTS_TOKEN" != "true" ]; then
+            skip_or_fail "secrets.PROJECTS_TOKEN is not set; ProjectsV2 needs a PAT with the 'project' scope."
+          fi
+
+          # 2. Can that token actually reach this project? Presence is not
+          #    access: a PAT can be expired, mis-scoped, or simply belong to an
+          #    account without rights to PROJECT_ID, and each of those failed
+          #    the same way the missing-token case used to. One cheap read
+          #    settles it before any mutation is attempted.
+          #
+          #    The query itself is captured (not just its exit code) for two
+          #    reasons: `node(id:)` returns a *null* node rather than a GraphQL
+          #    error for an inaccessible/nonexistent id, so a null result must
+          #    be treated the same as a failed call; and a nonzero exit needs
+          #    its error text inspected so a transient outage (5xx, DNS,
+          #    timeout) fails the run instead of being folded into the same
+          #    "no access" skip as an actual 401/403.
+          set +e
+          PREFLIGHT_OUTPUT=$(gh api graphql -f query='
+            query($id:ID!){ node(id:$id){ ... on ProjectV2 { id } } }
+          ' -f id="$PROJECT_ID" 2>&1)
+          PREFLIGHT_STATUS=$?
+          set -e
+
+          auth_denied=0
+          if [ "$PREFLIGHT_STATUS" -ne 0 ]; then
+            if echo "$PREFLIGHT_OUTPUT" | grep -qE 'HTTP (401|403)'; then
+              auth_denied=1
+            else
+              echo "::error title=Project board sync failed::Preflight query errored, not an auth problem - failing rather than masking it as a skip: $PREFLIGHT_OUTPUT" >&2
+              exit 1
+            fi
+          elif [ -z "$(echo "$PREFLIGHT_OUTPUT" | jq -r '.data.node.id // empty')" ]; then
+            auth_denied=1
+          fi
+
+          if [ "$auth_denied" -eq 1 ]; then
+            skip_or_fail "secrets.PROJECTS_TOKEN cannot read project $PROJECT_ID - expired, missing the 'project' scope, or not authorized for this owner."
+          fi
+
+          # 3. Read access to the project node is not write access: a
+          #    read-only or mis-scoped-for-mutation token can pass the check
+          #    above and still fail every addProjectV2ItemById /
+          #    updateProjectV2ItemFieldValue call below. Classic PATs (which
+          #    is what PROJECTS_TOKEN is documented to be, above) report their
+          #    grants in the X-OAuth-Scopes response header; confirm 'project'
+          #    is actually one of them before attempting any mutation.
+          TOKEN_SCOPES=$(gh api -i /rate_limit 2>/dev/null | grep -i '^x-oauth-scopes:' | tr -d '\r')
+          if ! echo "$TOKEN_SCOPES" | grep -qw 'project'; then
+            skip_or_fail "secrets.PROJECTS_TOKEN does not carry the 'project' scope (${TOKEN_SCOPES:-no X-OAuth-Scopes header returned}); it can read $PROJECT_ID but item mutations will fail."
+          fi
 
           sync_one() {
             local NUM="$1"
