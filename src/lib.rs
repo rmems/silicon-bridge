@@ -66,6 +66,19 @@
 //! silicon-bridge = { version = "0.1", features = ["uart"] }
 //! ```
 
+// `forbid(unsafe_code)` enforces an AGENTS.md *constraint* — "do not add
+// `unsafe` code without explicit safety justification" — mechanically. Nothing
+// in the crate is unsafe today, so the strictest form costs nothing; lifting it
+// for a justified block is a deliberate edit, which is the point.
+#![forbid(unsafe_code)]
+// `deny(missing_docs)` is a deliberate tightening, not enforcement of an
+// existing hard rule: AGENTS.md lists "public items get `///` doc comments"
+// under conventions, and a convention did not stop `FpgaMetadata` and its six
+// fields from landing undocumented. This crate emits `.mem` files that get baked
+// into a bitstream, so an undocumented public item is a hardware-facing
+// ambiguity worth a compile error.
+#![deny(missing_docs)]
+
 mod fpga_export;
 mod fpga_metrics;
 
