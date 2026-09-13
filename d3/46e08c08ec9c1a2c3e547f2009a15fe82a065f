@@ -1,0 +1,19 @@
+src/fpga_export.rs
+  s_ecd01dd92933aa::t_4e47249ca92962 272,343
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d346e08c08ec9c1a2c3e547f2009a15fe82a065f",
+  "prompts": {},
+  "sessions": {
+    "s_ecd01dd92933aa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b627c09f-5b93-45bb-8fb3-228bd765ac61",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
