@@ -90,7 +90,13 @@ The `.mem` file looks entirely valid; the corruption only appears as wrong
 spikes on hardware.
 
 **Fix (PR #41)** — `ParameterShapeError` + `FpgaParameterExporter::validate`,
-enforced by `write_mem_files` before anything is written to disk.
+enforced by `write_mem_files` before anything is written to disk. Enforced
+there only: a caller using the public `ParameterExport::export` directly —
+`FpgaParameters` is `Serialize`/`Deserialize` and meant for downstream
+tooling — still gets the same malformed, ragged-and-flattened buffer with no
+error, since `export` never calls `validate`. Closing that needs a fallible
+validated export path (or folding the check into `export` itself), which is
+follow-up scope, not part of #41.
 
 ### 4. `FpgaMetrics::synthesis_ok` is hard-coded `true`
 
@@ -217,6 +223,14 @@ malformed doc table reaches docs.rs unnoticed.
 `RUSTDOCFLAGS: -D warnings` + `cargo doc --no-deps --features uart` as a step on
 #31's `uart` job, which already installs `libudev-dev`. A five-line diff.
 
+That gate alone doesn't catch the docs.rs failure mode it's named after,
+though: `cargo doc` verifies rustdoc intra-doc links (`` [`Foo`] ``) and
+Markdown table syntax, but an ordinary Markdown link to a path that doesn't
+exist — `[MIT](LICENSE-MIT)`, say — renders as opaque text with no warning
+either way. Catching that needs a separate check (a link checker over the
+rendered output, or a grep for the specific banned pattern AGENTS.md already
+names), not just `cargo doc` going green.
+
 ### 13. README documents the Linux-only probe list as current
 
 `README.md:29-33` and the UART section state that `FpgaBridge::new()` probes only
@@ -253,8 +267,13 @@ relative `[MIT](LICENSE-MIT)` and `[Apache-2.0](LICENSE-APACHE)` references into
 rustdoc links that cannot resolve, and `docs/logo.png` is excluded from the
 package, so the header image breaks too. Either extract the four examples into
 real doctests, or rewrite those links to absolute URLs first and then include.
-One PR touching `src/lib.rs` and the README's fences, with the `?`-using UART
-example marked `no_run`. Sequence after #31 and #33 clear the README.
+One PR touching `src/lib.rs` and the README's fences. `no_run` alone doesn't
+finish the UART example: it skips execution but the snippet still has to
+*compile*, which needs `#![cfg(feature = "uart")]` gating (it's invisible to a
+default `cargo test`) and a hidden `Result`-returning wrapper function for the
+top-level `?` to type-check under rustdoc's doctest harness — run it with
+`--features uart` once both are in place, not just marked `no_run`. Sequence
+after #31 and #33 clear the README.
 
 ### 16. Report paths are `&str`, not `AsRef<Path>`
 
