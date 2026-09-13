@@ -50,3 +50,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   toolchain older than 1.85 still gets the pre-existing `edition = "2024"`
   parse error instead, because Cargo rejects that while parsing the manifest,
   before `rust-version` is consulted.
+- The published crate is now an `include` allow-list. `AGENTS.md`, `CLAUDE.md`,
+  `REVIEW.md`, `.codacy.yml`, `.gitignore`, and `.github/` are no longer shipped
+  to crates.io; the tarball drops from 19 files / 99.5 KiB to 12 / 81.5 KiB.
+  `docs/` stays unpublished, as it was under the previous `exclude`.
