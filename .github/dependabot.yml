@@ -1,0 +1,41 @@
+version: 2
+
+updates:
+  # Cargo.lock is not committed, so a Cargo.toml requirement is the only place a
+  # dependency floor can be raised. Grouped so a quiet week produces one PR, not
+  # five, and capped so a stale queue cannot bury the hand-written PRs.
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    commit-message:
+      # Conventional Commits, per AGENTS.md. No dependency scope is listed
+      # there, so leave the scope off rather than let Dependabot's
+      # directory-derived "(deps)" violate the allowed-scopes list.
+      prefix: chore
+    groups:
+      cargo-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # CI pins `dtolnay/rust-toolchain` by SHA, which never updates on its own and
+  # is exactly the kind of pin that silently rots.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    commit-message:
+      # "ci" is a valid AGENTS.md scope, not a Conventional Commits type, so
+      # use "chore" with "ci" as the scope rather than "ci:" as the type.
+      prefix: "chore(ci)"
+    groups:
+      actions:
+        update-types:
+          - major
+          - minor
+          - patch
