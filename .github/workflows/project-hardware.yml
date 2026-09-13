@@ -74,7 +74,10 @@ jobs:
           #    be treated the same as a failed call; and a nonzero exit needs
           #    its error text inspected so a transient outage (5xx, DNS,
           #    timeout) fails the run instead of being folded into the same
-          #    "no access" skip as an actual 401/403.
+          #    "no access" skip as an actual 401/403 - and a 403 caused by
+          #    hitting a rate limit is neither: GitHub uses 403 for both, so
+          #    that text is checked first and always fails the run rather
+          #    than being read as "no access".
           set +e
           PREFLIGHT_OUTPUT=$(gh api graphql -f query='
             query($id:ID!){ node(id:$id){ ... on ProjectV2 { id } } }
@@ -84,7 +87,10 @@ jobs:
 
           auth_denied=0
           if [ "$PREFLIGHT_STATUS" -ne 0 ]; then
-            if echo "$PREFLIGHT_OUTPUT" | grep -qE 'HTTP (401|403)'; then
+            if echo "$PREFLIGHT_OUTPUT" | grep -qi 'rate limit'; then
+              echo "::error title=Project board sync failed::Preflight query hit a GitHub API rate limit, not an access problem - failing rather than masking it as a skip: $PREFLIGHT_OUTPUT" >&2
+              exit 1
+            elif echo "$PREFLIGHT_OUTPUT" | grep -qE 'HTTP (401|403)'; then
               auth_denied=1
             else
               echo "::error title=Project board sync failed::Preflight query errored, not an auth problem - failing rather than masking it as a skip: $PREFLIGHT_OUTPUT" >&2
@@ -113,7 +119,21 @@ jobs:
           #    are compared as whole comma-separated entries, not with
           #    `grep -w`: `:` is a word-boundary character to grep, so `-w`
           #    would treat "project" as matching inside "read:project" too.
-          SCOPES_HEADER=$(gh api -i /rate_limit 2>/dev/null | grep -i '^x-oauth-scopes:' | tr -d '\r' || true)
+          #
+          #    The `gh api` call and the header grep are captured separately:
+          #    a failure of the `gh api` call itself (network, rate limit, a
+          #    5xx) must not be swallowed the same way a merely-absent header
+          #    is - only the latter is tolerated here, with `|| true` on the
+          #    grep alone rather than on the whole pipeline.
+          set +e
+          RATE_LIMIT_RESPONSE=$(gh api -i /rate_limit 2>&1)
+          RATE_LIMIT_STATUS=$?
+          set -e
+          if [ "$RATE_LIMIT_STATUS" -ne 0 ]; then
+            echo "::error title=Project board sync failed::Could not query /rate_limit to check token scopes - failing rather than treating this as a missing-scope skip: $RATE_LIMIT_RESPONSE" >&2
+            exit 1
+          fi
+          SCOPES_HEADER=$(echo "$RATE_LIMIT_RESPONSE" | grep -i '^x-oauth-scopes:' | tr -d '\r' || true)
           has_project_scope=0
           if [ -n "$SCOPES_HEADER" ]; then
             IFS=',' read -ra SCOPE_ARR <<< "${SCOPES_HEADER#*:}"
