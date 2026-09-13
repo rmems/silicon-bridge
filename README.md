@@ -32,9 +32,9 @@ stimuli and reading back spike states at runtime.
   `FpgaBridge::new()` probes only `/dev/ttyUSB0`, `/dev/ttyUSB1`, and
   `/dev/ttyUSB2` on Linux — not ttyACM, Windows COM ports, or arbitrary
   USB paths
-- `FpgaMetrics` — Vivado timing report parser: **WNS only** for CI/CD gating.
-  TNS is not parsed, and `lut_utilization` is a reserved field that the loaders
-  leave at `0.0` (both tracked by #21)
+- `FpgaMetrics` — Vivado report parser for CI/CD gating: **WNS** and **TNS**
+  from timing summary reports, **LUT utilization** from `report_utilization`
+  reports (missing TNS or LUT values degrade to `0.0`)
 
 ## Installation
 
@@ -114,10 +114,11 @@ Exported `.mem` files are directly loadable by silicon-hdl `WeightRam.sv` and
 
 ## Vivado Timing Metrics
 
-`FpgaMetrics` parses **WNS** (worst negative slack, in nanoseconds) out of a
-Vivado timing summary report so CI can gate on a timing violation. This matches
-`src/fpga_metrics.rs`: `parse_from_report` / `load_from_path` fill `wns_ns`
-only.
+`FpgaMetrics` parses **WNS** (worst negative slack) and **TNS** (total
+negative slack) from a Vivado timing summary report, and **LUT utilization**
+from `report_utilization` output, so CI can gate on timing and resource usage.
+`parse_from_report` / `load_from_path` require a parsable WNS; TNS and LUT
+utilization degrade to `0.0` when those columns or reports are absent.
 
 ```rust
 use silicon_bridge::FpgaMetrics;
@@ -132,14 +133,16 @@ assert!(
 );
 ```
 
-WNS is the only value actually parsed. Not implemented yet (tracked by #21):
+WNS is required. Optional fields (a gate must treat `0.0` as "not reported",
+not as "clean"):
 
-- **TNS** — there is no `tns_ns` field and no TNS parser
-- **LUT utilization** — `FpgaMetrics::lut_utilization` exists as a field, but
-  `load_from_project` and `load_from_path` hard-code it to `0.0`
+- **TNS** — `tns_ns` is filled from the `TNS(ns)` column of the same data
+  row as WNS, or `0.0` when that column is absent
+- **LUT utilization** — `lut_utilization` is read from a
+  `report_utilization` table (`load_from_reports` / a concatenated report),
+  or left at `0.0`
 
-Until #21 lands, WNS is the only enforceable gate. See also
-[docs/boundary-matrix.md](docs/boundary-matrix.md).
+See also [docs/boundary-matrix.md](docs/boundary-matrix.md).
 
 ## Repo boundaries
 

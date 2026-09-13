@@ -64,12 +64,19 @@ pub trait FixedPointEncode {
 /// (`WeightRam`, `NeuronParamRam`).
 pub trait ParameterExport {
     /// Build the full Q8.8 parameter set and metadata.
+    ///
+    /// Weight rows are flattened row-major, and the width is reported as
+    /// `FpgaMetadata::num_channels` from the first row alone. This method is
+    /// infallible, so a ragged matrix still flattens — check the shape with
+    /// [`FpgaParameterExporter::validate`] first, or write through
+    /// [`MemFileWriter::write_mem_files`], which validates for you.
     fn export(&self) -> FpgaParameters;
 }
 
 /// Write Q8.8 parameter vectors as Vivado `$readmemh` `.mem` files.
 pub trait MemFileWriter {
-    /// Error type for filesystem / I/O failures.
+    /// Error type for filesystem / I/O failures, and for a parameter shape
+    /// that cannot be represented as a flat `.mem` file.
     type Error;
 
     /// Write `parameters.mem`, `parameters_weights.mem`, `parameters_decay.mem`,
@@ -86,6 +93,39 @@ pub struct FpgaParameterExporter {
     weights: Vec<Vec<f32>>,
     decay_rates: Vec<f32>,
 }
+
+/// A parameter set whose shape cannot be laid out in FPGA memory.
+///
+/// Returned by [`FpgaParameterExporter::validate`] and, through
+/// `Box<dyn Error>`, by [`MemFileWriter::write_mem_files`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ParameterShapeError {
+    /// The weight rows disagree in length, so the flattened buffer and
+    /// `FpgaMetadata::num_channels` describe different matrices.
+    RaggedWeights {
+        /// Width taken from the first row, and reported as `num_channels`.
+        expected: usize,
+        /// Index of the first row that does not have that width.
+        row: usize,
+        /// Length of that row.
+        len: usize,
+    },
+}
+
+impl std::fmt::Display for ParameterShapeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::RaggedWeights { expected, row, len } => write!(
+                f,
+                "weight matrix is not rectangular: row 0 has {expected} channels \
+                 but row {row} has {len}; a flattened .mem file cannot describe it"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ParameterShapeError {}
 
 /// FPGA-compatible parameter format
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -170,6 +210,75 @@ impl FpgaParameterExporter {
             weights,
             decay_rates,
         }
+    }
+
+    /// Check that the weight matrix is rectangular.
+    ///
+    /// [`ParameterExport::export`] flattens the weight rows row-major into a
+    /// single `Vec<u16>` and reports the width as `FpgaMetadata::num_channels`,
+    /// taken from the *first* row. If the rows disagree in length, that pair no
+    /// longer describes the buffer: `WeightRam` addressed as
+    /// `row * num_channels + channel` reads the wrong words from the second row
+    /// onward, and nothing in the `.mem` file reveals it.
+    ///
+    /// An exporter with no weights is rectangular by definition.
+    ///
+    /// # What this does not check
+    ///
+    /// Rectangularity only. `thresholds.len()`, `weights.len()` and
+    /// `decay_rates.len()` are **not** required to agree, so sixteen thresholds
+    /// beside four weight rows still validates: it exports `num_neurons: 16`
+    /// with four rows of weights, and `NeuronParamRam` is loaded short.
+    ///
+    /// That is deliberate for now. A partial export — thresholds set, weights
+    /// still to come — is a plausible intermediate state, and turning it into an
+    /// error is a behaviour change that deserves its own decision rather than
+    /// riding along with a corruption fix. [`ParameterShapeError`] is
+    /// `#[non_exhaustive]` so a count-mismatch variant can be added without
+    /// breaking callers.
+    ///
+    /// ```rust
+    /// use silicon_bridge::{FpgaParameterExporter, ParameterShapeError};
+    ///
+    /// let square = FpgaParameterExporter::from_params(
+    ///     vec![1.0, 1.0],
+    ///     vec![vec![0.5, 0.5], vec![0.5, 0.5]],
+    ///     vec![0.9, 0.9],
+    /// );
+    /// assert!(square.validate().is_ok());
+    ///
+    /// let ragged = FpgaParameterExporter::from_params(
+    ///     vec![1.0, 1.0],
+    ///     vec![vec![0.5, 0.5], vec![0.5]],
+    ///     vec![0.9, 0.9],
+    /// );
+    /// assert_eq!(
+    ///     ragged.validate(),
+    ///     Err(ParameterShapeError::RaggedWeights {
+    ///         expected: 2,
+    ///         row: 1,
+    ///         len: 1,
+    ///     })
+    /// );
+    /// ```
+    pub fn validate(&self) -> Result<(), ParameterShapeError> {
+        let mut rows = self.weights.iter().enumerate();
+        let Some((_, first_row)) = rows.next() else {
+            return Ok(());
+        };
+        let expected = first_row.len();
+
+        for (row, values) in rows {
+            if values.len() != expected {
+                return Err(ParameterShapeError::RaggedWeights {
+                    expected,
+                    row,
+                    len: values.len(),
+                });
+            }
+        }
+
+        Ok(())
     }
 
     fn calculate_memory_usage(&self) -> f32 {
@@ -277,6 +386,11 @@ impl MemFileWriter for FpgaParameterExporter {
     type Error = Box<dyn std::error::Error>;
 
     fn write_mem_files(&self, output_dir: impl AsRef<Path>) -> Result<(), Self::Error> {
+        // Refuse a shape that cannot round-trip through a flat `.mem` file,
+        // before creating anything on disk. A ragged matrix would otherwise
+        // produce files that look valid and load misaligned into `WeightRam`.
+        self.validate()?;
+
         fs::create_dir_all(&output_dir)?;
 
         let params = ParameterExport::export(self);
@@ -603,6 +717,139 @@ mod tests {
         assert!((round_tripped.metadata.target_latency_us - 35.0).abs() < 1e-6);
         // (2 thresholds + 4 weights + 2 decay) * 2 bytes = 16 bytes
         assert!((round_tripped.metadata.memory_usage_kb - 16.0 / 1024.0).abs() < 1e-6);
+    }
+}
+
+#[cfg(test)]
+mod weight_shape_tests {
+    use super::*;
+
+    /// Rows of unequal length, the shape that used to flatten silently.
+    fn ragged() -> FpgaParameterExporter {
+        FpgaParameterExporter::from_params(
+            vec![1.0, 1.0, 1.0],
+            vec![vec![0.5, 0.5], vec![0.5], vec![0.5, 0.5]],
+            vec![0.9, 0.9, 0.9],
+        )
+    }
+
+    /// `validate` covers rectangularity, not agreement between the three
+    /// vectors. Pinned so the boundary is a decision on record rather than an
+    /// oversight — a count-mismatch variant can be added later without
+    /// breaking callers, since the error enum is `#[non_exhaustive]`.
+    #[test]
+    fn rectangular_rows_validate_even_when_the_vector_lengths_disagree() {
+        let mismatched = FpgaParameterExporter::from_params(
+            vec![1.0; 16],
+            vec![vec![0.5, 0.5]; 4],
+            vec![0.9; 2],
+        );
+
+        assert_eq!(mismatched.validate(), Ok(()));
+
+        let params = ParameterExport::export(&mismatched);
+        assert_eq!(params.metadata.num_neurons, 16, "from the threshold count");
+        assert_eq!(params.weights.len(), 8, "only 4 rows of 2 were supplied");
+    }
+
+    #[test]
+    fn rectangular_weights_validate() {
+        let exporter = FpgaParameterExporter::from_params(
+            vec![1.0, 1.0],
+            vec![vec![0.5, 0.5, 0.5], vec![0.25, 0.25, 0.25]],
+            vec![0.9, 0.9],
+        );
+        assert_eq!(exporter.validate(), Ok(()));
+    }
+
+    #[test]
+    fn an_exporter_with_no_weights_validates() {
+        assert_eq!(FpgaParameterExporter::new().validate(), Ok(()));
+    }
+
+    #[test]
+    fn a_single_weight_row_validates() {
+        let exporter =
+            FpgaParameterExporter::from_params(vec![1.0], vec![vec![0.5, 0.5, 0.5]], vec![0.9]);
+        assert_eq!(exporter.validate(), Ok(()));
+    }
+
+    #[test]
+    fn validate_reports_the_first_ragged_row() {
+        assert_eq!(
+            ragged().validate(),
+            Err(ParameterShapeError::RaggedWeights {
+                expected: 2,
+                row: 1,
+                len: 1,
+            })
+        );
+    }
+
+    /// A short row shifts every later weight one slot toward the front, so
+    /// `WeightRam` addressed as `row * num_channels + channel` reads neuron 2's
+    /// first weight where neuron 1's second belongs. The buffer/metadata
+    /// disagreement this asserts is exactly what `validate` now catches.
+    #[test]
+    fn export_flattens_a_ragged_matrix_into_a_buffer_metadata_cannot_describe() {
+        let params = ParameterExport::export(&ragged());
+
+        assert_eq!(params.metadata.num_neurons, 3);
+        assert_eq!(params.metadata.num_channels, 2, "width read from row 0");
+        assert_eq!(params.weights.len(), 5, "2 + 1 + 2 values were flattened");
+        assert_ne!(
+            params.weights.len(),
+            params.metadata.num_neurons * params.metadata.num_channels,
+            "a 3x2 read would run off the end of a 5-word buffer"
+        );
+    }
+
+    #[test]
+    fn write_mem_files_rejects_a_ragged_matrix() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let output = dir.path().join("export");
+
+        let err = MemFileWriter::write_mem_files(&ragged(), &output)
+            .expect_err("ragged weights should not produce .mem files");
+
+        assert_eq!(
+            err.downcast_ref::<ParameterShapeError>(),
+            Some(&ParameterShapeError::RaggedWeights {
+                expected: 2,
+                row: 1,
+                len: 1,
+            })
+        );
+        assert!(
+            !output.exists(),
+            "the output directory should not be created for an invalid shape"
+        );
+    }
+
+    #[test]
+    fn write_mem_files_still_accepts_a_rectangular_matrix() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let exporter = FpgaParameterExporter::from_params(
+            vec![1.0, 0.75],
+            vec![vec![0.5, 2.0], vec![0.25, 1.5]],
+            vec![0.5, 0.75],
+        );
+
+        MemFileWriter::write_mem_files(&exporter, dir.path()).expect("write_mem_files");
+        assert!(dir.path().join("parameters_weights.mem").exists());
+    }
+
+    #[test]
+    fn the_error_message_names_both_row_widths() {
+        let message = ParameterShapeError::RaggedWeights {
+            expected: 2,
+            row: 1,
+            len: 1,
+        }
+        .to_string();
+
+        assert!(message.contains("row 0 has 2 channels"), "{message}");
+        assert!(message.contains("row 1 has 1"), "{message}");
     }
 }
 

@@ -8,7 +8,7 @@
 //!   `MemFileWriter`) for [silicon-hdl](https://github.com/rmems/silicon-hdl)
 //!   `WeightRam` / `NeuronParamRam` via Vivado `$readmemh`
 //! - **FPGA spike readback** over UART using the SiliconBridge v3.0 protocol
-//! - **Vivado timing report parsing** for WNS-based CI/CD gating
+//! - **Vivado report parsing** for CI/CD gating on WNS, TNS, and LUT utilization
 //!
 //! Licensed under either of MIT or Apache-2.0 at your option.
 //!
@@ -75,8 +75,8 @@ mod fpga_bridge;
 // Re-export public API
 pub use fpga_export::{
     EXPORT_FORMAT_VERSION, FixedPointEncode, FpgaMetadata, FpgaParameterExporter, FpgaParameters,
-    MemFileWriter, ParameterExport, STIMULUS_Q88_MAX, STIMULUS_Q88_MIN, encode_q88_signed,
-    encode_q88_unsigned, format_q88_hex, q88_signed_to_f32, q88_to_f32,
+    MemFileWriter, ParameterExport, ParameterShapeError, STIMULUS_Q88_MAX, STIMULUS_Q88_MIN,
+    encode_q88_signed, encode_q88_unsigned, format_q88_hex, q88_signed_to_f32, q88_to_f32,
 };
 
 pub use fpga_metrics::FpgaMetrics;
