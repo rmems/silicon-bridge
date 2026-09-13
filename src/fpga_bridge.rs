@@ -22,35 +22,190 @@
 //! | Byte order | raw binary, big-endian (MSB first) | ASCII hex, one `{:04X}` word per line |
 //! | Use it for | host stimuli, RX membrane potentials | weights, thresholds, decay rates |
 
-use serialport::{SerialPort, SerialPortInfo};
+use serialport::{SerialPort, SerialPortInfo, SerialPortType};
 use std::io::{Read, Write};
 use std::time::Duration;
 
+/// Baud rate the SiliconBridge v3.0 firmware runs at.
+const BAUD_RATE: u32 = 115_200;
+
+/// Per-read timeout applied to the serial port.
+///
+/// This bounds a single `read`, not a whole [`FpgaBridge::process_stimuli`]
+/// call — a partial reply is retried, so the call can outlast this value.
+const READ_TIMEOUT: Duration = Duration::from_millis(100);
+
+/// Linux device nodes probed when port enumeration yields nothing.
+///
+/// `serialport::available_ports` needs `libudev` on Linux and can come back
+/// empty on a stripped-down host, so the original hard-coded probe list is
+/// kept as a fallback rather than removed.
+const LEGACY_LINUX_PORTS: [&str; 3] = ["/dev/ttyUSB0", "/dev/ttyUSB1", "/dev/ttyUSB2"];
+
+/// A blocking UART connection to a Basys3 board speaking SiliconBridge v3.0.
 pub struct FpgaBridge {
     port: Box<dyn SerialPort>,
     active: bool,
 }
 
-impl FpgaBridge {
-    /// Try to open FPGA connection on available USB ports
-    pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
-        // Try common USB ports for Basys3
-        let ports = ["/dev/ttyUSB0", "/dev/ttyUSB1", "/dev/ttyUSB2"];
+/// Report whether `port_name` looks like a USB serial adapter an FPGA dev
+/// board would appear as.
+///
+/// The Basys3 exposes an FTDI bridge, but the device name depends entirely on
+/// the host OS, so matching only `ttyUSB` made [`find_fpga_ports`] return an
+/// empty list on every non-Linux machine:
+///
+/// | OS | Example name | Matched by |
+/// |---|---|---|
+/// | Linux (FTDI, CP210x) | `/dev/ttyUSB0` | `ttyUSB` prefix |
+/// | Linux (CDC-ACM) | `/dev/ttyACM0` | `ttyACM` prefix |
+/// | macOS | `/dev/cu.usbserial-210319B` | `cu.usb` / `tty.usb` prefix |
+/// | Windows | `COM3` | `COM` + digits |
+///
+/// Any directory prefix is stripped first, so a bare name and a full device
+/// path classify identically.
+///
+/// ```rust
+/// # #[cfg(feature = "uart")] {
+/// use silicon_bridge::is_fpga_port_name;
+///
+/// assert!(is_fpga_port_name("/dev/ttyUSB0"));
+/// assert!(is_fpga_port_name("/dev/cu.usbserial-210319B"));
+/// assert!(is_fpga_port_name("COM3"));
+/// assert!(!is_fpga_port_name("/dev/ttyS0")); // on-board 16550, not USB
+/// # }
+/// ```
+pub fn is_fpga_port_name(port_name: &str) -> bool {
+    // `available_ports` reports "/dev/ttyUSB0" on Unix but a bare "COM3" on
+    // Windows, so compare on the final path component either way.
+    let name = port_name
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(port_name)
+        .trim();
 
-        for port_name in &ports {
-            match serialport::new(*port_name, 115_200)
-                .timeout(Duration::from_millis(100))
-                .open()
-            {
-                Ok(port) => {
-                    println!("[fpga] Connected to FPGA on {}", port_name);
-                    return Ok(FpgaBridge { port, active: true });
+    // Linux: FTDI / CP210x bridges, then CDC-ACM boards.
+    if name.starts_with("ttyUSB") || name.starts_with("ttyACM") {
+        return true;
+    }
+
+    // macOS: call-out and dial-in nodes for the same USB device.
+    if name.starts_with("cu.usb") || name.starts_with("tty.usb") {
+        return true;
+    }
+
+    // Windows: COM followed by at least one digit, so a stray "COMPUTER"
+    // style name is not treated as a port.
+    match name.strip_prefix("COM") {
+        Some(index) => !index.is_empty() && index.bytes().all(|b| b.is_ascii_digit()),
+        None => false,
+    }
+}
+
+/// Build the ordered probe list [`FpgaBridge::new`] walks.
+///
+/// Enumerated ports come first, in the order the OS reported them. The
+/// [`LEGACY_LINUX_PORTS`] fallback is appended only when enumeration produced
+/// nothing, so a host that can enumerate is never slowed down by opening
+/// Linux device nodes that cannot exist on it.
+fn candidate_ports(discovered: Vec<String>) -> Vec<String> {
+    if discovered.is_empty() {
+        return LEGACY_LINUX_PORTS
+            .iter()
+            .map(|p| (*p).to_string())
+            .collect();
+    }
+    discovered
+}
+
+/// USB vendor id of FTDI, whose FT2232H is the Basys3's USB-UART bridge.
+const VID_FTDI: u16 = 0x0403;
+
+/// Digilent's own USB vendor id, used by some of their boards.
+const VID_DIGILENT: u16 = 0x1443;
+
+/// Probe-order preference for a serial port, lowest first.
+///
+/// This is a *preference*, not identification — a serial port cannot be
+/// identified as an FPGA without writing to it. It only means that when several
+/// adapters are attached, the one whose vendor id matches the Basys3's bridge
+/// is tried before a generic USB-serial cable or an unclassified device.
+fn usb_rank(vid: Option<u16>) -> u8 {
+    match vid {
+        Some(VID_FTDI | VID_DIGILENT) => 0,
+        Some(_) => 1,
+        None => 2,
+    }
+}
+
+/// Extract the USB vendor id from a port, when the OS reported one.
+fn port_vid(info: &SerialPortInfo) -> Option<u16> {
+    match &info.port_type {
+        SerialPortType::UsbPort(usb) => Some(usb.vid),
+        _ => None,
+    }
+}
+
+impl FpgaBridge {
+    /// Open the first FPGA-looking serial port that opens *and* answers a
+    /// SiliconBridge handshake.
+    ///
+    /// Ports are discovered with [`find_fpga_ports`], so this works on Linux,
+    /// macOS, and Windows. When enumeration returns nothing — `libudev` is
+    /// unavailable, for instance — the historical Linux probe list
+    /// (`/dev/ttyUSB0`, `/dev/ttyUSB1`, `/dev/ttyUSB2`) is tried instead.
+    ///
+    /// # Verifying the peer
+    ///
+    /// A port that opens is not assumed to be the board: each candidate is
+    /// [`ping`](Self::ping)ed — one SiliconBridge frame written and a
+    /// matching reply read back — before it is accepted, so a GPS puck or a
+    /// 3D printer that happens to open on the same bus is skipped rather than
+    /// returned as the connection.
+    ///
+    /// Candidates are also ordered by USB vendor id, so a port from FTDI or
+    /// Digilent — the Basys3's bridge — is tried before a generic adapter or
+    /// an unclassified device. And [`FpgaBridge::open`] takes a port name, so
+    /// a caller that knows which device it wants never has to guess —
+    /// [`find_fpga_ports`] returns the full [`SerialPortInfo`], serial number
+    /// included, to pick from.
+    pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
+        let mut found = find_fpga_ports();
+        // Stable sort: within one rank the OS's own ordering is preserved.
+        found.sort_by_key(|info| usb_rank(port_vid(info)));
+
+        let discovered: Vec<String> = found.into_iter().map(|info| info.port_name).collect();
+
+        let candidates = candidate_ports(discovered);
+
+        for port_name in &candidates {
+            if let Ok(mut bridge) = Self::open(port_name) {
+                if bridge.ping() {
+                    println!("[fpga] Connected to FPGA on {port_name}");
+                    return Ok(bridge);
                 }
-                Err(_) => continue,
             }
         }
 
-        Err("FPGA not found on any USB port".into())
+        Err(format!(
+            "FPGA not found on any of {} candidate serial port(s): {}",
+            candidates.len(),
+            candidates.join(", ")
+        )
+        .into())
+    }
+
+    /// Open a named serial port at 115200 baud.
+    ///
+    /// Prefer this over [`FpgaBridge::new`] whenever the board's port is known
+    /// — `COM4` on Windows, `/dev/cu.usbserial-210319B` on macOS, or a stable
+    /// `/dev/serial/by-id/...` symlink on Linux. Discovery cannot tell two
+    /// identical FTDI adapters apart; a name can.
+    pub fn open(port_name: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        let port = serialport::new(port_name, BAUD_RATE)
+            .timeout(READ_TIMEOUT)
+            .open()?;
+        Ok(FpgaBridge { port, active: true })
     }
 
     /// Send neural stimuli to FPGA and read back spike states.
@@ -122,13 +277,120 @@ impl FpgaBridge {
     }
 }
 
-/// Find FPGA ports on the system
+/// Enumerate serial ports that look like an FPGA dev board.
+///
+/// Matching is delegated to [`is_fpga_port_name`], so macOS `cu.usb*` nodes
+/// and Windows `COM*` ports are returned alongside Linux `ttyUSB` / `ttyACM`
+/// devices. Returns an empty vector when the platform cannot enumerate ports.
 pub fn find_fpga_ports() -> Vec<SerialPortInfo> {
     match serialport::available_ports() {
         Ok(ports) => ports
             .into_iter()
-            .filter(|p| p.port_name.contains("ttyUSB"))
+            .filter(|p| is_fpga_port_name(&p.port_name))
             .collect(),
         Err(_) => Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn linux_usb_serial_nodes_are_fpga_ports() {
+        assert!(is_fpga_port_name("/dev/ttyUSB0"));
+        assert!(is_fpga_port_name("/dev/ttyUSB11"));
+        assert!(is_fpga_port_name("ttyUSB0"));
+        assert!(is_fpga_port_name("/dev/ttyACM0"));
+    }
+
+    #[test]
+    fn macos_usb_serial_nodes_are_fpga_ports() {
+        assert!(is_fpga_port_name("/dev/cu.usbserial-210319B"));
+        assert!(is_fpga_port_name("/dev/tty.usbserial-210319B"));
+        assert!(is_fpga_port_name("/dev/cu.usbmodem14201"));
+    }
+
+    #[test]
+    fn windows_com_ports_are_fpga_ports() {
+        assert!(is_fpga_port_name("COM1"));
+        assert!(is_fpga_port_name("COM12"));
+        assert!(is_fpga_port_name(r"\\.\COM3"));
+    }
+
+    /// The old `contains("ttyUSB")` filter returned nothing on macOS and
+    /// Windows, which is the bug this predicate exists to fix.
+    #[test]
+    fn non_linux_names_were_missed_by_a_ttyusb_substring_filter() {
+        for name in ["/dev/cu.usbserial-210319B", "COM3", "/dev/ttyACM0"] {
+            assert!(
+                !name.contains("ttyUSB"),
+                "{name} would need the new matcher"
+            );
+            assert!(is_fpga_port_name(name), "{name} should be an FPGA port");
+        }
+    }
+
+    #[test]
+    fn non_usb_serial_devices_are_rejected() {
+        assert!(!is_fpga_port_name("/dev/ttyS0")); // on-board 16550 UART
+        assert!(!is_fpga_port_name("/dev/ttyprintk"));
+        assert!(!is_fpga_port_name("/dev/null"));
+        assert!(!is_fpga_port_name("COM")); // no index
+        assert!(!is_fpga_port_name("COMPUTER")); // not a port index
+        assert!(!is_fpga_port_name(""));
+    }
+
+    /// A `ttyUSB` substring anywhere in a path used to be enough; matching now
+    /// happens on the final path component only.
+    #[test]
+    fn matching_uses_the_final_path_component() {
+        assert!(!is_fpga_port_name("/dev/ttyUSB-shaped-dir/ttyS0"));
+        assert!(is_fpga_port_name("/some/odd/dir/ttyUSB0"));
+    }
+
+    #[test]
+    fn discovered_ports_are_probed_in_order_without_the_legacy_list() {
+        let discovered = vec!["COM7".to_string(), "COM3".to_string()];
+        assert_eq!(candidate_ports(discovered.clone()), discovered);
+    }
+
+    /// `new` cannot confirm an FPGA without writing protocol bytes to whatever
+    /// answered, so it prefers the Basys3's own bridge vendor instead.
+    #[test]
+    fn basys3_bridge_vendors_are_probed_before_generic_adapters() {
+        assert_eq!(usb_rank(Some(VID_FTDI)), 0);
+        assert_eq!(usb_rank(Some(VID_DIGILENT)), 0);
+        assert_eq!(
+            usb_rank(Some(0x10C4)),
+            1,
+            "CP210x: plausible, not preferred"
+        );
+        assert_eq!(usb_rank(None), 2, "no USB descriptor at all");
+
+        assert!(usb_rank(Some(VID_FTDI)) < usb_rank(Some(0x10C4)));
+        assert!(usb_rank(Some(0x10C4)) < usb_rank(None));
+    }
+
+    /// Ranking must be a total order over the three tiers, so `sort_by_key`
+    /// gives a deterministic probe order.
+    #[test]
+    fn ranking_orders_a_mixed_bus_deterministically() {
+        let mut ranks: Vec<u8> = [None, Some(0x10C4), Some(VID_FTDI), Some(0x1A86)]
+            .into_iter()
+            .map(usb_rank)
+            .collect();
+        ranks.sort_unstable();
+        assert_eq!(ranks, [0, 1, 1, 2]);
+    }
+
+    /// When enumeration comes back empty the historical Linux probe list is
+    /// still tried, so hosts without `libudev` behave as they did before.
+    #[test]
+    fn empty_discovery_falls_back_to_the_legacy_linux_ports() {
+        assert_eq!(
+            candidate_ports(Vec::new()),
+            vec!["/dev/ttyUSB0", "/dev/ttyUSB1", "/dev/ttyUSB2"]
+        );
     }
 }
