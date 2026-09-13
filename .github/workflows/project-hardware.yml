@@ -67,10 +67,47 @@ jobs:
           #    account without rights to PROJECT_ID, and each of those failed
           #    the same way the missing-token case used to. One cheap read
           #    settles it before any mutation is attempted.
-          if ! gh api graphql -f query='
+          #
+          #    The query itself is captured (not just its exit code) for two
+          #    reasons: `node(id:)` returns a *null* node rather than a GraphQL
+          #    error for an inaccessible/nonexistent id, so a null result must
+          #    be treated the same as a failed call; and a nonzero exit needs
+          #    its error text inspected so a transient outage (5xx, DNS,
+          #    timeout) fails the run instead of being folded into the same
+          #    "no access" skip as an actual 401/403.
+          set +e
+          PREFLIGHT_OUTPUT=$(gh api graphql -f query='
             query($id:ID!){ node(id:$id){ ... on ProjectV2 { id } } }
-          ' -f id="$PROJECT_ID" --jq '.data.node.id' >/dev/null 2>&1; then
+          ' -f id="$PROJECT_ID" 2>&1)
+          PREFLIGHT_STATUS=$?
+          set -e
+
+          auth_denied=0
+          if [ "$PREFLIGHT_STATUS" -ne 0 ]; then
+            if echo "$PREFLIGHT_OUTPUT" | grep -qE 'HTTP (401|403)'; then
+              auth_denied=1
+            else
+              echo "::error title=Project board sync failed::Preflight query errored, not an auth problem - failing rather than masking it as a skip: $PREFLIGHT_OUTPUT" >&2
+              exit 1
+            fi
+          elif [ -z "$(echo "$PREFLIGHT_OUTPUT" | jq -r '.data.node.id // empty')" ]; then
+            auth_denied=1
+          fi
+
+          if [ "$auth_denied" -eq 1 ]; then
             skip_or_fail "secrets.PROJECTS_TOKEN cannot read project $PROJECT_ID - expired, missing the 'project' scope, or not authorized for this owner."
+          fi
+
+          # 3. Read access to the project node is not write access: a
+          #    read-only or mis-scoped-for-mutation token can pass the check
+          #    above and still fail every addProjectV2ItemById /
+          #    updateProjectV2ItemFieldValue call below. Classic PATs (which
+          #    is what PROJECTS_TOKEN is documented to be, above) report their
+          #    grants in the X-OAuth-Scopes response header; confirm 'project'
+          #    is actually one of them before attempting any mutation.
+          TOKEN_SCOPES=$(gh api -i /rate_limit 2>/dev/null | grep -i '^x-oauth-scopes:' | tr -d '\r')
+          if ! echo "$TOKEN_SCOPES" | grep -qw 'project'; then
+            skip_or_fail "secrets.PROJECTS_TOKEN does not carry the 'project' scope (${TOKEN_SCOPES:-no X-OAuth-Scopes header returned}); it can read $PROJECT_ID but item mutations will fail."
           fi
 
           sync_one() {
