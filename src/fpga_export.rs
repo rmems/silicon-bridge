@@ -146,10 +146,14 @@ pub struct FpgaParameters {
 /// on disk can be matched back to the shape it was generated for.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FpgaMetadata {
-    /// Format tag for the `.mem` bundle — always [`EXPORT_FORMAT_VERSION`].
+    /// Format tag for the `.mem` bundle — [`EXPORT_FORMAT_VERSION`] for any
+    /// metadata produced by [`ParameterExport::export`]. Not the crate
+    /// version: downstream tooling keys on this string, so it moves only
+    /// when the on-disk layout does.
     ///
-    /// Not the crate version: downstream tooling keys on this string, so it
-    /// moves only when the on-disk layout does.
+    /// Not a validated invariant of the type itself: `FpgaMetadata` is public
+    /// and `Deserialize`, so a value built by hand or read from an
+    /// externally-supplied `parameters.json` can carry any string here.
     pub version: String,
     /// RFC 3339 UTC timestamp of the export, from `chrono::Utc::now`.
     pub timestamp: String,
