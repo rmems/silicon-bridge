@@ -2,6 +2,12 @@
 name = "silicon-bridge"
 version = "0.1.0"
 edition = "2024"
+# Declared as current stable by policy, not as the dependency-derived floor:
+# edition 2024 only requires 1.85.0, and `getrandom` 0.4 (via the `tempfile`
+# dev-dependency) needs no more than that either — 1.85.0 is the actual
+# minimum the graph requires. This crate tracks stable instead. Checked
+# against the 1.98.1 toolchain.
+rust-version = "1.98.1"
 license = "MIT OR Apache-2.0"
 description = "SNN-to-FPGA deployment pipeline: Q8.8 fixed-point parameter export, .mem file generation, UART spike readback, and Vivado timing report parsing for neuromorphic hardware"
 repository = "https://github.com/rmems/silicon-bridge"
