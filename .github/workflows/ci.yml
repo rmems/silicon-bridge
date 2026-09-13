@@ -103,3 +103,12 @@ jobs:
 
       - name: Test (uart feature)
         run: cargo test --features uart
+
+      # AGENTS.md bans relative links to licence files in doc comments because
+      # they break on docs.rs — a rule that exists precisely because nothing
+      # rendered the docs. This runs on the uart job because libudev is already
+      # installed here, so `--features uart` covers every public item at once.
+      - name: Rustdoc (deny warnings)
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --no-deps --features uart
