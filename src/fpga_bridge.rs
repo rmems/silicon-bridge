@@ -147,25 +147,26 @@ fn port_vid(info: &SerialPortInfo) -> Option<u16> {
 }
 
 impl FpgaBridge {
-    /// Open the first FPGA-looking serial port that accepts a connection.
+    /// Open the first FPGA-looking serial port that opens *and* answers a
+    /// SiliconBridge handshake.
     ///
     /// Ports are discovered with [`find_fpga_ports`], so this works on Linux,
     /// macOS, and Windows. When enumeration returns nothing — `libudev` is
     /// unavailable, for instance — the historical Linux probe list
     /// (`/dev/ttyUSB0`, `/dev/ttyUSB1`, `/dev/ttyUSB2`) is tried instead.
     ///
-    /// # This does not verify the peer
+    /// # Verifying the peer
     ///
-    /// A port that opens is assumed to be the board. Nothing handshakes first,
-    /// and deliberately so: the only way to confirm an FPGA is on the other end
-    /// is to send it a SiliconBridge frame, which means writing 33 bytes of
-    /// protocol into whatever device actually answered. Attaching a GPS puck or
-    /// a 3D printer alongside the board can therefore win the race.
+    /// A port that opens is not assumed to be the board: each candidate is
+    /// [`ping`](Self::ping)ed — one SiliconBridge frame written and a
+    /// matching reply read back — before it is accepted, so a GPS puck or a
+    /// 3D printer that happens to open on the same bus is skipped rather than
+    /// returned as the connection.
     ///
-    /// Two things narrow it. Candidates are ordered by USB vendor id, so a port
-    /// from FTDI or Digilent — the Basys3's bridge — is tried before a generic
-    /// adapter or an unclassified device. And [`FpgaBridge::open`] takes a port
-    /// name, so a caller that knows which device it wants never has to guess —
+    /// Candidates are also ordered by USB vendor id, so a port from FTDI or
+    /// Digilent — the Basys3's bridge — is tried before a generic adapter or
+    /// an unclassified device. And [`FpgaBridge::open`] takes a port name, so
+    /// a caller that knows which device it wants never has to guess —
     /// [`find_fpga_ports`] returns the full [`SerialPortInfo`], serial number
     /// included, to pick from.
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
@@ -178,9 +179,11 @@ impl FpgaBridge {
         let candidates = candidate_ports(discovered);
 
         for port_name in &candidates {
-            if let Ok(bridge) = Self::open(port_name) {
-                println!("[fpga] Connected to FPGA on {port_name}");
-                return Ok(bridge);
+            if let Ok(mut bridge) = Self::open(port_name) {
+                if bridge.ping() {
+                    println!("[fpga] Connected to FPGA on {port_name}");
+                    return Ok(bridge);
+                }
             }
         }
 
