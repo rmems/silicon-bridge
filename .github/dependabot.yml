@@ -11,9 +11,10 @@ updates:
       day: monday
     open-pull-requests-limit: 3
     commit-message:
-      # Conventional Commits, per AGENTS.md.
+      # Conventional Commits, per AGENTS.md. No dependency scope is listed
+      # there, so leave the scope off rather than let Dependabot's
+      # directory-derived "(deps)" violate the allowed-scopes list.
       prefix: chore
-      include: scope
     groups:
       cargo-minor-and-patch:
         update-types:
@@ -29,7 +30,9 @@ updates:
       day: monday
     open-pull-requests-limit: 3
     commit-message:
-      prefix: ci
+      # "ci" is a valid AGENTS.md scope, not a Conventional Commits type, so
+      # use "chore" with "ci" as the scope rather than "ci:" as the type.
+      prefix: "chore(ci)"
     groups:
       actions:
         update-types:
