@@ -14,30 +14,45 @@
 //!
 //! ## Q8.8 conventions
 //!
-//! Q8.8 always means “value × 256 packed into a 16-bit word”, but this crate
-//! carries **two signedness conventions** that are not interchangeable.
-//! Parameters baked into the bitstream are unsigned; host stimuli pushed over
-//! UART are signed two's complement.
+//! Q8.8 always means “value × 256 packed into a 16-bit word”. Everything this
+//! crate hands to silicon-hdl — `.mem` parameter images *and* UART host
+//! stimuli — uses **one** convention: signed two's complement. `0xFF00` is
+//! `-1.0`, not `65280`.
 //!
 //! | Aspect | Parameter export (`.mem`) | Host stimuli (UART TX/RX) |
 //! |---|---|---|
-//! | Encode with | [`FixedPointEncode::encode_q88`] / [`encode_q88_unsigned`] | [`encode_q88_signed`] |
-//! | Decode with | [`q88_to_f32`] | [`q88_signed_to_f32`] |
-//! | Raw type | `u16` (unsigned) | `i16` (two's complement) |
+//! | Encode with | [`FixedPointEncode::encode_q88`] / [`encode_q88_signed`] | [`encode_q88_signed`] |
+//! | Decode with | [`q88_signed_to_f32`] | [`q88_signed_to_f32`] |
+//! | Raw type | `i16` (two's complement) | `i16` (two's complement) |
 //! | Width | 16 bits — 8 integer + 8 fractional | 16 bits — 8 integer + 8 fractional |
 //! | Scaling | `raw = value × 256`, truncated toward zero | `raw = value × 256`, truncated toward zero |
-//! | Encoder input clamp | `[0.0, 255.99609375]` (scaled clamp `0..=65535`) | [`STIMULUS_Q88_MIN`]`..=`[`STIMULUS_Q88_MAX`] (`-127.99..=127.99`) |
-//! | Encoder raw output | `0..=65535` | `-32765..=32765` (saturates inside the `i16` limits) |
-//! | Decoder accepts | any `u16`: `0..=65535` → `0.0..=255.99609375` | any `i16`: `-32768..=32767` → `-128.0..=127.99609375` |
-//! | Serialized as | ASCII hex, one `{:04X}` word per line (`$readmemh`) | raw binary, big-endian (MSB first) |
+//! | Encoder input clamp | [`STIMULUS_Q88_MIN`]`..=`[`STIMULUS_Q88_MAX`] (`-127.99..=127.99`) | same |
+//! | Encoder raw output | `-32765..=32765` (saturates inside the `i16` limits) | same |
+//! | Decoder accepts | any `i16`: `-32768..=32767` → `-128.0..=127.99609375` | same |
+//! | Serialized as | ASCII hex, one `{:04X}` word of the raw pattern per line (`$readmemh`) | raw binary, big-endian (MSB first) |
 //! | Consumed by | silicon-hdl `WeightRam` / `NeuronParamRam` | SiliconBridge v3.0 UART frame |
 //! | Use it for | weights, thresholds, decay rates | host stimuli, RX membrane potentials |
 //!
-//! The export path **cannot represent negative values**; anything below `0.0`
-//! clamps to raw `0`. The signed encoder saturates at `±32765`; the signed
-//! decoder is wider so an FPGA word of `0x8000` decodes to `-128.0`. Both
-//! encoders truncate toward zero and map `NaN` to raw `0`. No silicon-hdl
-//! wire protocol change is implied by documenting this split.
+//! The two columns differ only in how the word reaches the FPGA — hex text in
+//! a file versus big-endian bytes on a wire. The encoder saturates at `±32765`
+//! while the decoder is wider, so an FPGA word of `0x8000` decodes to `-128.0`.
+//! Encoding truncates toward zero and maps `NaN` to raw `0`.
+//!
+//! ### Why signed, and the unsigned pair
+//!
+//! silicon-hdl reads every `.mem` image as signed: `LifNeuron` /
+//! `LifNeuronArray` and `OutputLayer` all `$signed`-compare at runtime, so a
+//! Dale-inhibitory weight subtracts from the membrane rather than adding a
+//! large positive (silicon-hdl `spikenaut-core-sv/mem/README.md`, “Signedness
+//! contract (GH#73)”). The clamp bounds above are mirrored bit-for-bit by
+//! silicon-hdl's `scripts/q88.py`; moving them desynchronises the two.
+//!
+//! [`encode_q88_unsigned`] and [`q88_to_f32`] remain public as an
+//! unsigned-magnitude pair over `0.0..=255.99609375`, but they are **not** the
+//! hardware convention and nothing in this crate builds `.mem` files with them.
+//! Encoding a parameter bank through them flattens every negative weight to
+//! `0x0000` — a well-formed word that loads cleanly and silently drops the
+//! inhibition.
 //!
 //! ## Provenance
 //!
@@ -48,14 +63,19 @@
 //! ## Quick Start
 //!
 //! ```rust
-//! use silicon_bridge::{FpgaParameterExporter, q88_to_f32};
+//! use silicon_bridge::{FpgaParameterExporter, q88_signed_to_f32};
 //!
 //! let mut exporter = FpgaParameterExporter::new();
 //! exporter.set_thresholds(vec![1.0; 16]);
-//! exporter.set_weights(vec![vec![0.5; 16]; 16]);
+//! // Row 0 is Dale-inhibitory: negative weights survive as two's complement.
+//! let mut weights = vec![vec![0.5; 16]; 16];
+//! weights[0] = vec![-1.0; 16];
+//! exporter.set_weights(weights);
 //! exporter.set_decay_rates(vec![0.85; 16]);
 //!
 //! let params = exporter.export();
+//! assert_eq!(params.weights[0], -256); // written to .mem as `FF00`
+//! assert_eq!(q88_signed_to_f32(params.weights[0]), -1.0);
 //! println!("Memory usage: {:.2} KB", params.metadata.memory_usage_kb);
 //! ```
 //!

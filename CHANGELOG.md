@@ -16,11 +16,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   points at `validate`.
 - `FpgaBridge::open` and `is_fpga_port_name` (`uart` feature) — open a serial
   port by name, and classify a port name across Linux, macOS, and Windows.
-- `encode_q88_unsigned` — free-function unsigned Q8.8 encoder shared by
-  `FixedPointEncode::encode_q88`, `.mem` export, and `format_q88_hex` (#23).
+- `encode_q88_unsigned` — free-function unsigned-magnitude Q8.8 encoder (#23).
+  It backed `FixedPointEncode::encode_q88`, `.mem` export, and `format_q88_hex`
+  when it landed; all three moved to the signed encoder later in this same
+  unreleased cycle (see Fixed, below), so it ships 0.1.0 wired to nothing.
 - `encode_q88_signed`, `q88_signed_to_f32`, `STIMULUS_Q88_MIN`, and
-  `STIMULUS_Q88_MAX` — signed Q8.8 host-stimulus helpers used by the UART TX/RX
-  path (#23).
+  `STIMULUS_Q88_MAX` — signed Q8.8 helpers (#23). Introduced for the UART TX/RX
+  path; they now back `.mem` parameter export as well (see Fixed, below).
 - `FpgaMetrics::tns_ns` field plus `parse_tns_from_report`, `parse_lut_utilization`,
   and `load_from_reports` — TNS from the timing summary data row and LUT
   utilization from `report_utilization` output. Absent values degrade to `0.0`
@@ -32,6 +34,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **`.mem` export is now signed two's-complement Q8.8.** `MemFileWriter::write_mem_files`
+  encoded through `encode_q88_unsigned`, which clamps negatives to `0`, but
+  silicon-hdl reads every `.mem` image as signed (`spikenaut-core-sv/mem/README.md`,
+  "Signedness contract (GH#73)"): `LifNeuron` / `LifNeuronArray` and `OutputLayer`
+  all `$signed`-compare at runtime. Exporting a Dale E/I bank through this crate
+  therefore flattened every inhibitory weight to `0x0000` — silently, since the
+  resulting file is well-formed and loads cleanly. The export path now shares
+  `encode_q88_signed` with the UART path, so `-1.0` lands on disk as `FF00`.
+
+  No shipped FPGA image was affected: silicon-hdl's `merged_v2` bank came from
+  the Spikenaut-SNN Julia export, not from this writer. This was a latent trap,
+  not a live corruption.
+
+  **Breaking.** `FixedPointEncode::encode_q88` and `FpgaParameterExporter::to_q88`
+  return `i16` instead of `u16`; `FpgaParameters::{thresholds, weights, decay_rates}`
+  are `Vec<i16>`, so `parameters.json` now records `-256` where it recorded `65280`.
+  `format_q88_hex` formats the signed pattern (`-1.0` → `"FF00"`, was `"0000"`).
+  Parameter magnitudes now saturate at `±127.99` rather than reaching `255.99`,
+  matching silicon-hdl's `scripts/q88.py` clamp bit-for-bit. `encode_q88_unsigned`
+  and `q88_to_f32` are unchanged and still public, but are documented as an
+  unsigned-magnitude pair that must not be used to build hardware images.
+
+  **Reading old `parameters.json` fails.** Any word above `32767` — every
+  pre-fix threshold or weight over `127.99` — no longer deserializes into the
+  `i16` fields, and `EXPORT_FORMAT_VERSION` is deliberately *not* bumped, so the
+  payload changed under an unchanged `"Spikenaut-v2"` tag. The failure is a loud
+  serde error rather than a silent misread, and the tag is documented as a
+  layout identifier that downstream tooling keys on (bumping it breaks that
+  tooling). Re-export rather than migrating old JSON in place. Whether the tag
+  should nevertheless gain a signedness discriminator is tracked with the rest
+  of the encoding design in #49.
 - `FpgaMetrics::parse_from_report` now skips the rule of dashes Vivado prints
   under the `WNS(ns)` column headers, so a verbatim timing summary parses
   instead of returning `None` (#21).
@@ -44,9 +77,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   probes the discovered ports, falling back to `/dev/ttyUSB0..2` only when
   enumeration finds nothing.
 - License switched from GPL-3.0-or-later to dual MIT/Apache-2.0 (#6).
-- Documented the two coexisting Q8.8 conventions (unsigned `u16` export vs
-  signed `i16` UART stimuli) with a side-by-side table in the crate, module, and
-  README docs, plus tests covering both clamp boundaries (#23).
+- Documented the Q8.8 conventions with a side-by-side table in the crate,
+  module, and README docs, plus tests covering the clamp boundaries (#23).
+  The table originally described the `.mem` path as unsigned; it now records the
+  single signed convention both paths share (see Fixed, above).
 - Declared `rust-version = "1.98.1"`, not `"1.85"`, the dependency-derived
   floor — edition 2024 and `getrandom` 0.4 (via the `tempfile` dev-dependency)
   both only require 1.85.0. This is a deliberate policy choice to track the
