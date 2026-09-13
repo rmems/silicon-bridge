@@ -63,7 +63,10 @@ on the repository for each issue opened or closed.
 **Fix (PR #38)** — repoint at rmems user project #5 (`PVT_kwHODs2Zb84BfcTG`),
 drop the stale `secrets.LIMEN_NEURAL_GITHUB_TOKEN` fallback, and preflight the
 token so `issues` events skip with a warning while `workflow_dispatch` still
-fails loudly.
+fails loudly. This clears the red-X symptom, not the underlying gap: without
+`secrets.PROJECTS_TOKEN` actually configured (a repo-settings action, not
+something a PR can do), every issue event still goes unsynchronized — just
+quietly instead of loudly. The board stays stale until that secret is set.
 
 ### 2. `uart` feature is unusable off Linux
 
@@ -147,15 +150,27 @@ edition-2024 parse error instead of a clean MSRV message.
 
 ### 8. Doc and `unsafe` conventions unenforced
 
-AGENTS.md marks "public items get `///` doc comments" and "no `unsafe` without
-justification" as mandatory, but nothing checked either. `FpgaMetadata` and all
-six of its public fields (`src/fpga_export.rs:104-111`) reached `main`
-undocumented — the struct describing the `.mem` layout renders on docs.rs as a
-bare field list.
+AGENTS.md lists "no `unsafe` without explicit safety justification" as a
+**constraint (mandatory)** and "public items get `///` doc comments" as a
+**convention** under Code style. Nothing checked either. The convention is the
+one that broke: `FpgaMetadata` and all six of its public fields
+(`src/fpga_export.rs:104-111`) reached `main` undocumented, so the struct
+describing the `.mem` layout renders on docs.rs as a bare field list.
 
-**Fix (PR #42)** — `#![forbid(unsafe_code)]`, `#![deny(missing_docs)]`, and the
-missing docs. Stacked on #39, which supplies the `FpgaBridge` doc the lint needs
-under `--features uart`.
+**Fix (PR #42)** — `#![forbid(unsafe_code)]` enforces the constraint;
+`#![deny(missing_docs)]` deliberately *promotes* the convention to a compile
+error, which is a policy tightening rather than enforcement of an existing hard
+rule, and is documented as such at the crate root. Plus the missing docs.
+Stacked on #39, which supplies the `FpgaBridge` doc the lint needs under
+`--features uart`.
+
+`forbid` rather than `deny` is deliberate too, not an oversight that blocks
+AGENTS.md's justified-`unsafe` allowance: unlike `deny`, `forbid` can't be
+lowered with a local `#[allow(unsafe_code)]`, so a future justified block has
+to edit the crate-level attribute itself alongside the code. That is a
+stricter mechanism than AGENTS.md requires, not a narrower one — the
+attribute edit is a visible, single-place diff instead of a call-site
+override that could go unnoticed in review.
 
 ### 9. A library writes 20 lines to stdout on every export
 
@@ -219,7 +234,11 @@ builds on the declared minimum, so the floor silently rises the first time
 someone uses a newer API.
 
 **Fix scope (blocked by #31 and #40)** — one `msrv` job pinning the toolchain to
-the `rust-version` value, running `cargo check --all-targets`.
+the `rust-version` value. `cargo check --all-targets` alone is not enough:
+`--all-targets` selects targets (bins/tests/examples), not features, so it
+skips `fpga_bridge` and `serialport` entirely. Run `--all-targets --features
+uart` (installing the `libudev-dev` prerequisite on the runner) too, or the
+job can pass while UART-only code has already raised the effective MSRV.
 
 ### 15. README examples are never compiled
 
@@ -228,9 +247,14 @@ README's four `rust` blocks are doctested. They can drift from the API without
 any signal — the `FpgaMetrics` example is already describing behaviour #33
 changes.
 
-**Fix scope** — include the README as crate docs, marking the `?`-using UART
-example `no_run` or `ignore` as needed. One PR touching `src/lib.rs` and the
-README's fences. Sequence after #31 and #33 clear the README.
+**Fix scope** — get the examples compiled, but **not** with a bare
+`include_str!` of the whole README. Including it verbatim turns the README's
+relative `[MIT](LICENSE-MIT)` and `[Apache-2.0](LICENSE-APACHE)` references into
+rustdoc links that cannot resolve, and `docs/logo.png` is excluded from the
+package, so the header image breaks too. Either extract the four examples into
+real doctests, or rewrite those links to absolute URLs first and then include.
+One PR touching `src/lib.rs` and the README's fences, with the `?`-using UART
+example marked `no_run`. Sequence after #31 and #33 clear the README.
 
 ### 16. Report paths are `&str`, not `AsRef<Path>`
 
@@ -281,13 +305,17 @@ patch. The other `Limen-Neural` mentions in the tree were checked and are
 
 `docs/logo.png` is 2,407,973 bytes — roughly 30× the entire published crate. It
 is excluded from the package, but every clone pays for it. `origin/imgbot`
-carries a recompression to 1,806,830 bytes, but it branched from an ancient
-`main` and its diff would revert ~800 lines of subsequent work, so it cannot be
-merged.
+carries a recompression to 1,806,830 bytes and branched from an ancient `main`,
+but branch age alone doesn't make it unmergeable — a three-way merge applies
+only what changed since the common ancestor. Verified empirically
+(`git merge-tree --write-tree origin/main origin/imgbot`): it merges cleanly,
+touching only `docs/logo.png` (2,407,973 → 1,806,830 bytes), reverting nothing
+from the ~800 lines of subsequent history.
 
-**Fix scope** — redo the recompression standalone (lossless `oxipng`/`zopflipng`,
-or resize: nothing displays it above 220 px, which is what the README requests)
-and close the `imgbot` branch.
+**Fix scope** — merge `origin/imgbot` as-is (or cherry-pick its one commit);
+no redo needed. If a smaller size than 1,806,830 bytes is wanted, resize
+first — nothing displays the logo above 220 px, which is what the README
+requests.
 
 ### 21. 12 stale remote branches
 
@@ -311,9 +339,12 @@ The repo is public and dual-licensed but offers no contribution guide, no
 vulnerability-reporting route, and no PR/issue templates. AGENTS.md holds
 conventions that only agents read.
 
-**Fix scope** — one docs PR adding `CONTRIBUTING.md` (pointing at AGENTS.md for
-conventions), `SECURITY.md`, and `.github/PULL_REQUEST_TEMPLATE.md` carrying the
-`cargo fmt/clippy/test` checklist from CLAUDE.md's quality bar.
+**Fix scope** — one docs PR covering **all four**, not just the easy two:
+`CONTRIBUTING.md` (pointing at AGENTS.md for conventions), `SECURITY.md`,
+`.github/PULL_REQUEST_TEMPLATE.md` carrying the `cargo fmt/clippy/test`
+checklist from CLAUDE.md's quality bar, `.github/ISSUE_TEMPLATE/` for bug and
+feature intake, and `CODEOWNERS` so review routing is explicit. Leaving issue
+intake and ownership out would close the item without resolving it.
 
 ### 23. No vulnerability audit in CI
 
