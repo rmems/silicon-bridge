@@ -147,28 +147,37 @@ fn port_vid(info: &SerialPortInfo) -> Option<u16> {
 }
 
 impl FpgaBridge {
-    /// Open the first FPGA-looking serial port that opens *and* answers a
-    /// SiliconBridge handshake.
+    /// Open the first FPGA-looking serial port that accepts a connection.
     ///
     /// Ports are discovered with [`find_fpga_ports`], so this works on Linux,
     /// macOS, and Windows. When enumeration returns nothing — `libudev` is
     /// unavailable, for instance — the historical Linux probe list
     /// (`/dev/ttyUSB0`, `/dev/ttyUSB1`, `/dev/ttyUSB2`) is tried instead.
     ///
-    /// # Verifying the peer
+    /// # This does not verify the peer
     ///
-    /// A port that opens is not assumed to be the board: each candidate is
-    /// [`ping`](Self::ping)ed — one SiliconBridge frame written and a
-    /// matching reply read back — before it is accepted, so a GPS puck or a
-    /// 3D printer that happens to open on the same bus is skipped rather than
-    /// returned as the connection.
+    /// A port that opens is assumed to be the board. Nothing handshakes
+    /// first, and not for lack of trying: an earlier revision of this method
+    /// called [`ping`](Self::ping) on every candidate before accepting it,
+    /// but review caught two problems the SiliconBridge v3.0 wire protocol
+    /// makes unavoidable without a firmware change. `ping` calls
+    /// [`process_stimuli`](Self::process_stimuli), which is a real stimulus
+    /// frame — the "probe" advances the FPGA's membrane/spike state exactly
+    /// as a genuine experiment step would, so construction itself would have
+    /// a side effect. And the protocol carries no marker that identifies the
+    /// far end: a 36-byte reply from *any* serial device reads as a valid
+    /// response, so the "handshake" would accept a coincidentally
+    /// same-sized-reply peer just as readily as it now accepts a
+    /// same-opens-fine one. Confirming the peer for real needs a dedicated,
+    /// side-effect-free handshake command in the firmware protocol, which is
+    /// out of scope for this crate.
     ///
-    /// Candidates are also ordered by USB vendor id, so a port from FTDI or
-    /// Digilent — the Basys3's bridge — is tried before a generic adapter or
-    /// an unclassified device. And [`FpgaBridge::open`] takes a port name, so
-    /// a caller that knows which device it wants never has to guess —
-    /// [`find_fpga_ports`] returns the full [`SerialPortInfo`], serial number
-    /// included, to pick from.
+    /// Two things narrow the risk today. Candidates are ordered by USB
+    /// vendor id, so a port from FTDI or Digilent — the Basys3's bridge — is
+    /// tried before a generic adapter or an unclassified device. And
+    /// [`FpgaBridge::open`] takes a port name, so a caller that knows which
+    /// device it wants never has to guess — [`find_fpga_ports`] returns the
+    /// full [`SerialPortInfo`], serial number included, to pick from.
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
         let mut found = find_fpga_ports();
         // Stable sort: within one rank the OS's own ordering is preserved.
@@ -179,11 +188,9 @@ impl FpgaBridge {
         let candidates = candidate_ports(discovered);
 
         for port_name in &candidates {
-            if let Ok(mut bridge) = Self::open(port_name) {
-                if bridge.ping() {
-                    println!("[fpga] Connected to FPGA on {port_name}");
-                    return Ok(bridge);
-                }
+            if let Ok(bridge) = Self::open(port_name) {
+                println!("[fpga] Connected to FPGA on {port_name}");
+                return Ok(bridge);
             }
         }
 
