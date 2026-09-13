@@ -893,6 +893,45 @@ mod tests {
         );
     }
 
+    /// A pre-fix `parameters.json` carried unsigned words up to `65535`. Those
+    /// no longer fit the `i16` fields, and `EXPORT_FORMAT_VERSION` is
+    /// deliberately unchanged, so the compatibility boundary is worth pinning:
+    /// the break must be a loud deserialization error, never a value that
+    /// wraps to a plausible-looking negative.
+    #[test]
+    fn pre_fix_unsigned_json_fails_loudly_rather_than_wrapping() {
+        let legacy = r#"{
+            "thresholds": [65280],
+            "weights": [51200],
+            "decay_rates": [217],
+            "metadata": {
+                "version": "Spikenaut-v2",
+                "timestamp": "2026-01-01T00:00:00Z",
+                "num_neurons": 1,
+                "num_channels": 1,
+                "target_latency_us": 35.0,
+                "memory_usage_kb": 0.006
+            }
+        }"#;
+
+        let err = serde_json::from_str::<FpgaParameters>(legacy)
+            .expect_err("65280 must not deserialize into an i16 field");
+        assert!(
+            err.to_string().contains("invalid value") || err.to_string().contains("i16"),
+            "expected an out-of-range error, got: {err}"
+        );
+
+        // Words that were already inside the signed range still load, so only
+        // the genuinely ambiguous half of the old format is rejected.
+        let in_range = legacy
+            .replace("[65280]", "[256]")
+            .replace("[51200]", "[128]");
+        let parsed: FpgaParameters =
+            serde_json::from_str(&in_range).expect("in-range legacy words still deserialize");
+        assert_eq!(parsed.thresholds, [256]);
+        assert_eq!(parsed.weights, [128]);
+    }
+
     /// The metadata JSON carries the same signed words as the `.mem` files, so
     /// tooling reading either sees one set of values.
     #[test]
