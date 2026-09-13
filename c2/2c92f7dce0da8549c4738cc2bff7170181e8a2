@@ -1,0 +1,37 @@
+src/fpga_bridge.rs
+  s_c7a686db5ac1e5::t_5ddbcca503ec73 29-45,51-112,117-120,123-127,136-139,146-164
+  s_c7a686db5ac1e5::t_1f4b74b24696b5 113-116,282-285
+  s_3426dc21ad5321::t_ce427736ae77b9 122,140-142
+  s_c7a686db5ac1e5::t_0c54c997a187db 128
+  s_c7a686db5ac1e5::t_a419cf630eec97 236-240,245,250-281,286-311,314-321
+  s_c7a686db5ac1e5::t_7f43fe93061f27 312-313
+CHANGELOG.md
+  s_c7a686db5ac1e5::t_5b9834eff24093 17-18
+  s_c7a686db5ac1e5::t_da0cc77e903cfa 41-45
+src/lib.rs
+  s_c7a686db5ac1e5::t_0bb15c642fdea5 85
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c22c92f7dce0da8549c4738cc2bff7170181e8a2",
+  "prompts": {},
+  "sessions": {
+    "s_3426dc21ad5321": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7138bdcc-6ef1-4199-b06e-6725cb5f3ccf",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    },
+    "s_c7a686db5ac1e5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e3ecf17c-0c1f-4f56-bc93-e08ac6c2f86e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}

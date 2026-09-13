@@ -1,0 +1,34 @@
+src/fpga_bridge.rs
+  s_c7a686db5ac1e5::t_5ddbcca503ec73 29-45,51-112,117-120,151-155,177-180,187-205,158,164
+  s_c7a686db5ac1e5::t_1f4b74b24696b5 113-116,323-326
+  s_3426dc21ad5321::t_ce427736ae77b9 150,181-183,157
+  s_c7a686db5ac1e5::t_0c54c997a187db 156,121-122,124-125,127,129-137,139,141-145,147,172-174,176
+  s_c7a686db5ac1e5::t_a419cf630eec97 277-281,286,291-322,327-352,384-391,128,357,361,365,374
+  s_c7a686db5ac1e5::t_7f43fe93061f27 353-354,123,126,138,140,146,148,175,355-356,358-360,366-373,375-383
+  s_c7a686db5ac1e5::t_4ed0722e277487 25
+  s_c7a686db5ac1e5::t_24c5adaeb64f81 362-364
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f6ae292987175d894a67c3800c5eb93f0d3e5030",
+  "prompts": {},
+  "sessions": {
+    "s_3426dc21ad5321": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7138bdcc-6ef1-4199-b06e-6725cb5f3ccf",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    },
+    "s_c7a686db5ac1e5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e3ecf17c-0c1f-4f56-bc93-e08ac6c2f86e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
