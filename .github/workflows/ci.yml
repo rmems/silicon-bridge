@@ -3,8 +3,11 @@ name: CI
 on:
   push:
     branches: [main]
+  # No `branches` filter. Restricting this to `main` silently skipped CI on any
+  # pull request stacked on another PR's branch, so a stacked change could reach
+  # `main` having never been built. The `push` trigger above keeps post-merge
+  # builds limited to `main`.
   pull_request:
-    branches: [main]
 
 permissions:
   contents: read
