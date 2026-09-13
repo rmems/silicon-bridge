@@ -29,9 +29,13 @@ stimuli and reading back spike states at runtime.
 - `format_q88_hex` / `encode_q88_signed` / `q88_signed_to_f32` — Q8.8 helpers
 - `FpgaBridge` — blocking UART host protocol for host–FPGA spike exchange,
   backed by `serialport` (`uart` feature); no async runtime is involved.
-  `FpgaBridge::new()` probes only `/dev/ttyUSB0`, `/dev/ttyUSB1`, and
-  `/dev/ttyUSB2` on Linux — not ttyACM, Windows COM ports, or arbitrary
-  USB paths
+  `FpgaBridge::new()` enumerates ports with `serialport::available_ports`
+  and probes any that look like a USB-serial FPGA bridge — `ttyUSB`/`ttyACM`
+  on Linux, `cu.usb*`/`tty.usb*` on macOS, `COM*` on Windows — falling back
+  to the historical `/dev/ttyUSB0..2` probe list only when enumeration
+  returns nothing (`libudev` unavailable, for instance). It does not verify
+  the peer beyond accepting whichever candidate opens; see
+  `FpgaBridge::new`'s doc comment for why
 - `FpgaMetrics` — Vivado report parser for CI/CD gating: **WNS** and **TNS**
   from timing summary reports, **LUT utilization** from `report_utilization`
   reports (missing TNS or LUT values degrade to `0.0`)
@@ -74,9 +78,11 @@ let stimuli = vec![0.1; 16];
 let (_potentials, spikes) = bridge.process_stimuli(&stimuli)?;
 ```
 
-`FpgaBridge` is synchronous. `FpgaBridge::new()` opens the first of
-`/dev/ttyUSB0`, `/dev/ttyUSB1`, `/dev/ttyUSB2` that accepts 115200 baud; it
-does not probe ttyACM devices, Windows COM ports, or arbitrary USB paths.
+`FpgaBridge` is synchronous. `FpgaBridge::new()` discovers USB-serial ports
+across Linux, macOS, and Windows and opens the first FPGA-looking one that
+accepts 115200 baud (falling back to the historical `/dev/ttyUSB0..2` probe
+list when port enumeration itself comes back empty). A port that opens is
+assumed to be the board — construction does not verify the peer.
 
 `process_stimuli` writes the request frame and then `read_exact`s the reply.
 The 100 ms value is the `serialport` **per-read** timeout, not a hard
@@ -180,3 +186,21 @@ training orchestrator so it works with any SNN framework.
 ## License
 
 Licensed under either of [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE) at your option.
+
+## CI
+
+GitHub Actions (`.github/workflows/ci.yml`) runs three job groups on every push
+to `main` and every pull request. No secrets are required.
+
+| Job | Runner | What it runs |
+|-----|--------|--------------|
+| `fmt (ubuntu-latest)` | Linux | `cargo fmt --check` (once — formatting is OS-independent) |
+| `test (ubuntu-latest)` | Linux | `cargo clippy --all-targets -- -D warnings`, `cargo build`, `cargo test` |
+| `test (macos-latest)` | macOS | same as above |
+| `test (windows-latest)` | Windows | same as above |
+| `uart (ubuntu-latest)` | Linux | installs `libudev-dev`, then `cargo check --features uart`, `cargo test --features uart`, and `cargo doc --no-deps --features uart` with `RUSTDOCFLAGS: -D warnings` |
+
+The `test` matrix uses default features and has `fail-fast: false`, so one OS
+failing does not cancel the others. The `uart` job is Linux-only because
+`serialport` needs `libudev` there; it runs unit tests only — no serial
+hardware is attached to CI runners.
