@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `FpgaParameterExporter::validate` and `ParameterShapeError` — reject a weight
+  matrix whose rows disagree in length. `MemFileWriter::write_mem_files` now
+  validates before touching the filesystem, so a ragged matrix returns an error
+  instead of writing `.mem` files that load misaligned into `WeightRam`.
+  `ParameterExport::export` stays infallible and still flattens; its rustdoc
+  points at `validate`.
 - `encode_q88_unsigned` — free-function unsigned Q8.8 encoder shared by
   `FixedPointEncode::encode_q88`, `.mem` export, and `format_q88_hex` (#23).
 - `encode_q88_signed`, `q88_signed_to_f32`, `STIMULUS_Q88_MIN`, and

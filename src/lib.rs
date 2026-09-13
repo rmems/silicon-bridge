@@ -75,8 +75,8 @@ mod fpga_bridge;
 // Re-export public API
 pub use fpga_export::{
     EXPORT_FORMAT_VERSION, FixedPointEncode, FpgaMetadata, FpgaParameterExporter, FpgaParameters,
-    MemFileWriter, ParameterExport, STIMULUS_Q88_MAX, STIMULUS_Q88_MIN, encode_q88_signed,
-    encode_q88_unsigned, format_q88_hex, q88_signed_to_f32, q88_to_f32,
+    MemFileWriter, ParameterExport, ParameterShapeError, STIMULUS_Q88_MAX, STIMULUS_Q88_MIN,
+    encode_q88_signed, encode_q88_unsigned, format_q88_hex, q88_signed_to_f32, q88_to_f32,
 };
 
 pub use fpga_metrics::FpgaMetrics;
