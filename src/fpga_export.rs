@@ -2478,14 +2478,14 @@ mod checked_export_tests {
         exporter.set_range_policy(RangePolicy::Saturate);
         exporter.set_weights(vec![vec![200.0]]);
 
-        assert_eq!(
+        assert!(matches!(
             exporter.try_export(),
             Err(ParameterShapeError::SaturationRequiresReport)
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             CheckedParameterExport::try_export(&exporter),
             Err(ParameterShapeError::SaturationRequiresReport)
-        );
+        ));
 
         let err = MemFileWriter::write_mem_files(&exporter, tempfile::tempdir().unwrap().path())
             .expect_err("hardware writer must not silently saturate");
