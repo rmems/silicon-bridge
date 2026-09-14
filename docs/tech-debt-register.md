@@ -37,7 +37,7 @@ the file and symbol names are the durable part.
 | 14 | No MSRV job, so `rust-version` can rot | `.github/workflows/ci.yml` | Low-med | blocked by #31 + #40 |
 | 15 | README examples are never compiled | `README.md`, `src/lib.rs` | Low-med | queued |
 | 16 | Report paths are `&str`, not `AsRef<Path>` | `src/fpga_metrics.rs:70` | Low-med | blocked by #33 |
-| 17 | Neuron counts across the three vectors are unchecked | `src/fpga_export.rs` | Low-med | queued |
+| 17 | Neuron counts across the three vectors are unchecked | `src/fpga_export.rs` | Low-med | **#48** (this PR) |
 | 18 | `ping()` latches the bridge inactive forever | `src/fpga_bridge.rs:108-117` | Low-med | queued |
 | 19 | `LICENSE-MIT` still names the pre-transfer org | `LICENSE-MIT:3` | Low | **owner decision** |
 | 20 | 2.4 MB logo; the `imgbot` branch that shrinks it is unmergeable | `docs/logo.png` | Low | queued |
@@ -287,16 +287,15 @@ for every `&str` caller.
 
 ### 17. Neuron counts across the three vectors are unchecked
 
-Separate from #3: nothing requires `thresholds.len()`, `weights.len()` and
-`decay_rates.len()` to agree. Sixteen thresholds with four weight rows exports
+Separate from #3: nothing required `thresholds.len()`, `weights.len()` and
+`decay_rates.len()` to agree. Sixteen thresholds with four weight rows exported
 `num_neurons: 16` beside four rows of weights, and `NeuronParamRam` is loaded
-short. Deliberately excluded from PR #41, because a partial export (thresholds
-only, no weights yet) is a plausible intermediate use and turning it into an
-error is a behaviour break that deserves its own discussion.
+short. Deliberately excluded from PR #41.
 
-**Fix scope** — extend `ParameterShapeError` with a count-mismatch variant once
-the partial-export question is settled. `#[non_exhaustive]` on the enum was
-chosen with this in mind.
+**Fix (#48)** — `ParameterShapeError::DimensionMismatch` / `EmptyLayer` /
+`EmptyBlock`, with `CheckedParameterExport::try_export` and a writer that
+validates the complete `N×M` bundle (plus optional `K×N` readout) before
+touching disk. `ParameterExport::export` remains the infallible legacy wrapper.
 
 ### 18. `ping()` latches the bridge inactive forever
 
