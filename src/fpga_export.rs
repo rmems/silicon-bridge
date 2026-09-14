@@ -46,7 +46,7 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fs;
-use std::io::Write;
+use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
 /// Metadata / layout tag for the Q8.8 `.mem` bundle shared with silicon-hdl.
@@ -99,13 +99,20 @@ pub trait ParameterExport {
 ///
 /// Unlike [`ParameterExport::export`], this path never produces a
 /// valid-looking parameter image from empty, ragged, dimension-mismatched,
-/// non-finite, or (by default) out-of-range inputs.
+/// non-finite, or (under the default [`RangePolicy::Reject`]) out-of-range
+/// inputs. [`RangePolicy::Saturate`] is rejected here so a
+/// [`SaturationReport`] cannot be dropped; use
+/// [`FpgaParameterExporter::try_export_with_report`] to clamp and inspect.
 pub trait CheckedParameterExport {
     /// Typed validation failure. Implementors should use
     /// [`ParameterShapeError`] rather than a parallel error enum.
     type Error;
 
     /// Validate the complete bundle and encode it.
+    ///
+    /// Out-of-range rejection depends on [`RangePolicy::Reject`] (the
+    /// default). [`RangePolicy::Saturate`] must go through
+    /// [`FpgaParameterExporter::try_export_with_report`].
     fn try_export(&self) -> Result<FpgaParameters, Self::Error>;
 }
 
@@ -222,6 +229,14 @@ pub enum Q88Encoding {
     /// Unsigned-magnitude Q8.8, matching [`encode_q88_unsigned`].
     ///
     /// Representable without saturation: `0.0..=`[`Q88_UNSIGNED_MAX`].
+    ///
+    /// Encoded words are stored in [`FpgaParameters`] as `i16` via `u16 as
+    /// i16` so the 16-bit pattern is preserved (`200.0` → `0xC800`, which is
+    /// `-14336` as a signed integer). silicon-hdl RAM interprets every `.mem`
+    /// word as signed two's-complement, so that pattern is `-56.0`, not
+    /// `200.0`. [`MemFileWriter::write_mem_files`] therefore refuses this
+    /// variant ([`ExportError::UnsignedHardwareEncoding`]). Use it only for
+    /// in-memory range checks; fuller per-block signedness policy is #49.
     Unsigned,
 }
 
@@ -253,6 +268,12 @@ pub enum RangePolicy {
     Reject,
     /// Clamp to the encoding bounds and record every clamp in a
     /// [`SaturationReport`]. Non-finite inputs are still errors.
+    ///
+    /// Only [`FpgaParameterExporter::try_export_with_report`] applies this
+    /// policy. [`CheckedParameterExport::try_export`] and
+    /// [`MemFileWriter::write_mem_files`] return
+    /// [`ParameterShapeError::SaturationRequiresReport`] so the clamp list
+    /// cannot be silently dropped.
     Saturate,
 }
 
@@ -297,8 +318,8 @@ impl SaturationReport {
 ///
 /// Extended in place from the original rectangularity-only type (PR #41 /
 /// `RaggedWeights`). New variants cover empty dimensions, neuron-count
-/// mismatches, optional readout shape, non-finite values, and
-/// representability. The enum stays `#[non_exhaustive]`.
+/// mismatches, optional readout shape, non-finite values, representability,
+/// and report-less saturation. The enum stays `#[non_exhaustive]`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
 pub enum ParameterShapeError {
@@ -369,6 +390,13 @@ pub enum ParameterShapeError {
         /// Inclusive upper bound of that encoding.
         max: f32,
     },
+    /// [`RangePolicy::Saturate`] was selected on a report-less export path.
+    ///
+    /// [`CheckedParameterExport::try_export`] and
+    /// [`MemFileWriter::write_mem_files`] would otherwise encode the clamped
+    /// values and drop the [`SaturationReport`]. Call
+    /// [`FpgaParameterExporter::try_export_with_report`] instead.
+    SaturationRequiresReport,
 }
 
 impl fmt::Display for ParameterShapeError {
@@ -429,6 +457,12 @@ impl fmt::Display for ParameterShapeError {
                 f,
                 "{location} value {value} is outside {encoding} range {min}..={max}"
             ),
+            Self::SaturationRequiresReport => write!(
+                f,
+                "RangePolicy::Saturate cannot be used with try_export because \
+                 saturation events would be discarded; call try_export_with_report \
+                 instead"
+            ),
         }
     }
 }
@@ -437,8 +471,10 @@ impl std::error::Error for ParameterShapeError {}
 
 /// Failure from the checked `.mem` writer.
 ///
-/// Validation failures are [`ExportError::InvalidParameters`]. I/O and JSON
-/// failures preserve their underlying cause via [`std::error::Error::source`].
+/// Validation failures are [`ExportError::InvalidParameters`]. Unsigned
+/// encoding on the hardware path is [`ExportError::UnsignedHardwareEncoding`].
+/// I/O and JSON failures preserve their underlying cause via
+/// [`std::error::Error::source`].
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum ExportError {
@@ -459,6 +495,16 @@ pub enum ExportError {
         /// Underlying serde error.
         source: serde_json::Error,
     },
+    /// A block was configured as [`Q88Encoding::Unsigned`] on the hardware
+    /// `.mem` writer.
+    ///
+    /// silicon-hdl RAM is signed two's-complement Q8.8. An unsigned word
+    /// above 127.996 is stored as an `i16` bit pattern that the FPGA reads
+    /// as a negative (for example unsigned `200.0` → `C800` → `-56.0`).
+    UnsignedHardwareEncoding {
+        /// Block configured as unsigned-magnitude Q8.8.
+        block: ParameterBlock,
+    },
 }
 
 impl fmt::Display for ExportError {
@@ -471,6 +517,12 @@ impl fmt::Display for ExportError {
             Self::Serialize { path, source } => {
                 write!(f, "failed to serialize {}: {source}", path.display())
             }
+            Self::UnsignedHardwareEncoding { block } => write!(
+                f,
+                "hardware .mem export requires signed Q8.8; {block} is unsigned \
+                 (values above 127.996 would be interpreted as negatives by \
+                 silicon-hdl RAM)"
+            ),
         }
     }
 }
@@ -481,6 +533,7 @@ impl std::error::Error for ExportError {
             Self::InvalidParameters(err) => Some(err),
             Self::Io { source, .. } => Some(source),
             Self::Serialize { source, .. } => Some(source),
+            Self::UnsignedHardwareEncoding { .. } => None,
         }
     }
 }
@@ -491,14 +544,21 @@ impl From<ParameterShapeError> for ExportError {
     }
 }
 
-/// FPGA-compatible parameter format
+/// FPGA-compatible parameter format.
+///
+/// Vectors hold raw 16-bit Q8.8 words stored as `i16`. Hardware `.mem` images
+/// are signed two's-complement. An in-memory [`Q88Encoding::Unsigned`] encode
+/// stores the unsigned bit pattern via `as i16`; values above 127.996
+/// therefore appear negative if interpreted as signed.
+/// [`MemFileWriter::write_mem_files`] refuses that encoding so FPGA RAM never
+/// sees the reinterpretation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FpgaParameters {
-    /// Neuron thresholds as signed Q8.8 raw words
+    /// Neuron thresholds as Q8.8 raw words (`i16` bit patterns).
     pub thresholds: Vec<i16>,
-    /// Weight matrix [neurons x channels] as signed Q8.8 raw words
+    /// Weight matrix [neurons x channels] as Q8.8 raw words (`i16` bit patterns).
     pub weights: Vec<i16>,
-    /// Decay rates as signed Q8.8 raw words
+    /// Decay rates as Q8.8 raw words (`i16` bit patterns).
     pub decay_rates: Vec<i16>,
     /// Optional readout / output-layer weights, flattened row-major as `K×N`.
     ///
@@ -608,7 +668,9 @@ impl FpgaParameterExporter {
     ///
     /// Defaults are all [`Q88Encoding::Signed`] (the silicon-hdl `.mem`
     /// convention). Changing a block to [`Q88Encoding::Unsigned`] changes the
-    /// checked-path range and encoder; it does not change
+    /// checked-path range and in-memory encoder; [`MemFileWriter::write_mem_files`]
+    /// still requires signed encoding and returns
+    /// [`ExportError::UnsignedHardwareEncoding`]. It does not change
     /// [`ParameterExport::export`], which always uses [`encode_q88_signed`].
     pub fn set_encoding(&mut self, block: ParameterBlock, encoding: Q88Encoding) {
         match block {
@@ -622,9 +684,12 @@ impl FpgaParameterExporter {
     /// Choose whether out-of-range values are rejected or clamped with a report.
     ///
     /// The default is [`RangePolicy::Reject`]. [`RangePolicy::Saturate`] is
-    /// applied by [`CheckedParameterExport::try_export`] /
-    /// [`Self::try_export_with_report`], not by the legacy infallible
-    /// [`ParameterExport::export`].
+    /// applied only by [`Self::try_export_with_report`].
+    /// [`CheckedParameterExport::try_export`] and
+    /// [`MemFileWriter::write_mem_files`] return
+    /// [`ParameterShapeError::SaturationRequiresReport`] so a
+    /// [`SaturationReport`] cannot be dropped. The legacy infallible
+    /// [`ParameterExport::export`] still saturates without a report.
     pub fn set_range_policy(&mut self, policy: RangePolicy) {
         self.range_policy = policy;
     }
@@ -690,8 +755,9 @@ impl FpgaParameterExporter {
     /// If a readout block is set, it is checked separately as `K×N`. Absence
     /// of a readout is valid. `NaN` and infinities are rejected before
     /// quantization. Finite values outside the block's [`Q88Encoding`] range
-    /// are rejected (saturation is a [`RangePolicy`] on `try_export`, not a
-    /// silent `validate` success).
+    /// are rejected (saturation is a [`RangePolicy`] on
+    /// [`Self::try_export_with_report`], not a silent `validate` success, and
+    /// not a report-less [`Self::try_export`]).
     ///
     /// [`ParameterExport::export`] stays infallible and still flattens a
     /// ragged matrix — this method is the gate for a hardware image.
@@ -730,7 +796,8 @@ impl FpgaParameterExporter {
     ///
     /// With the default [`RangePolicy::Reject`], the report is empty on
     /// success. Non-finite inputs are always errors, including under
-    /// saturation.
+    /// saturation. This is the only checked path that applies
+    /// [`RangePolicy::Saturate`]; [`Self::try_export`] rejects that policy.
     pub fn try_export_with_report(
         &self,
     ) -> Result<(FpgaParameters, SaturationReport), ParameterShapeError> {
@@ -747,8 +814,36 @@ impl FpgaParameterExporter {
     /// [`ParameterExport::export`] when producing an FPGA image. The infallible
     /// methods remain for callers that need the historical flatten-and-clamp
     /// behaviour; they are not a safe default.
+    ///
+    /// Out-of-range values are rejected under the default
+    /// [`RangePolicy::Reject`]. [`RangePolicy::Saturate`] returns
+    /// [`ParameterShapeError::SaturationRequiresReport`] so the clamp list
+    /// cannot be dropped; use [`Self::try_export_with_report`].
     pub fn try_export(&self) -> Result<FpgaParameters, ParameterShapeError> {
+        if matches!(self.range_policy, RangePolicy::Saturate) {
+            return Err(ParameterShapeError::SaturationRequiresReport);
+        }
         self.try_export_with_report().map(|(params, _)| params)
+    }
+
+    /// First block configured as [`Q88Encoding::Unsigned`] that would be
+    /// written into a hardware `.mem` image.
+    fn unsigned_hardware_block(&self) -> Option<ParameterBlock> {
+        const REQUIRED: [ParameterBlock; 3] = [
+            ParameterBlock::Thresholds,
+            ParameterBlock::Weights,
+            ParameterBlock::DecayRates,
+        ];
+        for block in REQUIRED {
+            if self.encoding(block) == Q88Encoding::Unsigned {
+                return Some(block);
+            }
+        }
+        if self.output_weights.is_some() && self.readout_encoding == Q88Encoding::Unsigned {
+            Some(ParameterBlock::Readout)
+        } else {
+            None
+        }
     }
 
     fn validate_shape(&self) -> Result<(), ParameterShapeError> {
@@ -1030,6 +1125,16 @@ impl FpgaParameterExporter {
         Ok(())
     }
 
+    /// Remove `path` if it exists. `NotFound` is success so a first export
+    /// without a readout is not an error.
+    fn remove_mem_file_if_present(path: PathBuf) -> Result<(), ExportError> {
+        match fs::remove_file(&path) {
+            Ok(()) => Ok(()),
+            Err(source) if source.kind() == ErrorKind::NotFound => Ok(()),
+            Err(source) => Err(ExportError::Io { path, source }),
+        }
+    }
+
     fn print_export_summary<P: AsRef<Path>>(&self, params: &FpgaParameters, output_dir: P) {
         println!("=== FPGA Parameter Export Summary ===");
         println!("Output Directory: {}", output_dir.as_ref().display());
@@ -1090,10 +1195,11 @@ fn non_finite_kind(value: f32) -> Option<NonFiniteKind> {
 fn encode_for(encoding: Q88Encoding, value: f32) -> i16 {
     match encoding {
         Q88Encoding::Signed => encode_q88_signed(value),
-        // Bit pattern of the unsigned word; `write_mem_file` reinterprets via
-        // `as u16` so `C800` still means unsigned 200.0. Storage as `i16` is
-        // the existing public bundle type; #49 owns a fuller per-block
-        // signedness contract.
+        // Bit-pattern storage: `u16 as i16` keeps the 16-bit word
+        // (`200.0` → `C800` → `i16` `-14336`). That `i16` is **not** a signed
+        // Q8.8 value — signed FPGA RAM would read it as `-56.0`.
+        // `write_mem_files` refuses `Q88Encoding::Unsigned` so this pattern
+        // never reaches silicon-hdl. #49 owns a fuller per-block contract.
         Q88Encoding::Unsigned => encode_q88_unsigned(value) as i16,
     }
 }
@@ -1197,7 +1303,7 @@ impl CheckedParameterExport for FpgaParameterExporter {
     type Error = ParameterShapeError;
 
     fn try_export(&self) -> Result<FpgaParameters, Self::Error> {
-        self.try_export_with_report().map(|(params, _)| params)
+        FpgaParameterExporter::try_export(self)
     }
 }
 
@@ -1205,9 +1311,18 @@ impl MemFileWriter for FpgaParameterExporter {
     type Error = ExportError;
 
     fn write_mem_files(&self, output_dir: impl AsRef<Path>) -> Result<(), Self::Error> {
+        // silicon-hdl RAM is signed two's-complement. Unsigned words above
+        // 127.996 become negative `i16` bit patterns (`200.0` → `C800` →
+        // `-56.0`) and must not land in a hardware `.mem` image.
+        if let Some(block) = self.unsigned_hardware_block() {
+            return Err(ExportError::UnsignedHardwareEncoding { block });
+        }
+
         // Validate and encode the complete bundle before creating or truncating
         // anything on disk. A malformed parameter set must not overwrite an
         // existing fixture or leave a half-written export that looks valid.
+        // `try_export` also refuses `RangePolicy::Saturate` so a saturation
+        // report cannot be dropped on this path.
         let params = CheckedParameterExport::try_export(self)?;
 
         let output_dir = output_dir.as_ref();
@@ -1221,6 +1336,8 @@ impl MemFileWriter for FpgaParameterExporter {
         Self::write_mem_file(output_dir.join("parameters_decay.mem"), &params.decay_rates)?;
         if let Some(readout) = &params.output_weights {
             Self::write_mem_file(output_dir.join("parameters_output_weights.mem"), readout)?;
+        } else {
+            Self::remove_mem_file_if_present(output_dir.join("parameters_output_weights.mem"))?;
         }
 
         let metadata_path = output_dir.join("parameters.json");
@@ -2283,6 +2400,12 @@ mod checked_export_tests {
         exporter.set_weights(vec![vec![200.0]]);
         let params = exporter.try_export().expect("200.0 is in unsigned range");
         assert_eq!(params.weights[0] as u16, encode_q88_unsigned(200.0));
+        // Bit-pattern storage: unsigned 200.0 is 0xC800, which is negative
+        // as i16. silicon-hdl RAM would decode that as -56.0, not 200.0 —
+        // which is why `write_mem_files` refuses unsigned encoding.
+        assert_eq!(params.weights[0], encode_q88_unsigned(200.0) as i16);
+        assert!(params.weights[0] < 0);
+        assert_eq!(q88_signed_to_f32(params.weights[0]), -56.0);
 
         exporter.set_weights(vec![vec![-0.00390625]]);
         match exporter.try_export() {
@@ -2341,12 +2464,65 @@ mod checked_export_tests {
         exporter.set_range_policy(RangePolicy::Saturate);
         exporter.set_weights(vec![vec![f32::NAN]]);
         assert!(matches!(
-            exporter.try_export(),
+            exporter.try_export_with_report(),
             Err(ParameterShapeError::NonFinite {
                 kind: NonFiniteKind::Nan,
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn try_export_rejects_saturate_so_the_report_cannot_be_dropped() {
+        let mut exporter = dense(1, 1);
+        exporter.set_range_policy(RangePolicy::Saturate);
+        exporter.set_weights(vec![vec![200.0]]);
+
+        assert_eq!(
+            exporter.try_export(),
+            Err(ParameterShapeError::SaturationRequiresReport)
+        );
+        assert_eq!(
+            CheckedParameterExport::try_export(&exporter),
+            Err(ParameterShapeError::SaturationRequiresReport)
+        );
+
+        let err = MemFileWriter::write_mem_files(&exporter, tempfile::tempdir().unwrap().path())
+            .expect_err("hardware writer must not silently saturate");
+        assert_invalid(err, ParameterShapeError::SaturationRequiresReport);
+    }
+
+    #[test]
+    fn write_mem_files_rejects_unsigned_encoding() {
+        let mut exporter = dense(1, 1);
+        exporter.set_encoding(ParameterBlock::Weights, Q88Encoding::Unsigned);
+        exporter.set_weights(vec![vec![200.0]]);
+
+        // In-memory checked export still encodes the unsigned bit pattern.
+        let params = exporter.try_export().expect("unsigned in-memory encode");
+        assert_eq!(params.weights[0] as u16, encode_q88_unsigned(200.0));
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let err = MemFileWriter::write_mem_files(&exporter, dir.path())
+            .expect_err("unsigned must not reach a hardware .mem image");
+        match err {
+            ExportError::UnsignedHardwareEncoding {
+                block: ParameterBlock::Weights,
+            } => {}
+            other => panic!("expected UnsignedHardwareEncoding(Weights), got {other}"),
+        }
+        assert!(
+            !dir.path().join("parameters_weights.mem").exists(),
+            "unsigned encoding must not write a .mem image"
+        );
+    }
+
+    #[test]
+    fn unsigned_readout_encoding_is_ignored_when_readout_is_absent() {
+        let mut exporter = dense(1, 1);
+        exporter.set_encoding(ParameterBlock::Readout, Q88Encoding::Unsigned);
+        MemFileWriter::write_mem_files(&exporter, tempfile::tempdir().unwrap().path())
+            .expect("absent readout does not occupy a hardware bank");
     }
 
     #[test]
@@ -2445,5 +2621,28 @@ mod checked_export_tests {
                 .map(str::to_string)
                 .collect();
         assert_eq!(lines, ["0040", "0080"]);
+    }
+
+    #[test]
+    fn stale_readout_file_is_removed_when_output_weights_are_cleared() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut exporter = dense(2, 2);
+        exporter.set_output_weights(vec![vec![0.25, 0.5]]);
+        MemFileWriter::write_mem_files(&exporter, dir.path()).expect("first write with readout");
+
+        let readout = dir.path().join("parameters_output_weights.mem");
+        assert!(readout.exists());
+
+        exporter.clear_output_weights();
+        MemFileWriter::write_mem_files(&exporter, dir.path()).expect("re-export without readout");
+
+        assert!(
+            !readout.exists(),
+            "stale parameters_output_weights.mem must not survive a readout-less re-export"
+        );
+        let json = fs::read_to_string(dir.path().join("parameters.json")).expect("json");
+        let params: FpgaParameters = serde_json::from_str(&json).expect("json");
+        assert!(params.output_weights.is_none());
+        assert!(!json.contains("output_weights"));
     }
 }
