@@ -77,6 +77,7 @@ Tests live inline in source files:
 | Module | Tests | What's covered |
 |--------|-------|----------------|
 | `src/fpga_export.rs` | 3 unit tests | Q8.8 conversion, parameter export, memory calculation |
+| `src/fpga_bridge.rs` | unit tests (`uart` feature) | port-name heuristic, `SerialConfig` validation/defaults, open/enumerate/configure failures, USB-serial selection, mock-port injection |
 | `src/lib.rs` | 1 doctest | Quick Start example |
 
 Run `cargo test` and ensure all tests pass before pushing. Add tests for any new code you write.

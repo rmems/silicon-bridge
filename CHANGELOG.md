@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Explicit UART serial configuration (#51): `SerialConfig` (nonzero baud,
+  finite nonzero per-I/O timeout), `FpgaBridge::open_with_config`,
+  `FpgaBridge::builder`, `FpgaBridge::from_port` /
+  `from_port_with_config` for an already-open transport, and
+  `list_serial_ports` which returns enumerator errors instead of an empty
+  list. Defaults stay 115200 baud / 100 ms (`DEFAULT_BAUD_RATE`,
+  `DEFAULT_IO_TIMEOUT`). The explicit open path accepts any caller-selected
+  device name and does not filter through `is_fpga_port_name`. Typed
+  `SerialError` / `SerialConfigError` carry port and operation context;
+  constructors do not print to stdout or send stimulus frames.
+  `is_transport_open` is distinct from the `ping` latch (`is_active`).
 - `FpgaParameterExporter::validate` and `ParameterShapeError` — reject a weight
   matrix whose rows disagree in length. `MemFileWriter::write_mem_files` now
   validates before touching the filesystem, so a ragged matrix returns an error
@@ -112,6 +123,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   a `ttyUSB` substring and so returned an empty list off Linux. `FpgaBridge::new`
   probes the discovered ports, falling back to `/dev/ttyUSB0..2` only when
   enumeration finds nothing.
+- `find_fpga_ports` returns `Result<Vec<SerialPortInfo>, SerialError>` instead
+  of swallowing enumerator failures as `Vec::new()` (#51). `FpgaBridge::new`,
+  `open`, and the former `Box<dyn Error>` constructors now return `SerialError`.
+  `new` is documented as a legacy probe helper and no longer prints on
+  connect. Opening a named port is the recommended path.
 - License switched from GPL-3.0-or-later to dual MIT/Apache-2.0 (#6).
 - Documented the Q8.8 conventions with a side-by-side table in the crate,
   module, and README docs, plus tests covering the clamp boundaries (#23).
