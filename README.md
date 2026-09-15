@@ -230,7 +230,7 @@ org — this tree is the source of truth.
 
 ## CI
 
-GitHub Actions (`.github/workflows/ci.yml`) runs three job groups on every push
+GitHub Actions (`.github/workflows/ci.yml`) runs four job groups on every push
 to `main` and every pull request. No secrets are required.
 
 | Job | Runner | What it runs |

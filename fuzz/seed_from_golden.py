@@ -72,21 +72,31 @@ def main() -> None:
         ),
     ]
 
+    planned: list[tuple[Path, bytes]] = []
     for name, inputs, outputs, tx_hex, rx_hex, stimuli in frames:
         tx = parse_hex(tx_hex)
         rx = parse_hex(rx_hex)
-        write(CORPUS / "decode_response" / f"golden_{name}_rx", dim_prefix(inputs, outputs, rx))
-        write(CORPUS / "decode_response" / f"golden_{name}_rx_raw", rx)
-        write(CORPUS / "encode_stimuli" / f"golden_{name}_tx", dim_prefix(inputs, outputs, tx))
         packed = b"".join(struct.pack("<f", float(v)) for v in stimuli)
-        write(
-            CORPUS / "encode_stimuli" / f"golden_{name}_stimuli",
-            dim_prefix(inputs, outputs, packed),
-        )
-        # stride 1: one byte after the layout prefix.
-        write(
-            CORPUS / "chunked_frames" / f"golden_{name}_rx",
-            dim_prefix(inputs, outputs, bytes([1]) + rx),
+        planned.extend(
+            [
+                (
+                    CORPUS / "decode_response" / f"golden_{name}_rx",
+                    dim_prefix(inputs, outputs, rx),
+                ),
+                (CORPUS / "decode_response" / f"golden_{name}_rx_raw", rx),
+                (
+                    CORPUS / "encode_stimuli" / f"golden_{name}_tx",
+                    dim_prefix(inputs, outputs, tx),
+                ),
+                (
+                    CORPUS / "encode_stimuli" / f"golden_{name}_stimuli",
+                    dim_prefix(inputs, outputs, packed),
+                ),
+                (
+                    CORPUS / "chunked_frames" / f"golden_{name}_rx",
+                    dim_prefix(inputs, outputs, bytes([1]) + rx),
+                ),
+            ]
         )
 
     signed = json.loads((GOLDEN / "q88_signed.json").read_text())
@@ -105,12 +115,19 @@ def main() -> None:
         ]
     )
     packed_q88 = b"".join(struct.pack("<f", v) for v in values)
-    write(CORPUS / "q88_codecs" / "golden_extrema_f32", packed_q88)
-    write(CORPUS / "q88_codecs" / "all_zero_i16", b"\x00\x00")
-    write(CORPUS / "q88_codecs" / "i16_min", struct.pack("<h", -32768))
-    write(CORPUS / "q88_codecs" / "i16_max", struct.pack("<h", 32767))
-    write(CORPUS / "q88_codecs" / "uart_min", struct.pack("<h", -32765))
-    write(CORPUS / "q88_codecs" / "uart_max", struct.pack("<h", 32765))
+    planned.extend(
+        [
+            (CORPUS / "q88_codecs" / "golden_extrema_f32", packed_q88),
+            (CORPUS / "q88_codecs" / "all_zero_i16", b"\x00\x00"),
+            (CORPUS / "q88_codecs" / "i16_min", struct.pack("<h", -32768)),
+            (CORPUS / "q88_codecs" / "i16_max", struct.pack("<h", 32767)),
+            (CORPUS / "q88_codecs" / "uart_min", struct.pack("<h", -32765)),
+            (CORPUS / "q88_codecs" / "uart_max", struct.pack("<h", 32765)),
+        ]
+    )
+
+    for path, data in planned:
+        write(path, data)
 
     print("wrote seeds under", CORPUS)
 
