@@ -244,8 +244,8 @@ impl FpgaBridge {
             return Err("FPGA bridge not active".into());
         }
 
-        // ENCODE SITE (signed Q8.8) — UART TX. Same encoder as the `.mem`
-        // export path; see fpga_export's module docs for the shared contract.
+        // ENCODE SITE (signed Q8.8) — UART TX with the legacy ±127.99 clamp.
+        // Parameter `.mem` export uses `encode_q88_signed_full` instead.
         let mut tx_data = vec![0xAAu8]; // Sync byte
         for i in 0..16 {
             let s = stimuli.get(i).copied().unwrap_or(0.0);

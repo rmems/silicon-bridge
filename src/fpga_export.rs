@@ -46,7 +46,7 @@
 //! as `8003` on the UART path and as `8000` on the parameter path. Do not
 //! reuse that helper for `.mem` images.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt;
 use std::fs;
 use std::io::{ErrorKind, Write};
@@ -278,6 +278,13 @@ impl fmt::Display for Q88Encoding {
 ///
 /// This is the contract a consuming profile reads. A raw `i16` / `u16`
 /// container does not itself imply signed or unsigned numerical semantics.
+///
+/// [`Default`] (and `#[serde(default)]` on [`FpgaMetadata::encodings`]) is
+/// all-signed thresholds/weights/decay with `output_weights: None`. `None`
+/// means **no readout matrix**, not unsigned. Deserializing a legacy
+/// `parameters.json` that has top-level `output_weights` but no encoding
+/// metadata records `Some(Q88Encoding::Signed)` so the manifest matches the
+/// data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlockEncodings {
     /// Encoding for the threshold vector.
@@ -294,6 +301,7 @@ pub struct BlockEncodings {
 }
 
 impl Default for BlockEncodings {
+    /// All-signed hidden blocks, no readout (`output_weights: None`).
     fn default() -> Self {
         Self {
             thresholds: Q88Encoding::Signed,
@@ -612,7 +620,7 @@ impl From<ParameterShapeError> for ExportError {
 /// therefore appear negative if interpreted as signed.
 /// [`MemFileWriter::write_mem_files`] refuses that encoding so FPGA RAM never
 /// sees the reinterpretation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct FpgaParameters {
     /// Neuron thresholds as Q8.8 raw words (`i16` bit patterns).
     pub thresholds: Vec<i16>,
@@ -634,7 +642,12 @@ pub struct FpgaParameters {
 ///
 /// Serialized alongside the Q8.8 vectors as `parameters.json`, so a `.mem` set
 /// on disk can be matched back to the shape it was generated for.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// [`Default`] is empty provenance strings, zero counts, and
+/// [`BlockEncodings::default`] (all signed, no readout). Downstream struct
+/// literals can keep compiling after additive fields by writing
+/// `..Default::default()`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FpgaMetadata {
     /// Format tag for the `.mem` bundle — [`EXPORT_FORMAT_VERSION`] for any
     /// metadata produced by [`ParameterExport::export`]. Not the crate
@@ -682,9 +695,40 @@ pub struct FpgaMetadata {
     ///
     /// Signedness is never inferred from a filename or from storing words as
     /// `i16`. Older `parameters.json` without this field deserializes as
-    /// all-signed ([`BlockEncodings::default`]).
+    /// [`BlockEncodings::default`] (all signed, no readout). A legacy file
+    /// that includes top-level `output_weights` is patched on deserialize to
+    /// `encodings.output_weights = Some(Signed)`.
     #[serde(default)]
     pub encodings: BlockEncodings,
+}
+
+impl<'de> Deserialize<'de> for FpgaParameters {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Raw {
+            thresholds: Vec<i16>,
+            weights: Vec<i16>,
+            decay_rates: Vec<i16>,
+            #[serde(default)]
+            output_weights: Option<Vec<i16>>,
+            metadata: FpgaMetadata,
+        }
+
+        let mut raw = Raw::deserialize(deserializer)?;
+        // `BlockEncodings::default().output_weights` is None ("no readout").
+        // Legacy files can carry the matrix without encoding metadata; record
+        // signed so the manifest matches the data and reserializes correctly.
+        if raw.output_weights.is_some() && raw.metadata.encodings.output_weights.is_none() {
+            raw.metadata.encodings.output_weights = Some(Q88Encoding::Signed);
+        }
+        Ok(Self {
+            thresholds: raw.thresholds,
+            weights: raw.weights,
+            decay_rates: raw.decay_rates,
+            output_weights: raw.output_weights,
+            metadata: raw.metadata,
+        })
+    }
 }
 
 impl FpgaParameterExporter {
@@ -3027,6 +3071,87 @@ mod signed_parameter_encoding_tests {
         let parsed: FpgaParameters = serde_json::from_str(legacy).expect("legacy json");
         assert_eq!(parsed.metadata.encodings, BlockEncodings::default());
         assert_eq!(parsed.metadata.encodings.output_weights, None);
+    }
+
+    #[test]
+    fn metadata_struct_literal_compiles_with_default_encodings() {
+        let meta = FpgaMetadata {
+            version: EXPORT_FORMAT_VERSION.into(),
+            timestamp: "2026-01-01T00:00:00Z".into(),
+            num_neurons: 1,
+            num_channels: 1,
+            target_latency_us: 35.0,
+            memory_usage_kb: 0.0,
+            ..Default::default()
+        };
+        assert_eq!(meta.encodings, BlockEncodings::default());
+        assert_eq!(meta.encodings.output_weights, None);
+    }
+
+    #[test]
+    fn legacy_json_with_readout_defaults_encoding_to_signed() {
+        let legacy = r#"{
+            "thresholds": [256],
+            "weights": [128],
+            "decay_rates": [230],
+            "output_weights": [-256],
+            "metadata": {
+                "version": "Spikenaut-v2",
+                "timestamp": "2026-01-01T00:00:00Z",
+                "num_neurons": 1,
+                "num_channels": 1,
+                "target_latency_us": 35.0,
+                "memory_usage_kb": 0.006
+            }
+        }"#;
+        let parsed: FpgaParameters = serde_json::from_str(legacy).expect("legacy readout json");
+        assert_eq!(parsed.output_weights.as_deref(), Some(&[-256][..]));
+        assert_eq!(
+            parsed.metadata.encodings.output_weights,
+            Some(Q88Encoding::Signed),
+            "None would mean no readout, but the matrix is present"
+        );
+
+        let json = serde_json::to_string(&parsed).expect("reserialize");
+        let round_tripped: FpgaParameters = serde_json::from_str(&json).expect("reserialized json");
+        assert_eq!(
+            round_tripped.metadata.encodings.output_weights,
+            Some(Q88Encoding::Signed)
+        );
+        assert!(
+            json.contains("\"output_weights\":\"signed\"")
+                || json.contains("\"output_weights\": \"signed\""),
+            "reserialized manifest must name the readout encoding: {json}"
+        );
+    }
+
+    #[test]
+    fn explicit_readout_encoding_is_not_overwritten_on_deserialize() {
+        let json = r#"{
+            "thresholds": [256],
+            "weights": [128],
+            "decay_rates": [230],
+            "output_weights": [-256],
+            "metadata": {
+                "version": "Spikenaut-v2",
+                "timestamp": "2026-01-01T00:00:00Z",
+                "num_neurons": 1,
+                "num_channels": 1,
+                "target_latency_us": 35.0,
+                "memory_usage_kb": 0.006,
+                "encodings": {
+                    "thresholds": "signed",
+                    "weights": "signed",
+                    "decay_rates": "signed",
+                    "output_weights": "unsigned"
+                }
+            }
+        }"#;
+        let parsed: FpgaParameters = serde_json::from_str(json).expect("explicit unsigned readout");
+        assert_eq!(
+            parsed.metadata.encodings.output_weights,
+            Some(Q88Encoding::Unsigned)
+        );
     }
 
     #[test]

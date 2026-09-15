@@ -46,7 +46,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   unreleased cycle (see Fixed, below), so it ships 0.1.0 wired to nothing.
 - `encode_q88_signed`, `q88_signed_to_f32`, `STIMULUS_Q88_MIN`, and
   `STIMULUS_Q88_MAX` — signed Q8.8 helpers (#23). Introduced for the UART TX/RX
-  path; they now back `.mem` parameter export as well (see Fixed, below).
+  path. After #60 they also backed `.mem` export; #49 moved `.mem` to
+  `encode_q88_signed_full` (see Changed, below).
 - `FpgaMetrics::tns_ns` field plus `parse_tns_from_report`, `parse_lut_utilization`,
   and `load_from_reports` — TNS from the timing summary data row and LUT
   utilization from `report_utilization` output. Absent values degrade to `0.0`
@@ -64,8 +65,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   "Signedness contract (GH#73)"): `LifNeuron` / `LifNeuronArray` and `OutputLayer`
   all `$signed`-compare at runtime. Exporting a Dale E/I bank through this crate
   therefore flattened every inhibitory weight to `0x0000` — silently, since the
-  resulting file is well-formed and loads cleanly. The export path now shares
-  `encode_q88_signed` with the UART path, so `-1.0` lands on disk as `FF00`.
+  resulting file is well-formed and loads cleanly. The export path switched to
+  signed encoding so `-1.0` lands on disk as `FF00`. #60 used
+  `encode_q88_signed` (UART clamp); #49 uses `encode_q88_signed_full`.
 
   No shipped FPGA image was affected: silicon-hdl's `merged_v2` bank came from
   the Spikenaut-SNN Julia export, not from this writer. This was a latent trap,
@@ -100,9 +102,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   instead of the UART helper's ±127.99 clamp (#49). `-128.0` is `8000` on the
   parameter path and remains `8003` on UART (`encode_q88_signed`). Docs
   distinguish signed parameter, unsigned parameter, and legacy UART encodings.
-  `FpgaMetadata` gains `encodings` (`BlockEncodings`, serde-defaulted so older
-  JSON still loads). New public field: code that builds `FpgaMetadata` with a
-  struct literal must add `encodings`.
+  `FpgaMetadata` gains `encodings` (`BlockEncodings`, `#[serde(default)]` so
+  older JSON still loads) and implements `Default` (all-signed encodings,
+  empty provenance) so struct literals can use `..Default::default()`. A
+  legacy `parameters.json` with top-level `output_weights` but no encoding
+  metadata records the readout as signed.
 - `find_fpga_ports` now matches macOS `cu.usb*` / `tty.usb*` nodes and Windows
   `COM<n>` ports as well as Linux `ttyUSB` / `ttyACM`; it previously filtered on
   a `ttyUSB` substring and so returned an empty list off Linux. `FpgaBridge::new`
