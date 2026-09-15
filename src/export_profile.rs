@@ -462,7 +462,11 @@ pub(super) fn validate_basename(name: &str) -> Result<(), ExportError> {
         });
     }
     let path = Path::new(name);
-    if path.is_absolute() {
+    if path.is_absolute()
+        || name.starts_with('/')
+        || name.starts_with('\\')
+        || looks_like_windows_drive(name)
+    {
         return Err(ExportError::UnsafeFilename {
             name: name.to_string(),
             reason: FilenameError::Absolute,
@@ -516,6 +520,13 @@ pub(super) fn validate_basename(name: &str) -> Result<(), ExportError> {
             reason: FilenameError::NotABasename,
         }),
     }
+}
+
+/// `C:` / `C:\…` prefixes are absolute on Windows and must not be treated as
+/// portable relative basenames on Unix either.
+fn looks_like_windows_drive(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
 }
 
 pub(super) fn stamp_profile_metadata(
