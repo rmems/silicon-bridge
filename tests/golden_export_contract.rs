@@ -40,10 +40,20 @@ fn parse_signed_words(lines: &[String]) -> Vec<i16> {
         .collect()
 }
 
+/// SHA-256 of fixture bytes with CR stripped so a Windows CRLF checkout
+/// matches the LF digest recorded in `checksums.sha256`.
 fn sha256_hex(path: impl AsRef<Path>) -> String {
     let bytes = fs::read(path.as_ref()).expect("checksum target");
-    let digest = Sha256::digest(&bytes);
+    sha256_lf(&bytes)
+}
+
+fn sha256_lf(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(strip_cr(bytes));
     hex_lower(&digest)
+}
+
+fn strip_cr(bytes: &[u8]) -> Vec<u8> {
+    bytes.iter().copied().filter(|&b| b != b'\r').collect()
 }
 
 fn hex_lower(bytes: &[u8]) -> String {
@@ -192,6 +202,27 @@ fn recorded_checksums_match_committed_fixtures() {
     assert!(
         checked >= 12,
         "expected a recorded checksum per committed fixture, got {checked}"
+    );
+}
+
+#[test]
+fn checksum_treats_crlf_as_the_recorded_lf_digest() {
+    let lf = fs::read(golden_root().join("generic_4x6/expected.json")).expect("fixture");
+    let crlf: Vec<u8> = lf
+        .iter()
+        .flat_map(|&b| {
+            if b == b'\n' {
+                vec![b'\r', b'\n']
+            } else {
+                vec![b]
+            }
+        })
+        .collect();
+    assert_ne!(Sha256::digest(&lf), Sha256::digest(&crlf));
+    assert_eq!(
+        sha256_lf(&lf),
+        sha256_lf(&crlf),
+        "Windows CRLF checkout must match the LF checksums.sha256 digest"
     );
 }
 

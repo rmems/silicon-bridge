@@ -39,7 +39,8 @@ reopen those issues. UART request/response golden bytes are under `uart/`
 | `spikenaut_16/` | Synthetic 16×16 hidden + 3×16 signed readout |
 | `hdl/` | Vendored `WeightRam` + `$readmemh` testbench |
 
-`checksums.sha256` pins every fixture file in this tree.
+`checksums.sha256` pins every fixture file in this tree (LF-normalized
+SHA-256; `.gitattributes` keeps `tests/golden/**` as `eol=lf`).
 
 ## Readout mismatch (recorded)
 
