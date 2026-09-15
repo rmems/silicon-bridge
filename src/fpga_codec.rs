@@ -8,9 +8,9 @@
 //! ## Profiles
 //!
 //! [`DenseQ88Layout::silicon_bridge_v3`] is the on-wire SiliconBridge v3.0
-//! frame used by current Basys3 firmware: TX `0xAA` + 16 big-endian signed
-//! Q8.8 stimuli (UART ±127.99 clamp); RX 16 potentials + a 16-bit spike mask
-//! + a 16-bit switch field (36 bytes). Changing host dimensions does **not**
+//! frame used by current Basys3 firmware: TX `0xAA` plus 16 big-endian signed
+//! Q8.8 stimuli (UART ±127.99 clamp); RX 16 potentials, a 16-bit spike mask,
+//! and a 16-bit switch field (36 bytes). Changing host dimensions does **not**
 //! make existing FPGA firmware compatible — a non-legacy layout needs a
 //! matching firmware revision.
 //!
