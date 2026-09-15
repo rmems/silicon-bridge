@@ -14,9 +14,9 @@
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use silicon_bridge::{
-    BlockEncodings, CheckedParameterExport, EXPORT_FORMAT_VERSION, FpgaParameterExporter,
-    MemFileWriter, Q88_SIGNED_MAX, Q88_SIGNED_MIN, Q88_UNSIGNED_MAX, Q88Encoding,
-    encode_q88_signed_full, encode_q88_unsigned, format_q88_hex, q88_signed_to_f32, q88_to_f32,
+    BlockEncodings, EXPORT_FORMAT_VERSION, FpgaParameterExporter, MemFileWriter, Q88_SIGNED_MAX,
+    Q88_SIGNED_MIN, Q88_UNSIGNED_MAX, Q88Encoding, encode_q88_signed_full, encode_q88_unsigned,
+    format_q88_hex, q88_signed_to_f32, q88_to_f32,
 };
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -50,12 +50,20 @@ fn hex_lower(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// Dense row-major address: `row * width + col`. Named so the layout stays
+/// visible without `0 * width` identity-op lints.
+fn dense_addr(row: usize, width: usize, col: usize) -> usize {
+    row.checked_mul(width)
+        .and_then(|base| base.checked_add(col))
+        .expect("dense address fits usize")
+}
+
 fn generic_4x6_exporter() -> FpgaParameterExporter {
     FpgaParameterExporter::from_params(
         vec![1.0, 0.5, 1.5, 0.75],
         vec![
             vec![0.5, -1.0, 0.25, 1.0, -0.5, 0.0],
-            vec![-128.0, 127.99609375, 0.00390625, -0.00390625, 2.0, -2.0],
+            vec![-128.0, Q88_SIGNED_MAX, 1.0 / 256.0, -1.0 / 256.0, 2.0, -2.0],
             vec![1.0; 6],
             vec![-0.5, 0.5, -0.5, 0.5, -0.5, 0.5],
         ],
@@ -69,13 +77,13 @@ fn spikenaut_16_exporter() -> FpgaParameterExporter {
     thresholds[15] = 1.5;
 
     let mut weights = vec![vec![0.0; 16]; 16];
-    for i in 0..16 {
-        weights[i][i] = 1.0;
+    for (i, row) in weights.iter_mut().enumerate() {
+        row[i] = 1.0;
     }
     weights[0][1] = -1.0;
     weights[1][0] = -0.5;
     weights[15][0] = -128.0;
-    weights[15][15] = 127.99609375;
+    weights[15][15] = Q88_SIGNED_MAX;
 
     let mut readout = vec![vec![0.0; 16]; 3];
     readout[0][0] = -1.0;
@@ -332,13 +340,13 @@ fn spikenaut_16_matches_committed_bundle_including_signed_readout() {
     let readout = read_mem_lines(fixture.join("parameters_output_weights.mem"));
     assert_eq!(hidden.len(), 256);
     assert_eq!(readout.len(), 48);
-    assert_eq!(hidden[0 * 16 + 1], "FF00");
-    assert_eq!(hidden[1 * 16 + 0], "FF80");
-    assert_eq!(hidden[15 * 16 + 0], "8000");
-    assert_eq!(hidden[15 * 16 + 15], "7FFF");
-    assert_eq!(readout[0 * 16 + 0], "FF00");
-    assert_eq!(readout[1 * 16 + 1], "0080");
-    assert_eq!(readout[2 * 16 + 15], "0100");
+    assert_eq!(hidden[dense_addr(0, 16, 1)], "FF00");
+    assert_eq!(hidden[dense_addr(1, 16, 0)], "FF80");
+    assert_eq!(hidden[dense_addr(15, 16, 0)], "8000");
+    assert_eq!(hidden[dense_addr(15, 16, 15)], "7FFF");
+    assert_eq!(readout[dense_addr(0, 16, 0)], "FF00");
+    assert_eq!(readout[dense_addr(1, 16, 1)], "0080");
+    assert_eq!(readout[dense_addr(2, 16, 15)], "0100");
 
     let params = spikenaut_16_exporter()
         .try_export()
@@ -355,7 +363,7 @@ fn spikenaut_16_matches_committed_bundle_including_signed_readout() {
 }
 
 #[test]
-fn readout_exporter_kxN_is_not_hdl_neuron_major() {
+fn readout_exporter_kx_n_is_not_hdl_neuron_major() {
     let fixture = golden_root().join("spikenaut_16");
     let kxn = read_mem_lines(fixture.join("parameters_output_weights.mem"));
     let nxk = read_mem_lines(fixture.join("hdl_readout_neuron_major.mem"));
@@ -365,9 +373,9 @@ fn readout_exporter_kxN_is_not_hdl_neuron_major() {
         kxn, nxk,
         "K×N exporter image must not be silently rewritten to OutputLayer N×K"
     );
-    assert_eq!(kxn[17], "0080");
-    assert_eq!(nxk[1 * 3 + 1], "0080");
-    assert_ne!(kxn[1 * 3 + 1], "0080");
+    assert_eq!(kxn[dense_addr(1, 16, 1)], "0080");
+    assert_eq!(nxk[dense_addr(1, 3, 1)], "0080");
+    assert_ne!(kxn[dense_addr(1, 3, 1)], "0080");
 }
 
 #[test]
@@ -378,7 +386,7 @@ fn corrupted_shape_fails_the_line_count_contract() {
     let mut short = generic_4x6_exporter();
     short.set_weights(vec![
         vec![0.5, -1.0, 0.25, 1.0, -0.5],
-        vec![-128.0, 127.99609375, 0.00390625, -0.00390625, 2.0],
+        vec![-128.0, Q88_SIGNED_MAX, 1.0 / 256.0, -1.0 / 256.0, 2.0],
         vec![1.0; 5],
         vec![-0.5, 0.5, -0.5, 0.5, -0.5],
     ]);

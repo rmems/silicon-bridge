@@ -33,8 +33,20 @@ require Vivado, Icarus, Verilator, or a board.
 
 ## Result recorded with this contract
 
-See the PR / commit that lands #53 for the `run.sh` transcript. A missing
-simulator is not a Rust-test failure.
+Icarus Verilog 12.0 (`iverilog -g2012` / `vvp`) on 2026-09-15, repo root
+working directory, peer pin `d45163f38ac1cd88f8a3918e3793a08ace85e132`:
+
+```text
+TB_READMEMH_CONTRACT: ALL TESTS PASSED
+peer silicon-hdl commit d45163f38ac1cd88f8a3918e3793a08ace85e132
+evidence: HDL simulation (Icarus/Verilator), not board-measured parity
+```
+
+`$readmemh` warns when the image is shorter than `2**ADDR_WIDTH` (24 words
+into a 32-deep generic bank; 48 words into a 64-deep readout bank). That is
+the documented silicon-hdl load rule (`min(file lines, depth)`); unused
+addresses are not part of the contract. A missing simulator is not a
+Rust-test failure.
 
 ## Honest mismatch
 
