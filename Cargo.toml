@@ -50,3 +50,23 @@ tempfile = "3.10"
 opt-level = 3
 lto = true
 codegen-units = 1
+
+# Fast iteration: incremental compiles, full debug info, no optimization.
+# Library dependents ignore root-package [profile.*] settings.
+[profile.dev]
+opt-level = 0
+debug = true
+incremental = true
+
+# Slightly optimized so the unit/doctest suite runs faster without
+# slowing compile much relative to `dev`.
+[profile.test]
+inherits = "dev"
+opt-level = 1
+
+# Mirrors `release` so future Criterion benches reflect real performance;
+# keep debug symbols for later profiler / Criterion symbolization.
+[profile.bench]
+inherits = "release"
+debug = true
+strip = false
