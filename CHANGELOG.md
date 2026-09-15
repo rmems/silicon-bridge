@@ -98,6 +98,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Post-transfer hygiene: live docs, CI badge, package `homepage`, and MIT
+  copyright point at [`rmems/silicon-bridge`](https://github.com/rmems/silicon-bridge)
+  after return from Limen-Neural (#27). Wiki is enabled under `rmems`; durable
+  docs stay in-repo. Sibling links that still live under Limen-Neural
+  (`neuromod`, `nir-rs`) are left intact.
 - Parameter `.mem` export uses full-range signed Q8.8 (`encode_q88_signed_full`)
   instead of the UART helper's ±127.99 clamp (#49). `-128.0` is `8000` on the
   parameter path and remains `8003` on UART (`encode_q88_signed`). Docs
