@@ -139,8 +139,9 @@ pub trait MemFileWriter {
 
 /// Default FPGA parameter exporter for the silicon-hdl Q8.8 layout.
 ///
-/// Exports learned SNN parameters in Q8.8 fixed-point format for FPGA
-/// deployment with a &lt;35µs/tick target latency budget.
+/// Exports learned SNN parameters in Q8.8 fixed-point format. Metadata records
+/// a 35 µs/tick **design target** (`FpgaMetadata::target_latency_us`); that
+/// number is not a measured latency of this export or of any board.
 pub struct FpgaParameterExporter {
     thresholds: Vec<f32>,
     weights: Vec<Vec<f32>>,
@@ -151,6 +152,10 @@ pub struct FpgaParameterExporter {
     decay_encoding: Q88Encoding,
     readout_encoding: Q88Encoding,
     range_policy: RangePolicy,
+    /// Layout tag written into [`FpgaMetadata::version`].
+    format_version: String,
+    /// Caller-supplied RFC 3339 timestamp; `None` uses `chrono::Utc::now`.
+    timestamp: Option<String>,
 }
 
 /// Which parameter bank a validation error refers to.
@@ -344,6 +349,29 @@ pub enum RangePolicy {
     /// cannot be silently dropped.
     Saturate,
 }
+
+/// Failure from [`FpgaParameterExporter::set_timestamp`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MetadataTimestampError {
+    /// The string is not RFC 3339.
+    InvalidRfc3339,
+    /// RFC 3339 parsed, but the offset is not UTC (`Z` or `±00:00`).
+    NotUtc,
+}
+
+impl fmt::Display for MetadataTimestampError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidRfc3339 => write!(f, "timestamp is not RFC 3339"),
+            Self::NotUtc => write!(
+                f,
+                "timestamp must be UTC (RFC 3339 with Z or a zero offset)"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for MetadataTimestampError {}
 
 /// One value that [`RangePolicy::Saturate`] clamped before encoding.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -649,16 +677,24 @@ pub struct FpgaParameters {
 /// `..Default::default()`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FpgaMetadata {
-    /// Format tag for the `.mem` bundle — [`EXPORT_FORMAT_VERSION`] for any
-    /// metadata produced by [`ParameterExport::export`]. Not the crate
-    /// version: downstream tooling keys on this string, so it moves only
-    /// when the on-disk layout does.
+    /// Format tag for the `.mem` bundle. Defaults to [`EXPORT_FORMAT_VERSION`]
+    /// (`Spikenaut-v2`) unless the caller set
+    /// [`FpgaParameterExporter::set_format_version`]. That default is a
+    /// historical **layout identifier**, not proof of a trained Spikenaut
+    /// model. Generic consumers should override it. Not the crate version:
+    /// downstream tooling keys on this string, so the default moves only when
+    /// the on-disk layout does.
     ///
     /// Not a validated invariant of the type itself: `FpgaMetadata` is public
     /// and `Deserialize`, so a value built by hand or read from an
     /// externally-supplied `parameters.json` can carry any string here.
     pub version: String,
-    /// RFC 3339 UTC timestamp of the export, from `chrono::Utc::now`.
+    /// RFC 3339 UTC timestamp of the export.
+    ///
+    /// [`FpgaParameterExporter`] uses `chrono::Utc::now` unless
+    /// [`FpgaParameterExporter::set_timestamp`] supplied a fixed RFC 3339 UTC
+    /// string. [`FpgaParameterExporter::use_wall_clock_timestamp`] restores
+    /// that default. Caller-supplied values are parsed before they are stored.
     pub timestamp: String,
     /// Number of neurons, taken from the threshold count.
     ///
@@ -744,6 +780,8 @@ impl FpgaParameterExporter {
             decay_encoding: Q88Encoding::Signed,
             readout_encoding: Q88Encoding::Signed,
             range_policy: RangePolicy::Reject,
+            format_version: EXPORT_FORMAT_VERSION.to_string(),
+            timestamp: None,
         }
     }
 
@@ -825,6 +863,52 @@ impl FpgaParameterExporter {
         self.range_policy = policy;
     }
 
+    /// Set the layout tag written into [`FpgaMetadata::version`].
+    ///
+    /// The default is [`EXPORT_FORMAT_VERSION`] (`Spikenaut-v2`), a historical
+    /// layout identifier. It does **not** change word width, signedness, or
+    /// flattening. Generic consumers should pass a name that does not imply
+    /// a Spikenaut model (for example `generic-dense-q88`).
+    pub fn set_format_version(&mut self, version: impl Into<String>) {
+        self.format_version = version.into();
+    }
+
+    /// Set the timestamp written into [`FpgaMetadata::timestamp`].
+    ///
+    /// `timestamp` must be RFC 3339 with a UTC offset (`Z` or `±00:00`).
+    /// The caller’s spelling is stored unchanged so repeated exports stay
+    /// byte-identical. Non-UTC offsets and unparsable strings return
+    /// [`MetadataTimestampError`]. Call [`Self::use_wall_clock_timestamp`] to
+    /// restore `chrono::Utc::now` at export time (the default).
+    pub fn set_timestamp(
+        &mut self,
+        timestamp: impl AsRef<str>,
+    ) -> Result<(), MetadataTimestampError> {
+        let timestamp = timestamp.as_ref();
+        let parsed = chrono::DateTime::parse_from_rfc3339(timestamp)
+            .map_err(|_| MetadataTimestampError::InvalidRfc3339)?;
+        if parsed.offset().local_minus_utc() != 0 {
+            return Err(MetadataTimestampError::NotUtc);
+        }
+        self.timestamp = Some(timestamp.to_owned());
+        Ok(())
+    }
+
+    /// Restore wall-clock timestamps (`chrono::Utc::now` at export time).
+    pub fn use_wall_clock_timestamp(&mut self) {
+        self.timestamp = None;
+    }
+
+    fn metadata_version(&self) -> String {
+        self.format_version.clone()
+    }
+
+    fn metadata_timestamp(&self) -> String {
+        self.timestamp
+            .clone()
+            .unwrap_or_else(|| chrono::Utc::now().to_rfc3339())
+    }
+
     fn block_encodings(&self, include_readout: bool) -> BlockEncodings {
         BlockEncodings {
             thresholds: self.threshold_encoding,
@@ -873,6 +957,8 @@ impl FpgaParameterExporter {
             decay_encoding: Q88Encoding::Signed,
             readout_encoding: Q88Encoding::Signed,
             range_policy: RangePolicy::Reject,
+            format_version: EXPORT_FORMAT_VERSION.to_string(),
+            timestamp: None,
         }
     }
 
@@ -1199,8 +1285,8 @@ impl FpgaParameterExporter {
         output_weights: Option<Vec<i16>>,
     ) -> FpgaParameters {
         let metadata = FpgaMetadata {
-            version: EXPORT_FORMAT_VERSION.to_string(),
-            timestamp: chrono::Utc::now().to_rfc3339(),
+            version: self.metadata_version(),
+            timestamp: self.metadata_timestamp(),
             num_neurons: self.thresholds.len(),
             num_channels: if self.weights.is_empty() {
                 0
@@ -1402,8 +1488,8 @@ impl ParameterExport for FpgaParameterExporter {
             .collect();
 
         let metadata = FpgaMetadata {
-            version: EXPORT_FORMAT_VERSION.to_string(),
-            timestamp: chrono::Utc::now().to_rfc3339(),
+            version: self.metadata_version(),
+            timestamp: self.metadata_timestamp(),
             num_neurons: self.thresholds.len(),
             num_channels: if self.weights.is_empty() {
                 0
@@ -1751,6 +1837,65 @@ mod tests {
         assert_eq!(params.thresholds, vec![256]);
         assert_eq!(params.weights, vec![128]);
         assert_eq!(params.decay_rates, vec![230]);
+    }
+
+    #[test]
+    fn format_version_override_is_not_forced_to_spikenaut() {
+        let mut exporter =
+            FpgaParameterExporter::from_params(vec![1.0], vec![vec![-1.0]], vec![0.5]);
+        exporter.set_format_version("generic-dense-q88");
+        exporter
+            .set_timestamp("1970-01-01T00:00:00Z")
+            .expect("rfc3339 utc");
+
+        let params = exporter.try_export().expect("checked");
+        assert_eq!(params.metadata.version, "generic-dense-q88");
+        assert_eq!(params.metadata.timestamp, "1970-01-01T00:00:00Z");
+        assert_eq!(params.weights[0], -256);
+        assert!(
+            !params.metadata.version.contains("Spikenaut"),
+            "generic layout tag must not inherit Spikenaut identity"
+        );
+
+        let again = exporter.try_export().expect("repeat");
+        assert_eq!(params.metadata.timestamp, again.metadata.timestamp);
+        assert_eq!(params.metadata.version, again.metadata.version);
+    }
+
+    #[test]
+    fn wall_clock_timestamp_can_be_restored() {
+        let mut exporter =
+            FpgaParameterExporter::from_params(vec![1.0], vec![vec![0.5]], vec![0.5]);
+        exporter
+            .set_timestamp("1970-01-01T00:00:00Z")
+            .expect("rfc3339 utc");
+        exporter.use_wall_clock_timestamp();
+        let params = exporter.try_export().expect("checked");
+        assert_ne!(params.metadata.timestamp, "1970-01-01T00:00:00Z");
+        assert!(!params.metadata.timestamp.is_empty());
+    }
+
+    #[test]
+    fn set_timestamp_rejects_empty_invalid_and_non_utc() {
+        let mut exporter =
+            FpgaParameterExporter::from_params(vec![1.0], vec![vec![0.5]], vec![0.5]);
+        assert_eq!(
+            exporter.set_timestamp(""),
+            Err(MetadataTimestampError::InvalidRfc3339)
+        );
+        assert_eq!(
+            exporter.set_timestamp("not-a-timestamp"),
+            Err(MetadataTimestampError::InvalidRfc3339)
+        );
+        assert_eq!(
+            exporter.set_timestamp("2020-01-01T00:00:00-05:00"),
+            Err(MetadataTimestampError::NotUtc)
+        );
+        exporter
+            .set_timestamp("1970-01-01T00:00:00+00:00")
+            .expect("explicit zero offset is UTC");
+        let params = exporter.try_export().expect("checked");
+        assert_eq!(params.metadata.timestamp, "1970-01-01T00:00:00+00:00");
     }
 
     /// Small fixture whose floats are exact Q8.8 multiples of 1/256.

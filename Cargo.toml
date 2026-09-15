@@ -19,11 +19,17 @@ keywords = ["snn", "fpga", "neuromorphic", "silicon", "q8-8"]
 categories = ["science", "hardware-support", "algorithms"]
 # Allow-list rather than `exclude = ["docs/"]`: an exclude list silently ships
 # anything added later, which is how AGENTS.md, CLAUDE.md, REVIEW.md, .codacy.yml
-# and .github/ ended up in the published tarball. docs/ stays out — logo.png
-# alone is 2.4 MB, and crates.io resolves the README's relative links against
-# `repository`.
+# and .github/ ended up in the published tarball. `docs/logo.png` stays out
+# (2.4 MB). The two markdown files the README links are included so an
+# unpacked package still has the consumer/release guides. `examples/` ships so
+# a packaged-crate consumer can compile the public demos without a git
+# checkout.
 include = [
     "src/**/*.rs",
+    "examples/**/*.rs",
+    "examples/README.md",
+    "docs/consumer.md",
+    "docs/release-readiness.md",
     "README.md",
     "CHANGELOG.md",
     "LICENSE-MIT",
