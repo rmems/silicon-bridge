@@ -397,6 +397,16 @@ pub struct FpgaBridge {
     active: bool,
 }
 
+impl fmt::Debug for FpgaBridge {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FpgaBridge")
+            .field("port", &self.port.name())
+            .field("transport_open", &self.transport_open)
+            .field("active", &self.active)
+            .finish()
+    }
+}
+
 /// Report whether `port_name` looks like a USB serial adapter an FPGA dev
 /// board would appear as.
 ///
@@ -955,7 +965,7 @@ mod tests {
     fn open_missing_port_is_an_open_error_with_the_requested_name() {
         let err = FpgaBridge::open(missing_port_name()).expect_err("path must not exist");
         match err {
-            SerialError::Open { port, .. } => assert_eq!(port, missing_port_name()),
+            SerialError::Open { ref port, .. } => assert_eq!(port, missing_port_name()),
             other => panic!("expected Open, got {other}"),
         }
         assert!(err.to_string().contains(missing_port_name()));
@@ -1322,7 +1332,7 @@ mod tests {
             .expect_err("baud refused");
         match err {
             SerialError::Configure {
-                port,
+                ref port,
                 operation,
                 ref source,
             } => {
