@@ -14,6 +14,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   instead of writing `.mem` files that load misaligned into `WeightRam`.
   `ParameterExport::export` stays infallible and still flattens; its rustdoc
   points at `validate`.
+- Checked FPGA parameter export (#48): `CheckedParameterExport::try_export`,
+  `FpgaParameterExporter::try_export_with_report`, and typed
+  `ParameterShapeError` variants for empty layers, neuron-count mismatches,
+  optional `K×N` readout shape, non-finite values, and out-of-range values.
+  `MemFileWriter::write_mem_files` uses the checked path and returns
+  `ExportError` (shape / I/O / JSON / unsigned hardware encoding) instead of
+  `Box<dyn Error>`, preserving I/O causes. Out-of-range values are rejected
+  under the default `RangePolicy::Reject`. `try_export` and
+  `write_mem_files` refuse `RangePolicy::Saturate` so a `SaturationReport`
+  cannot be dropped; use `try_export_with_report` to clamp and inspect.
+  Hardware `.mem` writes refuse `Q88Encoding::Unsigned` because silicon-hdl
+  RAM is signed (`200.0` as unsigned `C800` would read as `-56.0`).
+  Re-exporting without a readout deletes a leftover
+  `parameters_output_weights.mem`. The infallible `ParameterExport::export` is
+  unchanged (flatten + saturate) and remains the documented legacy wrapper.
 - `FpgaBridge::open` and `is_fpga_port_name` (`uart` feature) — open a serial
   port by name, and classify a port name across Linux, macOS, and Windows.
 - `encode_q88_unsigned` — free-function unsigned-magnitude Q8.8 encoder (#23).

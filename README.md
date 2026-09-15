@@ -23,8 +23,9 @@ stimuli and reading back spike states at runtime.
 
 - **Export traits** for hardware alignment with [silicon-hdl](https://github.com/rmems/silicon-hdl):
   - `FixedPointEncode` — `f32` → signed Q8.8 (`i16`)
-  - `ParameterExport` — build the FPGA parameter bundle
-  - `MemFileWriter` — write `$readmemh` `.mem` files
+  - `ParameterExport` — build the FPGA parameter bundle (infallible, legacy)
+  - `CheckedParameterExport` — same bundle, or a typed `ParameterShapeError`
+  - `MemFileWriter` — write `$readmemh` `.mem` files (validates before writing)
 - `FpgaParameterExporter` — default implementation of those traits
 - `format_q88_hex` / `encode_q88_signed` / `q88_signed_to_f32` — Q8.8 helpers
 - `FpgaBridge` — blocking UART host protocol for host–FPGA spike exchange,
@@ -51,17 +52,22 @@ silicon-bridge = "0.1"
 ### Export Parameters
 
 ```rust
-use silicon_bridge::{FpgaParameterExporter, ParameterExport};
+use silicon_bridge::{CheckedParameterExport, FpgaParameterExporter};
 
 let mut exporter = FpgaParameterExporter::new();
 exporter.set_thresholds(vec![0.6; 16]);
 exporter.set_weights(vec![vec![0.5; 16]; 16]);
 exporter.set_decay_rates(vec![0.9; 16]);
 
-let params = ParameterExport::export(&exporter);
+let params = exporter.try_export().expect("rectangular, finite, in-range");
 // → params.thresholds, .weights, .decay_rates are Vec<i16> (signed Q8.8)
 // → negative (Dale-inhibitory) weights survive: -1.0 → -256 → `FF00`
 // → ready for silicon-hdl WeightRam / NeuronParamRam via Vivado $readmemh
+
+// ParameterExport::export is the documented legacy wrapper: it still
+// flattens a ragged matrix and saturates out-of-range values. Prefer try_export
+// (or MemFileWriter::write_mem_files) for any image that will be synthesized.
+let _legacy = silicon_bridge::ParameterExport::export(&exporter);
 ```
 
 ### UART Spike Readback (requires the `uart` feature)

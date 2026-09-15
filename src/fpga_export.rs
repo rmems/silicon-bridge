@@ -11,7 +11,9 @@
 //! concrete [`FpgaParameterExporter`] type when possible:
 //!
 //! - [`FixedPointEncode`] — `f32` → Q8.8 `i16`
-//! - [`ParameterExport`] — produce [`FpgaParameters`]
+//! - [`ParameterExport`] — produce [`FpgaParameters`] (infallible, legacy)
+//! - [`CheckedParameterExport`] — produce [`FpgaParameters`] or a typed
+//!   [`ParameterShapeError`]
 //! - [`MemFileWriter`] — write `.mem` + metadata JSON
 //!
 //! ## Q8.8 convention used here: signed two's complement
@@ -42,9 +44,10 @@
 //! nothing in this crate builds hardware images with them.
 
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::fs;
-use std::io::Write;
-use std::path::Path;
+use std::io::{ErrorKind, Write};
+use std::path::{Path, PathBuf};
 
 /// Metadata / layout tag for the Q8.8 `.mem` bundle shared with silicon-hdl.
 ///
@@ -81,20 +84,51 @@ pub trait ParameterExport {
     ///
     /// Weight rows are flattened row-major, and the width is reported as
     /// `FpgaMetadata::num_channels` from the first row alone. This method is
-    /// infallible, so a ragged matrix still flattens — check the shape with
-    /// [`FpgaParameterExporter::validate`] first, or write through
-    /// [`MemFileWriter::write_mem_files`], which validates for you.
+    /// **infallible**: a ragged matrix still flattens, neuron counts are not
+    /// cross-checked, and `NaN` / out-of-range values saturate through the
+    /// encoder. That is the documented legacy contract.
+    ///
+    /// Prefer [`CheckedParameterExport::try_export`] or
+    /// [`FpgaParameterExporter::validate`] before producing an FPGA image, or
+    /// write through [`MemFileWriter::write_mem_files`], which uses the
+    /// checked path.
     fn export(&self) -> FpgaParameters;
+}
+
+/// Checked SNN parameter export that rejects a malformed bundle.
+///
+/// Unlike [`ParameterExport::export`], this path never produces a
+/// valid-looking parameter image from empty, ragged, dimension-mismatched,
+/// non-finite, or (under the default [`RangePolicy::Reject`]) out-of-range
+/// inputs. [`RangePolicy::Saturate`] is rejected here so a
+/// [`SaturationReport`] cannot be dropped; use
+/// [`FpgaParameterExporter::try_export_with_report`] to clamp and inspect.
+pub trait CheckedParameterExport {
+    /// Typed validation failure. Implementors should use
+    /// [`ParameterShapeError`] rather than a parallel error enum.
+    type Error;
+
+    /// Validate the complete bundle and encode it.
+    ///
+    /// Out-of-range rejection depends on [`RangePolicy::Reject`] (the
+    /// default). [`RangePolicy::Saturate`] must go through
+    /// [`FpgaParameterExporter::try_export_with_report`].
+    fn try_export(&self) -> Result<FpgaParameters, Self::Error>;
 }
 
 /// Write Q8.8 parameter vectors as Vivado `$readmemh` `.mem` files.
 pub trait MemFileWriter {
-    /// Error type for filesystem / I/O failures, and for a parameter shape
-    /// that cannot be represented as a flat `.mem` file.
+    /// Filesystem / I/O failures, plus a parameter bundle that cannot be
+    /// represented as a flat `.mem` file.
     type Error;
 
     /// Write `parameters.mem`, `parameters_weights.mem`, `parameters_decay.mem`,
     /// and `parameters.json` under `output_dir`.
+    ///
+    /// Implementations must validate the complete bundle **before** creating
+    /// or truncating any output file. A validation failure leaves existing
+    /// files untouched. This does not claim multi-file atomicity if a later
+    /// filesystem write fails.
     fn write_mem_files(&self, output_dir: impl AsRef<Path>) -> Result<(), Self::Error>;
 }
 
@@ -106,15 +140,196 @@ pub struct FpgaParameterExporter {
     thresholds: Vec<f32>,
     weights: Vec<Vec<f32>>,
     decay_rates: Vec<f32>,
+    output_weights: Option<Vec<Vec<f32>>>,
+    threshold_encoding: Q88Encoding,
+    weight_encoding: Q88Encoding,
+    decay_encoding: Q88Encoding,
+    readout_encoding: Q88Encoding,
+    range_policy: RangePolicy,
 }
 
-/// A parameter set whose shape cannot be laid out in FPGA memory.
-///
-/// Returned by [`FpgaParameterExporter::validate`] and, through
-/// `Box<dyn Error>`, by [`MemFileWriter::write_mem_files`].
+/// Which parameter bank a validation error refers to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParameterBlock {
+    /// Per-neuron fire thresholds (`N` values).
+    Thresholds,
+    /// Hidden-layer weight matrix (`N` rows × `M` inputs).
+    Weights,
+    /// Per-neuron decay rates (`N` values).
+    DecayRates,
+    /// Optional readout / output-layer weights (`K` rows × `N` hidden neurons).
+    Readout,
+}
+
+impl fmt::Display for ParameterBlock {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Thresholds => write!(f, "thresholds"),
+            Self::Weights => write!(f, "weights"),
+            Self::DecayRates => write!(f, "decay_rates"),
+            Self::Readout => write!(f, "output_weights"),
+        }
+    }
+}
+
+/// Location of a scalar inside a parameter block.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ParameterLocation {
+    /// Parameter bank that contains the value.
+    pub block: ParameterBlock,
+    /// Neuron index, or matrix row.
+    pub neuron: usize,
+    /// Channel / column for a matrix; `None` for a per-neuron vector.
+    pub channel: Option<usize>,
+}
+
+impl fmt::Display for ParameterLocation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.channel {
+            Some(channel) => write!(f, "{}[{}, {}]", self.block, self.neuron, channel),
+            None => write!(f, "{}[{}]", self.block, self.neuron),
+        }
+    }
+}
+
+/// Why a value is not a finite `f32`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NonFiniteKind {
+    /// `f32::NAN` (any payload).
+    Nan,
+    /// `+∞`.
+    PosInfinity,
+    /// `-∞`.
+    NegInfinity,
+}
+
+impl fmt::Display for NonFiniteKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Nan => write!(f, "NaN"),
+            Self::PosInfinity => write!(f, "+inf"),
+            Self::NegInfinity => write!(f, "-inf"),
+        }
+    }
+}
+
+/// Q8.8 numeric interpretation used for representability checks.
+///
+/// Per-block signed/unsigned *policy* (which blocks default to which encoding,
+/// and the full `[-128, 127.99609375]` signed contract) is owned by issue
+/// #49. This enum is the validation hook that #48 needs so range errors can
+/// name the encoding they were checked against.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Q88Encoding {
+    /// Signed two's-complement Q8.8, matching [`encode_q88_signed`].
+    ///
+    /// Representable without saturation: [`STIMULUS_Q88_MIN`]`..=`[`STIMULUS_Q88_MAX`].
+    #[default]
+    Signed,
+    /// Unsigned-magnitude Q8.8, matching [`encode_q88_unsigned`].
+    ///
+    /// Representable without saturation: `0.0..=`[`Q88_UNSIGNED_MAX`].
+    ///
+    /// Encoded words are stored in [`FpgaParameters`] as `i16` via `u16 as
+    /// i16` so the 16-bit pattern is preserved (`200.0` → `0xC800`, which is
+    /// `-14336` as a signed integer). silicon-hdl RAM interprets every `.mem`
+    /// word as signed two's-complement, so that pattern is `-56.0`, not
+    /// `200.0`. [`MemFileWriter::write_mem_files`] therefore refuses this
+    /// variant ([`ExportError::UnsignedHardwareEncoding`]). Use it only for
+    /// in-memory range checks; fuller per-block signedness policy is #49.
+    Unsigned,
+}
+
+impl Q88Encoding {
+    /// Inclusive bounds the checked path treats as representable for `self`.
+    pub fn representable_range(self) -> (f32, f32) {
+        match self {
+            Self::Signed => (STIMULUS_Q88_MIN, STIMULUS_Q88_MAX),
+            Self::Unsigned => (0.0, Q88_UNSIGNED_MAX),
+        }
+    }
+}
+
+impl fmt::Display for Q88Encoding {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Signed => write!(f, "signed Q8.8"),
+            Self::Unsigned => write!(f, "unsigned Q8.8"),
+        }
+    }
+}
+
+/// What the checked path does with a finite value outside the encoding range.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RangePolicy {
+    /// Reject the bundle. This is the default; silent saturation is not a
+    /// safe FPGA-image default.
+    #[default]
+    Reject,
+    /// Clamp to the encoding bounds and record every clamp in a
+    /// [`SaturationReport`]. Non-finite inputs are still errors.
+    ///
+    /// Only [`FpgaParameterExporter::try_export_with_report`] applies this
+    /// policy. [`CheckedParameterExport::try_export`] and
+    /// [`MemFileWriter::write_mem_files`] return
+    /// [`ParameterShapeError::SaturationRequiresReport`] so the clamp list
+    /// cannot be silently dropped.
+    Saturate,
+}
+
+/// One value that [`RangePolicy::Saturate`] clamped before encoding.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SaturationEvent {
+    /// Where the original value sat in the bundle.
+    pub location: ParameterLocation,
+    /// Caller-supplied float, before clamping.
+    pub original: f32,
+    /// Value actually encoded, after clamping to the encoding bounds.
+    pub saturated_to: f32,
+    /// Encoding whose bounds were applied.
+    pub encoding: Q88Encoding,
+}
+
+/// Observable record of every clamp performed under [`RangePolicy::Saturate`].
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SaturationReport {
+    /// Clamped values, in scan order (thresholds, then weights row-major,
+    /// then decay, then readout).
+    pub events: Vec<SaturationEvent>,
+}
+
+impl SaturationReport {
+    /// Whether any value was clamped.
+    pub fn is_empty(&self) -> bool {
+        self.events.is_empty()
+    }
+
+    /// Number of clamped values.
+    pub fn len(&self) -> usize {
+        self.events.len()
+    }
+}
+
+/// A parameter set that cannot be exported as a valid FPGA image.
+///
+/// Returned by [`FpgaParameterExporter::validate`] and
+/// [`CheckedParameterExport::try_export`]. [`MemFileWriter::write_mem_files`]
+/// wraps it in [`ExportError::InvalidParameters`].
+///
+/// Extended in place from the original rectangularity-only type (PR #41 /
+/// `RaggedWeights`). New variants cover empty dimensions, neuron-count
+/// mismatches, optional readout shape, non-finite values, representability,
+/// and report-less saturation. The enum stays `#[non_exhaustive]`.
+#[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
 pub enum ParameterShapeError {
+    /// No neurons: thresholds, decay, and hidden weights are all empty.
+    EmptyLayer,
+    /// A required block is empty (zero length, or a weight matrix with `M = 0`).
+    EmptyBlock {
+        /// Which block was empty.
+        block: ParameterBlock,
+    },
     /// The weight rows disagree in length, so the flattened buffer and
     /// `FpgaMetadata::num_channels` describe different matrices.
     RaggedWeights {
@@ -125,15 +340,128 @@ pub enum ParameterShapeError {
         /// Length of that row.
         len: usize,
     },
+    /// Thresholds, decay, or hidden-weight *row count* disagrees with `N`.
+    ///
+    /// `N` is the threshold count. Hidden weights must have `N` rows; decay
+    /// must have `N` values. There is no hard-coded neuron count.
+    DimensionMismatch {
+        /// Block whose length disagrees with `N`.
+        block: ParameterBlock,
+        /// Expected length (`N`, from the threshold vector).
+        expected: usize,
+        /// Length actually supplied.
+        actual: usize,
+    },
+    /// Optional readout rows disagree in length.
+    RaggedReadout {
+        /// Width taken from the first readout row (must equal `N`).
+        expected: usize,
+        /// Index of the first row that does not have that width.
+        row: usize,
+        /// Length of that row.
+        len: usize,
+    },
+    /// Optional readout is present but is not `K` rows by `N` hidden columns.
+    ReadoutShape {
+        /// Hidden-neuron count `N`, required as the column count.
+        expected_cols: usize,
+        /// Column count of the (rectangular) readout matrix.
+        actual_cols: usize,
+        /// Number of readout rows `K`.
+        rows: usize,
+    },
+    /// `NaN` or infinities are rejected before quantization on the checked path.
+    NonFinite {
+        /// Block, row, and column of the offending value.
+        location: ParameterLocation,
+        /// Whether the value was NaN, `+inf`, or `-inf`.
+        kind: NonFiniteKind,
+    },
+    /// Finite value outside the selected encoding's representable range.
+    OutOfRange {
+        /// Block, row, and column of the offending value.
+        location: ParameterLocation,
+        /// The finite input that would saturate.
+        value: f32,
+        /// Encoding whose bounds were applied.
+        encoding: Q88Encoding,
+        /// Inclusive lower bound of that encoding.
+        min: f32,
+        /// Inclusive upper bound of that encoding.
+        max: f32,
+    },
+    /// [`RangePolicy::Saturate`] was selected on a report-less export path.
+    ///
+    /// [`CheckedParameterExport::try_export`] and
+    /// [`MemFileWriter::write_mem_files`] would otherwise encode the clamped
+    /// values and drop the [`SaturationReport`]. Call
+    /// [`FpgaParameterExporter::try_export_with_report`] instead.
+    SaturationRequiresReport,
 }
 
-impl std::fmt::Display for ParameterShapeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ParameterShapeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::EmptyLayer => write!(
+                f,
+                "parameter layer is empty: need N>0 thresholds, N decay rates, \
+                 and an N×M (M>0) weight matrix"
+            ),
+            Self::EmptyBlock { block } => {
+                write!(
+                    f,
+                    "{block} is empty; a dense layer cannot have a zero dimension"
+                )
+            }
             Self::RaggedWeights { expected, row, len } => write!(
                 f,
                 "weight matrix is not rectangular: row 0 has {expected} channels \
                  but row {row} has {len}; a flattened .mem file cannot describe it"
+            ),
+            Self::DimensionMismatch {
+                block,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "{block} length is {actual}, expected {expected} (the neuron count N \
+                 taken from thresholds)"
+            ),
+            Self::RaggedReadout { expected, row, len } => write!(
+                f,
+                "readout matrix is not rectangular: row 0 has {expected} columns \
+                 but row {row} has {len}"
+            ),
+            Self::ReadoutShape {
+                expected_cols,
+                actual_cols,
+                rows,
+            } => write!(
+                f,
+                "readout is {rows}×{actual_cols}, expected K×{expected_cols} \
+                 (K output rows by N hidden-neuron columns)"
+            ),
+            Self::NonFinite { location, kind } => {
+                write!(
+                    f,
+                    "{location} is {kind}; non-finite values cannot be quantized"
+                )
+            }
+            Self::OutOfRange {
+                location,
+                value,
+                encoding,
+                min,
+                max,
+            } => write!(
+                f,
+                "{location} value {value} is outside {encoding} range {min}..={max}"
+            ),
+            Self::SaturationRequiresReport => write!(
+                f,
+                "RangePolicy::Saturate cannot be used with try_export because \
+                 saturation events would be discarded; call try_export_with_report \
+                 instead"
             ),
         }
     }
@@ -141,15 +469,103 @@ impl std::fmt::Display for ParameterShapeError {
 
 impl std::error::Error for ParameterShapeError {}
 
-/// FPGA-compatible parameter format
+/// Failure from the checked `.mem` writer.
+///
+/// Validation failures are [`ExportError::InvalidParameters`]. Unsigned
+/// encoding on the hardware path is [`ExportError::UnsignedHardwareEncoding`].
+/// I/O and JSON failures preserve their underlying cause via
+/// [`std::error::Error::source`].
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum ExportError {
+    /// The parameter bundle failed [`FpgaParameterExporter::validate`] /
+    /// [`CheckedParameterExport::try_export`].
+    InvalidParameters(ParameterShapeError),
+    /// Directory creation or file write failed.
+    Io {
+        /// Path that was being created or written.
+        path: PathBuf,
+        /// Underlying I/O error.
+        source: std::io::Error,
+    },
+    /// `parameters.json` could not be serialized.
+    Serialize {
+        /// Path that would have received the JSON.
+        path: PathBuf,
+        /// Underlying serde error.
+        source: serde_json::Error,
+    },
+    /// A block was configured as [`Q88Encoding::Unsigned`] on the hardware
+    /// `.mem` writer.
+    ///
+    /// silicon-hdl RAM is signed two's-complement Q8.8. An unsigned word
+    /// above 127.996 is stored as an `i16` bit pattern that the FPGA reads
+    /// as a negative (for example unsigned `200.0` → `C800` → `-56.0`).
+    UnsignedHardwareEncoding {
+        /// Block configured as unsigned-magnitude Q8.8.
+        block: ParameterBlock,
+    },
+}
+
+impl fmt::Display for ExportError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidParameters(err) => write!(f, "{err}"),
+            Self::Io { path, source } => {
+                write!(f, "I/O error writing {}: {source}", path.display())
+            }
+            Self::Serialize { path, source } => {
+                write!(f, "failed to serialize {}: {source}", path.display())
+            }
+            Self::UnsignedHardwareEncoding { block } => write!(
+                f,
+                "hardware .mem export requires signed Q8.8; {block} is unsigned \
+                 (values above 127.996 would be interpreted as negatives by \
+                 silicon-hdl RAM)"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ExportError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::InvalidParameters(err) => Some(err),
+            Self::Io { source, .. } => Some(source),
+            Self::Serialize { source, .. } => Some(source),
+            Self::UnsignedHardwareEncoding { .. } => None,
+        }
+    }
+}
+
+impl From<ParameterShapeError> for ExportError {
+    fn from(err: ParameterShapeError) -> Self {
+        Self::InvalidParameters(err)
+    }
+}
+
+/// FPGA-compatible parameter format.
+///
+/// Vectors hold raw 16-bit Q8.8 words stored as `i16`. Hardware `.mem` images
+/// are signed two's-complement. An in-memory [`Q88Encoding::Unsigned`] encode
+/// stores the unsigned bit pattern via `as i16`; values above 127.996
+/// therefore appear negative if interpreted as signed.
+/// [`MemFileWriter::write_mem_files`] refuses that encoding so FPGA RAM never
+/// sees the reinterpretation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FpgaParameters {
-    /// Neuron thresholds as signed Q8.8 raw words
+    /// Neuron thresholds as Q8.8 raw words (`i16` bit patterns).
     pub thresholds: Vec<i16>,
-    /// Weight matrix [neurons x channels] as signed Q8.8 raw words
+    /// Weight matrix [neurons x channels] as Q8.8 raw words (`i16` bit patterns).
     pub weights: Vec<i16>,
-    /// Decay rates as signed Q8.8 raw words
+    /// Decay rates as Q8.8 raw words (`i16` bit patterns).
     pub decay_rates: Vec<i16>,
+    /// Optional readout / output-layer weights, flattened row-major as `K×N`.
+    ///
+    /// `None` when the exporter has no readout block. Omitted from JSON when
+    /// absent so existing `parameters.json` fixtures keep loading.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_weights: Option<Vec<i16>>,
     /// Metadata about the parameter set
     pub metadata: FpgaMetadata,
 }
@@ -173,11 +589,10 @@ pub struct FpgaMetadata {
     pub timestamp: String,
     /// Number of neurons, taken from the threshold count.
     ///
-    /// Not cross-checked against the weight-row count: `weights.len()` can
-    /// disagree with `thresholds.len()`, in which case this field and
-    /// `num_channels` describe a matrix the weight buffer does not actually
-    /// have that many rows of. That is a deliberate, tracked limitation, not
-    /// an oversight — not enforced here yet.
+    /// Not an invariant of this public struct: [`ParameterExport::export`]
+    /// still copies the threshold count without cross-checking the weight
+    /// rows. The checked path ([`CheckedParameterExport::try_export`]) requires
+    /// `N` thresholds, `N` decay rates, and `N` weight rows.
     pub num_neurons: usize,
     /// Weight-matrix width, taken from the first weight row (`0` when there
     /// are no weights).
@@ -211,6 +626,12 @@ impl FpgaParameterExporter {
             thresholds: Vec::new(),
             weights: Vec::new(),
             decay_rates: Vec::new(),
+            output_weights: None,
+            threshold_encoding: Q88Encoding::Signed,
+            weight_encoding: Q88Encoding::Signed,
+            decay_encoding: Q88Encoding::Signed,
+            readout_encoding: Q88Encoding::Signed,
+            range_policy: RangePolicy::Reject,
         }
     }
 
@@ -227,6 +648,59 @@ impl FpgaParameterExporter {
     /// Set decay rates
     pub fn set_decay_rates(&mut self, decay_rates: Vec<f32>) {
         self.decay_rates = decay_rates;
+    }
+
+    /// Set the optional readout / output-weight matrix `[K outputs × N hidden]`.
+    ///
+    /// Absence is valid: call [`Self::clear_output_weights`] or never set
+    /// this field. When present, the checked path requires a rectangular
+    /// `K×N` matrix, not `N` rows by assumption.
+    pub fn set_output_weights(&mut self, output_weights: Vec<Vec<f32>>) {
+        self.output_weights = Some(output_weights);
+    }
+
+    /// Drop the optional readout block. Models without an output layer stay valid.
+    pub fn clear_output_weights(&mut self) {
+        self.output_weights = None;
+    }
+
+    /// Select signed or unsigned representability checks for `block`.
+    ///
+    /// Defaults are all [`Q88Encoding::Signed`] (the silicon-hdl `.mem`
+    /// convention). Changing a block to [`Q88Encoding::Unsigned`] changes the
+    /// checked-path range and in-memory encoder; [`MemFileWriter::write_mem_files`]
+    /// still requires signed encoding and returns
+    /// [`ExportError::UnsignedHardwareEncoding`]. It does not change
+    /// [`ParameterExport::export`], which always uses [`encode_q88_signed`].
+    pub fn set_encoding(&mut self, block: ParameterBlock, encoding: Q88Encoding) {
+        match block {
+            ParameterBlock::Thresholds => self.threshold_encoding = encoding,
+            ParameterBlock::Weights => self.weight_encoding = encoding,
+            ParameterBlock::DecayRates => self.decay_encoding = encoding,
+            ParameterBlock::Readout => self.readout_encoding = encoding,
+        }
+    }
+
+    /// Choose whether out-of-range values are rejected or clamped with a report.
+    ///
+    /// The default is [`RangePolicy::Reject`]. [`RangePolicy::Saturate`] is
+    /// applied only by [`Self::try_export_with_report`].
+    /// [`CheckedParameterExport::try_export`] and
+    /// [`MemFileWriter::write_mem_files`] return
+    /// [`ParameterShapeError::SaturationRequiresReport`] so a
+    /// [`SaturationReport`] cannot be dropped. The legacy infallible
+    /// [`ParameterExport::export`] still saturates without a report.
+    pub fn set_range_policy(&mut self, policy: RangePolicy) {
+        self.range_policy = policy;
+    }
+
+    fn encoding(&self, block: ParameterBlock) -> Q88Encoding {
+        match block {
+            ParameterBlock::Thresholds => self.threshold_encoding,
+            ParameterBlock::Weights => self.weight_encoding,
+            ParameterBlock::DecayRates => self.decay_encoding,
+            ParameterBlock::Readout => self.readout_encoding,
+        }
     }
 
     /// Convert `f32` to signed Q8.8 fixed-point format.
@@ -246,10 +720,9 @@ impl FpgaParameterExporter {
     /// Export parameters to `.mem` files for silicon-hdl / Vivado `$readmemh`.
     ///
     /// Prefer [`MemFileWriter::write_mem_files`] when coding against the trait.
-    pub fn export_to_mem_files<P: AsRef<Path>>(
-        &self,
-        output_dir: P,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    /// This is the checked writer: it uses [`CheckedParameterExport::try_export`]
+    /// and does not create or truncate files if validation fails.
+    pub fn export_to_mem_files<P: AsRef<Path>>(&self, output_dir: P) -> Result<(), ExportError> {
         self.write_mem_files(output_dir)
     }
 
@@ -263,33 +736,31 @@ impl FpgaParameterExporter {
             thresholds,
             weights,
             decay_rates,
+            output_weights: None,
+            threshold_encoding: Q88Encoding::Signed,
+            weight_encoding: Q88Encoding::Signed,
+            decay_encoding: Q88Encoding::Signed,
+            readout_encoding: Q88Encoding::Signed,
+            range_policy: RangePolicy::Reject,
         }
     }
 
-    /// Check that the weight matrix is rectangular.
+    /// Validate the complete dense-layer bundle for the checked export path.
     ///
-    /// [`ParameterExport::export`] flattens the weight rows row-major into a
-    /// single `Vec<i16>` and reports the width as `FpgaMetadata::num_channels`,
-    /// taken from the *first* row. If the rows disagree in length, that pair no
-    /// longer describes the buffer: `WeightRam` addressed as
-    /// `row * num_channels + channel` reads the wrong words from the second row
-    /// onward, and nothing in the `.mem` file reveals it.
+    /// For an `N`-neuron, `M`-input layer this requires `N` thresholds, `N`
+    /// decay rates, and an `N×M` rectangular weight matrix with `N > 0` and
+    /// `M > 0`. Non-square layers (`N ≠ M`) are valid; nothing here is
+    /// hard-coded to 16.
     ///
-    /// An exporter with no weights is rectangular by definition.
+    /// If a readout block is set, it is checked separately as `K×N`. Absence
+    /// of a readout is valid. `NaN` and infinities are rejected before
+    /// quantization. Finite values outside the block's [`Q88Encoding`] range
+    /// are rejected (saturation is a [`RangePolicy`] on
+    /// [`Self::try_export_with_report`], not a silent `validate` success, and
+    /// not a report-less [`Self::try_export`]).
     ///
-    /// # What this does not check
-    ///
-    /// Rectangularity only. `thresholds.len()`, `weights.len()` and
-    /// `decay_rates.len()` are **not** required to agree, so sixteen thresholds
-    /// beside four weight rows still validates: it exports `num_neurons: 16`
-    /// with four rows of weights, and `NeuronParamRam` is loaded short.
-    ///
-    /// That is deliberate for now. A partial export — thresholds set, weights
-    /// still to come — is a plausible intermediate state, and turning it into an
-    /// error is a behaviour change that deserves its own decision rather than
-    /// riding along with a corruption fix. [`ParameterShapeError`] is
-    /// `#[non_exhaustive]` so a count-mismatch variant can be added without
-    /// breaking callers.
+    /// [`ParameterExport::export`] stays infallible and still flattens a
+    /// ragged matrix — this method is the gate for a hardware image.
     ///
     /// ```rust
     /// use silicon_bridge::{FpgaParameterExporter, ParameterShapeError};
@@ -316,18 +787,121 @@ impl FpgaParameterExporter {
     /// );
     /// ```
     pub fn validate(&self) -> Result<(), ParameterShapeError> {
-        let mut rows = self.weights.iter().enumerate();
-        let Some((_, first_row)) = rows.next() else {
-            return Ok(());
-        };
-        let expected = first_row.len();
+        self.validate_shape()?;
+        self.scan_numeric(true, &mut SaturationReport::default())?;
+        Ok(())
+    }
 
-        for (row, values) in rows {
-            if values.len() != expected {
-                return Err(ParameterShapeError::RaggedWeights {
-                    expected,
-                    row,
-                    len: values.len(),
+    /// Validate and encode, returning every value [`RangePolicy::Saturate`] clamped.
+    ///
+    /// With the default [`RangePolicy::Reject`], the report is empty on
+    /// success. Non-finite inputs are always errors, including under
+    /// saturation. This is the only checked path that applies
+    /// [`RangePolicy::Saturate`]; [`Self::try_export`] rejects that policy.
+    pub fn try_export_with_report(
+        &self,
+    ) -> Result<(FpgaParameters, SaturationReport), ParameterShapeError> {
+        self.validate_shape()?;
+        let check_range = matches!(self.range_policy, RangePolicy::Reject);
+        let mut report = SaturationReport::default();
+        let params = self.encode_checked(check_range, &mut report)?;
+        Ok((params, report))
+    }
+
+    /// Validate the complete bundle and encode it.
+    ///
+    /// This is the checked entry point. Prefer it over [`Self::export`] /
+    /// [`ParameterExport::export`] when producing an FPGA image. The infallible
+    /// methods remain for callers that need the historical flatten-and-clamp
+    /// behaviour; they are not a safe default.
+    ///
+    /// Out-of-range values are rejected under the default
+    /// [`RangePolicy::Reject`]. [`RangePolicy::Saturate`] returns
+    /// [`ParameterShapeError::SaturationRequiresReport`] so the clamp list
+    /// cannot be dropped; use [`Self::try_export_with_report`].
+    pub fn try_export(&self) -> Result<FpgaParameters, ParameterShapeError> {
+        if matches!(self.range_policy, RangePolicy::Saturate) {
+            return Err(ParameterShapeError::SaturationRequiresReport);
+        }
+        self.try_export_with_report().map(|(params, _)| params)
+    }
+
+    /// First block configured as [`Q88Encoding::Unsigned`] that would be
+    /// written into a hardware `.mem` image.
+    fn unsigned_hardware_block(&self) -> Option<ParameterBlock> {
+        const REQUIRED: [ParameterBlock; 3] = [
+            ParameterBlock::Thresholds,
+            ParameterBlock::Weights,
+            ParameterBlock::DecayRates,
+        ];
+        for block in REQUIRED {
+            if self.encoding(block) == Q88Encoding::Unsigned {
+                return Some(block);
+            }
+        }
+        if self.output_weights.is_some() && self.readout_encoding == Q88Encoding::Unsigned {
+            Some(ParameterBlock::Readout)
+        } else {
+            None
+        }
+    }
+
+    fn validate_shape(&self) -> Result<(), ParameterShapeError> {
+        let weight_width = matrix_width(&self.weights, MatrixKind::Hidden)?;
+        let readout_width = match &self.output_weights {
+            Some(matrix) => Some(matrix_width(matrix, MatrixKind::Readout)?),
+            None => None,
+        };
+
+        let n_thr = self.thresholds.len();
+        let n_dec = self.decay_rates.len();
+        let n_wt = self.weights.len();
+
+        if n_thr == 0 && n_dec == 0 && n_wt == 0 {
+            return Err(ParameterShapeError::EmptyLayer);
+        }
+
+        if n_thr == 0 {
+            return Err(ParameterShapeError::EmptyBlock {
+                block: ParameterBlock::Thresholds,
+            });
+        }
+
+        if n_dec != n_thr {
+            return Err(ParameterShapeError::DimensionMismatch {
+                block: ParameterBlock::DecayRates,
+                expected: n_thr,
+                actual: n_dec,
+            });
+        }
+
+        if n_wt != n_thr {
+            return Err(ParameterShapeError::DimensionMismatch {
+                block: ParameterBlock::Weights,
+                expected: n_thr,
+                actual: n_wt,
+            });
+        }
+
+        let m = weight_width.unwrap_or(0);
+        if m == 0 {
+            return Err(ParameterShapeError::EmptyBlock {
+                block: ParameterBlock::Weights,
+            });
+        }
+
+        if let Some(matrix) = &self.output_weights {
+            if matrix.is_empty() {
+                return Err(ParameterShapeError::EmptyBlock {
+                    block: ParameterBlock::Readout,
+                });
+            }
+            let cols = readout_width.flatten().unwrap_or(0);
+            if cols != n_thr {
+                return Err(ParameterShapeError::ReadoutShape {
+                    expected_cols: n_thr,
+                    actual_cols: cols,
+                    rows: matrix.len(),
                 });
             }
         }
@@ -335,10 +909,196 @@ impl FpgaParameterExporter {
         Ok(())
     }
 
+    fn scan_numeric(
+        &self,
+        check_range: bool,
+        report: &mut SaturationReport,
+    ) -> Result<(), ParameterShapeError> {
+        for (neuron, &value) in self.thresholds.iter().enumerate() {
+            self.check_value(
+                location(ParameterBlock::Thresholds, neuron, None),
+                value,
+                check_range,
+                report,
+            )?;
+        }
+        for (neuron, row) in self.weights.iter().enumerate() {
+            for (channel, &value) in row.iter().enumerate() {
+                self.check_value(
+                    location(ParameterBlock::Weights, neuron, Some(channel)),
+                    value,
+                    check_range,
+                    report,
+                )?;
+            }
+        }
+        for (neuron, &value) in self.decay_rates.iter().enumerate() {
+            self.check_value(
+                location(ParameterBlock::DecayRates, neuron, None),
+                value,
+                check_range,
+                report,
+            )?;
+        }
+        if let Some(matrix) = &self.output_weights {
+            for (neuron, row) in matrix.iter().enumerate() {
+                for (channel, &value) in row.iter().enumerate() {
+                    self.check_value(
+                        location(ParameterBlock::Readout, neuron, Some(channel)),
+                        value,
+                        check_range,
+                        report,
+                    )?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn check_value(
+        &self,
+        loc: ParameterLocation,
+        value: f32,
+        check_range: bool,
+        report: &mut SaturationReport,
+    ) -> Result<f32, ParameterShapeError> {
+        if let Some(kind) = non_finite_kind(value) {
+            return Err(ParameterShapeError::NonFinite {
+                location: loc,
+                kind,
+            });
+        }
+
+        let encoding = self.encoding(loc.block);
+        let (min, max) = encoding.representable_range();
+        if value < min || value > max {
+            if check_range {
+                return Err(ParameterShapeError::OutOfRange {
+                    location: loc,
+                    value,
+                    encoding,
+                    min,
+                    max,
+                });
+            }
+            let saturated_to = value.clamp(min, max);
+            report.events.push(SaturationEvent {
+                location: loc,
+                original: value,
+                saturated_to,
+                encoding,
+            });
+            return Ok(saturated_to);
+        }
+        Ok(value)
+    }
+
+    fn encode_checked(
+        &self,
+        check_range: bool,
+        report: &mut SaturationReport,
+    ) -> Result<FpgaParameters, ParameterShapeError> {
+        let thresholds = self.encode_vector(
+            ParameterBlock::Thresholds,
+            &self.thresholds,
+            check_range,
+            report,
+        )?;
+        let mut weights = Vec::with_capacity(self.weights.iter().map(|row| row.len()).sum());
+        for (neuron, row) in self.weights.iter().enumerate() {
+            for (channel, &value) in row.iter().enumerate() {
+                let prepared = self.check_value(
+                    location(ParameterBlock::Weights, neuron, Some(channel)),
+                    value,
+                    check_range,
+                    report,
+                )?;
+                weights.push(encode_for(self.encoding(ParameterBlock::Weights), prepared));
+            }
+        }
+        let decay_rates = self.encode_vector(
+            ParameterBlock::DecayRates,
+            &self.decay_rates,
+            check_range,
+            report,
+        )?;
+        let output_weights = match &self.output_weights {
+            None => None,
+            Some(matrix) => {
+                let mut encoded = Vec::with_capacity(matrix.iter().map(|row| row.len()).sum());
+                for (neuron, row) in matrix.iter().enumerate() {
+                    for (channel, &value) in row.iter().enumerate() {
+                        let prepared = self.check_value(
+                            location(ParameterBlock::Readout, neuron, Some(channel)),
+                            value,
+                            check_range,
+                            report,
+                        )?;
+                        encoded.push(encode_for(self.encoding(ParameterBlock::Readout), prepared));
+                    }
+                }
+                Some(encoded)
+            }
+        };
+
+        Ok(self.bundle(thresholds, weights, decay_rates, output_weights))
+    }
+
+    fn encode_vector(
+        &self,
+        block: ParameterBlock,
+        values: &[f32],
+        check_range: bool,
+        report: &mut SaturationReport,
+    ) -> Result<Vec<i16>, ParameterShapeError> {
+        let mut encoded = Vec::with_capacity(values.len());
+        for (neuron, &value) in values.iter().enumerate() {
+            let prepared =
+                self.check_value(location(block, neuron, None), value, check_range, report)?;
+            encoded.push(encode_for(self.encoding(block), prepared));
+        }
+        Ok(encoded)
+    }
+
+    fn bundle(
+        &self,
+        thresholds: Vec<i16>,
+        weights: Vec<i16>,
+        decay_rates: Vec<i16>,
+        output_weights: Option<Vec<i16>>,
+    ) -> FpgaParameters {
+        let metadata = FpgaMetadata {
+            version: EXPORT_FORMAT_VERSION.to_string(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            num_neurons: self.thresholds.len(),
+            num_channels: if self.weights.is_empty() {
+                0
+            } else {
+                self.weights[0].len()
+            },
+            target_latency_us: 35.0,
+            memory_usage_kb: self.calculate_memory_usage(),
+        };
+
+        FpgaParameters {
+            thresholds,
+            weights,
+            decay_rates,
+            output_weights,
+            metadata,
+        }
+    }
+
     fn calculate_memory_usage(&self) -> f32 {
+        let readout = self
+            .output_weights
+            .as_ref()
+            .map(|matrix| matrix.iter().map(|row| row.len()).sum::<usize>())
+            .unwrap_or(0);
         let total_params = self.thresholds.len()
             + self.weights.iter().map(|row| row.len()).sum::<usize>()
-            + self.decay_rates.len();
+            + self.decay_rates.len()
+            + readout;
 
         // Each parameter is 2 bytes (i16) in Q8.8 format
         (total_params * 2) as f32 / 1024.0
@@ -346,19 +1106,33 @@ impl FpgaParameterExporter {
 
     /// Write one `$readmemh` image: the raw 16-bit two's-complement pattern of
     /// each word, uppercase, one `{:04X}` per line.
-    fn write_mem_file(
-        path: impl AsRef<Path>,
-        values: &[i16],
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut file = fs::File::create(path)?;
+    fn write_mem_file(path: impl AsRef<Path>, values: &[i16]) -> Result<(), ExportError> {
+        let path = path.as_ref();
+        let mut file = fs::File::create(path).map_err(|source| ExportError::Io {
+            path: path.to_path_buf(),
+            source,
+        })?;
         for value in values {
             // Rust formats a signed integer's hex as its two's-complement
             // pattern (no `-` prefix), so `-256` already prints as `FF00`. The
             // `as u16` cast is what pins the field to 16 bits regardless of the
             // element type, which is the width `$readmemh` expects.
-            writeln!(file, "{:04X}", *value as u16)?;
+            writeln!(file, "{:04X}", *value as u16).map_err(|source| ExportError::Io {
+                path: path.to_path_buf(),
+                source,
+            })?;
         }
         Ok(())
+    }
+
+    /// Remove `path` if it exists. `NotFound` is success so a first export
+    /// without a readout is not an error.
+    fn remove_mem_file_if_present(path: PathBuf) -> Result<(), ExportError> {
+        match fs::remove_file(&path) {
+            Ok(()) => Ok(()),
+            Err(source) if source.kind() == ErrorKind::NotFound => Ok(()),
+            Err(source) => Err(ExportError::Io { path, source }),
+        }
     }
 
     fn print_export_summary<P: AsRef<Path>>(&self, params: &FpgaParameters, output_dir: P) {
@@ -384,10 +1158,84 @@ impl FpgaParameterExporter {
             "  parameters_decay.mem   - {} decay rates",
             params.decay_rates.len()
         );
+        if let Some(readout) = &params.output_weights {
+            println!(
+                "  parameters_output_weights.mem - {} output weights",
+                readout.len()
+            );
+        }
         println!("  parameters.json        - metadata and configuration");
         println!();
         println!("SUCCESS: FPGA parameters ready for silicon-hdl deployment");
     }
+}
+
+fn location(block: ParameterBlock, neuron: usize, channel: Option<usize>) -> ParameterLocation {
+    ParameterLocation {
+        block,
+        neuron,
+        channel,
+    }
+}
+
+fn non_finite_kind(value: f32) -> Option<NonFiniteKind> {
+    if value.is_nan() {
+        Some(NonFiniteKind::Nan)
+    } else if value.is_infinite() {
+        if value.is_sign_positive() {
+            Some(NonFiniteKind::PosInfinity)
+        } else {
+            Some(NonFiniteKind::NegInfinity)
+        }
+    } else {
+        None
+    }
+}
+
+fn encode_for(encoding: Q88Encoding, value: f32) -> i16 {
+    match encoding {
+        Q88Encoding::Signed => encode_q88_signed(value),
+        // Bit-pattern storage: `u16 as i16` keeps the 16-bit word
+        // (`200.0` → `C800` → `i16` `-14336`). That `i16` is **not** a signed
+        // Q8.8 value — signed FPGA RAM would read it as `-56.0`.
+        // `write_mem_files` refuses `Q88Encoding::Unsigned` so this pattern
+        // never reaches silicon-hdl. #49 owns a fuller per-block contract.
+        Q88Encoding::Unsigned => encode_q88_unsigned(value) as i16,
+    }
+}
+
+#[derive(Clone, Copy)]
+enum MatrixKind {
+    Hidden,
+    Readout,
+}
+
+fn matrix_width(
+    matrix: &[Vec<f32>],
+    kind: MatrixKind,
+) -> Result<Option<usize>, ParameterShapeError> {
+    let mut rows = matrix.iter().enumerate();
+    let Some((_, first_row)) = rows.next() else {
+        return Ok(None);
+    };
+    let expected = first_row.len();
+    for (row, values) in rows {
+        if values.len() != expected {
+            return Err(match kind {
+                MatrixKind::Hidden => ParameterShapeError::RaggedWeights {
+                    expected,
+                    row,
+                    len: values.len(),
+                },
+                MatrixKind::Readout => ParameterShapeError::RaggedReadout {
+                    expected,
+                    row,
+                    len: values.len(),
+                },
+            });
+        }
+    }
+    Ok(Some(expected))
 }
 
 impl FixedPointEncode for FpgaParameterExporter {
@@ -439,40 +1287,69 @@ impl ParameterExport for FpgaParameterExporter {
             thresholds: thresholds_q88,
             weights: weights_q88,
             decay_rates: decay_rates_q88,
+            output_weights: self.output_weights.as_ref().map(|matrix| {
+                matrix
+                    .iter()
+                    .flat_map(|row| row.iter())
+                    .map(|&v| self.encode_q88(v))
+                    .collect()
+            }),
             metadata,
         }
     }
 }
 
+impl CheckedParameterExport for FpgaParameterExporter {
+    type Error = ParameterShapeError;
+
+    fn try_export(&self) -> Result<FpgaParameters, Self::Error> {
+        FpgaParameterExporter::try_export(self)
+    }
+}
+
 impl MemFileWriter for FpgaParameterExporter {
-    type Error = Box<dyn std::error::Error>;
+    type Error = ExportError;
 
     fn write_mem_files(&self, output_dir: impl AsRef<Path>) -> Result<(), Self::Error> {
-        // Refuse a shape that cannot round-trip through a flat `.mem` file,
-        // before creating anything on disk. A ragged matrix would otherwise
-        // produce files that look valid and load misaligned into `WeightRam`.
-        self.validate()?;
+        // silicon-hdl RAM is signed two's-complement. Unsigned words above
+        // 127.996 become negative `i16` bit patterns (`200.0` → `C800` →
+        // `-56.0`) and must not land in a hardware `.mem` image.
+        if let Some(block) = self.unsigned_hardware_block() {
+            return Err(ExportError::UnsignedHardwareEncoding { block });
+        }
 
-        fs::create_dir_all(&output_dir)?;
+        // Validate and encode the complete bundle before creating or truncating
+        // anything on disk. A malformed parameter set must not overwrite an
+        // existing fixture or leave a half-written export that looks valid.
+        // `try_export` also refuses `RangePolicy::Saturate` so a saturation
+        // report cannot be dropped on this path.
+        let params = CheckedParameterExport::try_export(self)?;
 
-        let params = ParameterExport::export(self);
+        let output_dir = output_dir.as_ref();
+        fs::create_dir_all(output_dir).map_err(|source| ExportError::Io {
+            path: output_dir.to_path_buf(),
+            source,
+        })?;
 
-        Self::write_mem_file(
-            output_dir.as_ref().join("parameters.mem"),
-            &params.thresholds,
-        )?;
-        Self::write_mem_file(
-            output_dir.as_ref().join("parameters_weights.mem"),
-            &params.weights,
-        )?;
-        Self::write_mem_file(
-            output_dir.as_ref().join("parameters_decay.mem"),
-            &params.decay_rates,
-        )?;
+        Self::write_mem_file(output_dir.join("parameters.mem"), &params.thresholds)?;
+        Self::write_mem_file(output_dir.join("parameters_weights.mem"), &params.weights)?;
+        Self::write_mem_file(output_dir.join("parameters_decay.mem"), &params.decay_rates)?;
+        if let Some(readout) = &params.output_weights {
+            Self::write_mem_file(output_dir.join("parameters_output_weights.mem"), readout)?;
+        } else {
+            Self::remove_mem_file_if_present(output_dir.join("parameters_output_weights.mem"))?;
+        }
 
-        let metadata_path = output_dir.as_ref().join("parameters.json");
-        let metadata_json = serde_json::to_string_pretty(&params)?;
-        fs::write(metadata_path, metadata_json)?;
+        let metadata_path = output_dir.join("parameters.json");
+        let metadata_json =
+            serde_json::to_string_pretty(&params).map_err(|source| ExportError::Serialize {
+                path: metadata_path.clone(),
+                source,
+            })?;
+        fs::write(&metadata_path, metadata_json).map_err(|source| ExportError::Io {
+            path: metadata_path,
+            source,
+        })?;
 
         self.print_export_summary(&params, output_dir);
 
@@ -500,6 +1377,11 @@ pub const STIMULUS_Q88_MIN: f32 = -127.99;
 /// Values above this saturate to raw `32765` (`i16`). See
 /// [`STIMULUS_Q88_MIN`] for why the name says `STIMULUS_`.
 pub const STIMULUS_Q88_MAX: f32 = 127.99;
+
+/// Inclusive upper bound of unsigned-magnitude Q8.8 (`65535 / 256`).
+///
+/// Used by the checked path when a block is [`Q88Encoding::Unsigned`].
+pub const Q88_UNSIGNED_MAX: f32 = 65535.0 / 256.0;
 
 /// Encode an `f32` as **unsigned-magnitude** Q8.8 (`u16`).
 ///
@@ -965,19 +1847,26 @@ mod weight_shape_tests {
         )
     }
 
-    /// `validate` covers rectangularity, not agreement between the three
-    /// vectors. Pinned so the boundary is a decision on record rather than an
-    /// oversight — a count-mismatch variant can be added later without
-    /// breaking callers, since the error enum is `#[non_exhaustive]`.
+    /// `validate` now requires N thresholds, N decay rates, and N weight
+    /// rows. The infallible [`ParameterExport::export`] still copies the
+    /// threshold count into `num_neurons` without that check — pinned here so
+    /// the legacy contract is a test, not a silent behaviour change.
     #[test]
-    fn rectangular_rows_validate_even_when_the_vector_lengths_disagree() {
+    fn rectangular_rows_export_even_when_the_vector_lengths_disagree() {
         let mismatched = FpgaParameterExporter::from_params(
             vec![1.0; 16],
             vec![vec![0.5, 0.5]; 4],
             vec![0.9; 2],
         );
 
-        assert_eq!(mismatched.validate(), Ok(()));
+        assert_eq!(
+            mismatched.validate(),
+            Err(ParameterShapeError::DimensionMismatch {
+                block: ParameterBlock::DecayRates,
+                expected: 16,
+                actual: 2,
+            })
+        );
 
         let params = ParameterExport::export(&mismatched);
         assert_eq!(params.metadata.num_neurons, 16, "from the threshold count");
@@ -995,8 +1884,16 @@ mod weight_shape_tests {
     }
 
     #[test]
-    fn an_exporter_with_no_weights_validates() {
-        assert_eq!(FpgaParameterExporter::new().validate(), Ok(()));
+    fn an_empty_exporter_is_rejected_on_the_checked_path() {
+        assert_eq!(
+            FpgaParameterExporter::new().validate(),
+            Err(ParameterShapeError::EmptyLayer)
+        );
+        // Legacy export stays infallible and still produces an empty bundle.
+        let params = ParameterExport::export(&FpgaParameterExporter::new());
+        assert!(params.thresholds.is_empty());
+        assert!(params.weights.is_empty());
+        assert!(params.decay_rates.is_empty());
     }
 
     #[test]
@@ -1044,14 +1941,19 @@ mod weight_shape_tests {
         let err = MemFileWriter::write_mem_files(&ragged(), &output)
             .expect_err("ragged weights should not produce .mem files");
 
-        assert_eq!(
-            err.downcast_ref::<ParameterShapeError>(),
-            Some(&ParameterShapeError::RaggedWeights {
-                expected: 2,
-                row: 1,
-                len: 1,
-            })
-        );
+        match err {
+            ExportError::InvalidParameters(shape) => {
+                assert_eq!(
+                    shape,
+                    ParameterShapeError::RaggedWeights {
+                        expected: 2,
+                        row: 1,
+                        len: 1,
+                    }
+                );
+            }
+            other => panic!("expected InvalidParameters, got {other}"),
+        }
         assert!(
             !output.exists(),
             "the output directory should not be created for an invalid shape"
@@ -1246,5 +2148,501 @@ mod q88_convention_tests {
         let wire = encode_q88_signed(-1.0);
         assert_eq!(q88_signed_to_f32(wire), -1.0);
         assert_eq!(q88_to_f32(wire as u16), 255.0);
+    }
+}
+
+#[cfg(test)]
+mod checked_export_tests {
+    use super::*;
+    use std::error::Error;
+
+    fn dense(n: usize, m: usize) -> FpgaParameterExporter {
+        FpgaParameterExporter::from_params(vec![1.0; n], vec![vec![0.5; m]; n], vec![0.9; n])
+    }
+
+    fn loc(block: ParameterBlock, neuron: usize, channel: Option<usize>) -> ParameterLocation {
+        ParameterLocation {
+            block,
+            neuron,
+            channel,
+        }
+    }
+
+    fn assert_invalid(err: ExportError, expected: ParameterShapeError) {
+        match err {
+            ExportError::InvalidParameters(shape) => assert_eq!(shape, expected),
+            other => panic!("expected InvalidParameters({expected:?}), got {other}"),
+        }
+    }
+
+    #[test]
+    fn valid_non_square_layer_exports() {
+        // 3 neurons × 5 inputs — not 16, not square.
+        let exporter = dense(3, 5);
+        assert_eq!(exporter.validate(), Ok(()));
+
+        let params = exporter.try_export().expect("non-square layer is valid");
+        assert_eq!(params.thresholds.len(), 3);
+        assert_eq!(params.decay_rates.len(), 3);
+        assert_eq!(params.weights.len(), 15);
+        assert_eq!(params.metadata.num_neurons, 3);
+        assert_eq!(params.metadata.num_channels, 5);
+        assert_eq!(params.output_weights, None);
+
+        let via_trait = CheckedParameterExport::try_export(&exporter).expect("trait");
+        assert_eq!(via_trait.thresholds, params.thresholds);
+        assert_eq!(via_trait.weights, params.weights);
+    }
+
+    #[test]
+    fn empty_layer_is_rejected() {
+        assert_eq!(
+            FpgaParameterExporter::new().validate(),
+            Err(ParameterShapeError::EmptyLayer)
+        );
+        assert!(FpgaParameterExporter::new().try_export().is_err());
+    }
+
+    #[test]
+    fn empty_weight_width_is_rejected() {
+        let exporter = FpgaParameterExporter::from_params(
+            vec![1.0, 1.0],
+            vec![vec![], vec![]],
+            vec![0.9, 0.9],
+        );
+        assert_eq!(
+            exporter.validate(),
+            Err(ParameterShapeError::EmptyBlock {
+                block: ParameterBlock::Weights,
+            })
+        );
+    }
+
+    #[test]
+    fn threshold_count_mismatch_names_the_block() {
+        let exporter =
+            FpgaParameterExporter::from_params(vec![1.0], vec![vec![0.5], vec![0.5]], vec![0.9]);
+        assert_eq!(
+            exporter.validate(),
+            Err(ParameterShapeError::DimensionMismatch {
+                block: ParameterBlock::Weights,
+                expected: 1,
+                actual: 2,
+            })
+        );
+    }
+
+    #[test]
+    fn decay_count_mismatch_names_the_block() {
+        let exporter = FpgaParameterExporter::from_params(
+            vec![1.0, 1.0],
+            vec![vec![0.5], vec![0.5]],
+            vec![0.9],
+        );
+        assert_eq!(
+            exporter.validate(),
+            Err(ParameterShapeError::DimensionMismatch {
+                block: ParameterBlock::DecayRates,
+                expected: 2,
+                actual: 1,
+            })
+        );
+    }
+
+    #[test]
+    fn optional_readout_absence_is_valid() {
+        let exporter = dense(2, 3);
+        assert!(
+            exporter
+                .try_export()
+                .expect("no readout")
+                .output_weights
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn optional_readout_kx_n_is_valid() {
+        let mut exporter = dense(3, 4);
+        exporter.set_output_weights(vec![vec![0.1, 0.2, 0.3], vec![-0.4, 0.5, 0.6]]);
+        let params = exporter.try_export().expect("2×3 readout on N=3");
+        let readout = params.output_weights.expect("readout present");
+        assert_eq!(readout.len(), 6);
+        assert_eq!(readout[3], encode_q88_signed(-0.4));
+    }
+
+    #[test]
+    fn readout_wrong_column_count_is_rejected() {
+        let mut exporter = dense(3, 2);
+        // 2 outputs × 2 columns, but N = 3.
+        exporter.set_output_weights(vec![vec![0.1, 0.2], vec![0.3, 0.4]]);
+        assert_eq!(
+            exporter.validate(),
+            Err(ParameterShapeError::ReadoutShape {
+                expected_cols: 3,
+                actual_cols: 2,
+                rows: 2,
+            })
+        );
+    }
+
+    #[test]
+    fn ragged_readout_names_the_row() {
+        let mut exporter = dense(3, 2);
+        exporter.set_output_weights(vec![vec![0.1, 0.2, 0.3], vec![0.4, 0.5]]);
+        assert_eq!(
+            exporter.validate(),
+            Err(ParameterShapeError::RaggedReadout {
+                expected: 3,
+                row: 1,
+                len: 2,
+            })
+        );
+    }
+
+    #[test]
+    fn empty_readout_block_is_rejected() {
+        let mut exporter = dense(2, 2);
+        exporter.set_output_weights(Vec::new());
+        assert_eq!(
+            exporter.validate(),
+            Err(ParameterShapeError::EmptyBlock {
+                block: ParameterBlock::Readout,
+            })
+        );
+    }
+
+    #[test]
+    fn nan_is_rejected_before_quantization() {
+        let mut exporter = dense(2, 2);
+        exporter.set_weights(vec![vec![0.5, 0.5], vec![0.5, f32::NAN]]);
+        assert_eq!(
+            exporter.validate(),
+            Err(ParameterShapeError::NonFinite {
+                location: loc(ParameterBlock::Weights, 1, Some(1)),
+                kind: NonFiniteKind::Nan,
+            })
+        );
+        // Legacy encoder still maps NaN to 0.
+        assert_eq!(encode_q88_signed(f32::NAN), 0);
+    }
+
+    #[test]
+    fn infinities_are_rejected_before_quantization() {
+        let mut pos = dense(1, 1);
+        pos.set_thresholds(vec![f32::INFINITY]);
+        assert_eq!(
+            pos.validate(),
+            Err(ParameterShapeError::NonFinite {
+                location: loc(ParameterBlock::Thresholds, 0, None),
+                kind: NonFiniteKind::PosInfinity,
+            })
+        );
+
+        let mut neg = dense(1, 1);
+        neg.set_decay_rates(vec![f32::NEG_INFINITY]);
+        assert_eq!(
+            neg.validate(),
+            Err(ParameterShapeError::NonFinite {
+                location: loc(ParameterBlock::DecayRates, 0, None),
+                kind: NonFiniteKind::NegInfinity,
+            })
+        );
+    }
+
+    #[test]
+    fn signed_range_boundaries_are_accepted_and_the_next_step_is_not() {
+        let mut at_max = dense(1, 1);
+        at_max.set_weights(vec![vec![STIMULUS_Q88_MAX]]);
+        assert!(at_max.try_export().is_ok());
+
+        let mut at_min = dense(1, 1);
+        at_min.set_weights(vec![vec![STIMULUS_Q88_MIN]]);
+        assert!(at_min.try_export().is_ok());
+
+        let mut over = dense(1, 1);
+        over.set_weights(vec![vec![128.0]]);
+        match over.try_export() {
+            Err(ParameterShapeError::OutOfRange {
+                location,
+                value,
+                encoding,
+                min,
+                max,
+            }) => {
+                assert_eq!(location, loc(ParameterBlock::Weights, 0, Some(0)));
+                assert_eq!(value, 128.0);
+                assert_eq!(encoding, Q88Encoding::Signed);
+                assert_eq!(min, STIMULUS_Q88_MIN);
+                assert_eq!(max, STIMULUS_Q88_MAX);
+            }
+            other => panic!("expected OutOfRange, got {other:?}"),
+        }
+
+        let mut under = dense(1, 1);
+        under.set_weights(vec![vec![-128.0]]);
+        assert!(matches!(
+            under.try_export(),
+            Err(ParameterShapeError::OutOfRange {
+                encoding: Q88Encoding::Signed,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn unsigned_range_boundaries_are_accepted_and_negatives_are_not() {
+        let mut exporter = dense(1, 1);
+        exporter.set_encoding(ParameterBlock::Weights, Q88Encoding::Unsigned);
+        exporter.set_weights(vec![vec![Q88_UNSIGNED_MAX]]);
+        assert!(exporter.try_export().is_ok());
+
+        exporter.set_weights(vec![vec![200.0]]);
+        let params = exporter.try_export().expect("200.0 is in unsigned range");
+        assert_eq!(params.weights[0] as u16, encode_q88_unsigned(200.0));
+        // Bit-pattern storage: unsigned 200.0 is 0xC800, which is negative
+        // as i16. silicon-hdl RAM would decode that as -56.0, not 200.0 —
+        // which is why `write_mem_files` refuses unsigned encoding.
+        assert_eq!(params.weights[0], encode_q88_unsigned(200.0) as i16);
+        assert!(params.weights[0] < 0);
+        assert_eq!(q88_signed_to_f32(params.weights[0]), -56.0);
+
+        exporter.set_weights(vec![vec![-0.00390625]]);
+        match exporter.try_export() {
+            Err(ParameterShapeError::OutOfRange {
+                encoding: Q88Encoding::Unsigned,
+                value,
+                min,
+                max,
+                ..
+            }) => {
+                assert_eq!(value, -0.00390625);
+                assert_eq!(min, 0.0);
+                assert_eq!(max, Q88_UNSIGNED_MAX);
+            }
+            other => panic!("expected unsigned OutOfRange, got {other:?}"),
+        }
+
+        exporter.set_weights(vec![vec![256.0]]);
+        assert!(matches!(
+            exporter.try_export(),
+            Err(ParameterShapeError::OutOfRange {
+                encoding: Q88Encoding::Unsigned,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn saturation_is_explicit_and_observable() {
+        let mut exporter = dense(1, 1);
+        exporter.set_range_policy(RangePolicy::Saturate);
+        exporter.set_weights(vec![vec![200.0]]);
+        exporter.set_thresholds(vec![-200.0]);
+
+        // validate() still rejects: saturation is not a silent validate success.
+        assert!(matches!(
+            exporter.validate(),
+            Err(ParameterShapeError::OutOfRange { .. })
+        ));
+
+        let (params, report) = exporter
+            .try_export_with_report()
+            .expect("Saturate allows out-of-range");
+        assert_eq!(report.len(), 2);
+        assert_eq!(report.events[0].original, -200.0);
+        assert_eq!(report.events[0].saturated_to, STIMULUS_Q88_MIN);
+        assert_eq!(report.events[1].original, 200.0);
+        assert_eq!(report.events[1].saturated_to, STIMULUS_Q88_MAX);
+        assert_eq!(params.thresholds[0], encode_q88_signed(STIMULUS_Q88_MIN));
+        assert_eq!(params.weights[0], encode_q88_signed(STIMULUS_Q88_MAX));
+    }
+
+    #[test]
+    fn saturation_still_rejects_non_finite_values() {
+        let mut exporter = dense(1, 1);
+        exporter.set_range_policy(RangePolicy::Saturate);
+        exporter.set_weights(vec![vec![f32::NAN]]);
+        assert!(matches!(
+            exporter.try_export_with_report(),
+            Err(ParameterShapeError::NonFinite {
+                kind: NonFiniteKind::Nan,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn try_export_rejects_saturate_so_the_report_cannot_be_dropped() {
+        let mut exporter = dense(1, 1);
+        exporter.set_range_policy(RangePolicy::Saturate);
+        exporter.set_weights(vec![vec![200.0]]);
+
+        assert!(matches!(
+            exporter.try_export(),
+            Err(ParameterShapeError::SaturationRequiresReport)
+        ));
+        assert!(matches!(
+            CheckedParameterExport::try_export(&exporter),
+            Err(ParameterShapeError::SaturationRequiresReport)
+        ));
+
+        let err = MemFileWriter::write_mem_files(&exporter, tempfile::tempdir().unwrap().path())
+            .expect_err("hardware writer must not silently saturate");
+        assert_invalid(err, ParameterShapeError::SaturationRequiresReport);
+    }
+
+    #[test]
+    fn write_mem_files_rejects_unsigned_encoding() {
+        let mut exporter = dense(1, 1);
+        exporter.set_encoding(ParameterBlock::Weights, Q88Encoding::Unsigned);
+        exporter.set_weights(vec![vec![200.0]]);
+
+        // In-memory checked export still encodes the unsigned bit pattern.
+        let params = exporter.try_export().expect("unsigned in-memory encode");
+        assert_eq!(params.weights[0] as u16, encode_q88_unsigned(200.0));
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let err = MemFileWriter::write_mem_files(&exporter, dir.path())
+            .expect_err("unsigned must not reach a hardware .mem image");
+        match err {
+            ExportError::UnsignedHardwareEncoding {
+                block: ParameterBlock::Weights,
+            } => {}
+            other => panic!("expected UnsignedHardwareEncoding(Weights), got {other}"),
+        }
+        assert!(
+            !dir.path().join("parameters_weights.mem").exists(),
+            "unsigned encoding must not write a .mem image"
+        );
+    }
+
+    #[test]
+    fn unsigned_readout_encoding_is_ignored_when_readout_is_absent() {
+        let mut exporter = dense(1, 1);
+        exporter.set_encoding(ParameterBlock::Readout, Q88Encoding::Unsigned);
+        MemFileWriter::write_mem_files(&exporter, tempfile::tempdir().unwrap().path())
+            .expect("absent readout does not occupy a hardware bank");
+    }
+
+    #[test]
+    fn malformed_bundle_does_not_create_or_truncate_files() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let output = dir.path().join("export");
+        let good = dense(2, 2);
+        MemFileWriter::write_mem_files(&good, &output).expect("seed files");
+
+        let weights_path = output.join("parameters_weights.mem");
+        let json_path = output.join("parameters.json");
+        let before_weights = fs::read(&weights_path).expect("weights");
+        let before_json = fs::read(&json_path).expect("json");
+
+        let mut bad = dense(2, 2);
+        bad.set_decay_rates(vec![0.9]);
+        let err = MemFileWriter::write_mem_files(&bad, &output)
+            .expect_err("mismatch must not rewrite files");
+        assert_invalid(
+            err,
+            ParameterShapeError::DimensionMismatch {
+                block: ParameterBlock::DecayRates,
+                expected: 2,
+                actual: 1,
+            },
+        );
+
+        assert_eq!(
+            fs::read(&weights_path).expect("weights after"),
+            before_weights
+        );
+        assert_eq!(fs::read(&json_path).expect("json after"), before_json);
+
+        let missing_dir = dir.path().join("never-created");
+        MemFileWriter::write_mem_files(&bad, &missing_dir).expect_err("shape error");
+        assert!(
+            !missing_dir.exists(),
+            "validation failure must not create the output directory"
+        );
+    }
+
+    #[test]
+    fn io_error_preserves_the_filesystem_cause() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let blocker = dir.path().join("not-a-directory");
+        fs::write(&blocker, b"not a dir").expect("blocker file");
+
+        let err = MemFileWriter::write_mem_files(&dense(1, 1), &blocker)
+            .expect_err("cannot create_dir_all over a file");
+        match &err {
+            ExportError::Io { path, .. } => {
+                assert_eq!(path, &blocker);
+            }
+            other => panic!("expected Io, got {other}"),
+        }
+        assert!(
+            Error::source(&err).is_some(),
+            "I/O cause must be preserved: {err}"
+        );
+    }
+
+    #[test]
+    fn error_messages_identify_block_and_location() {
+        let nan = ParameterShapeError::NonFinite {
+            location: loc(ParameterBlock::Weights, 1, Some(2)),
+            kind: NonFiniteKind::Nan,
+        };
+        let message = nan.to_string();
+        assert!(message.contains("weights[1, 2]"), "{message}");
+        assert!(message.contains("NaN"), "{message}");
+
+        let range = ParameterShapeError::OutOfRange {
+            location: loc(ParameterBlock::Thresholds, 4, None),
+            value: 200.0,
+            encoding: Q88Encoding::Signed,
+            min: STIMULUS_Q88_MIN,
+            max: STIMULUS_Q88_MAX,
+        };
+        let message = range.to_string();
+        assert!(message.contains("thresholds[4]"), "{message}");
+        assert!(message.contains("200"), "{message}");
+    }
+
+    #[test]
+    fn checked_writer_emits_readout_file_only_when_present() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut exporter = dense(2, 2);
+        exporter.set_output_weights(vec![vec![0.25, 0.5]]);
+
+        MemFileWriter::write_mem_files(&exporter, dir.path()).expect("write");
+        assert!(dir.path().join("parameters_output_weights.mem").exists());
+        let lines: Vec<String> =
+            fs::read_to_string(dir.path().join("parameters_output_weights.mem"))
+                .unwrap()
+                .lines()
+                .map(str::to_string)
+                .collect();
+        assert_eq!(lines, ["0040", "0080"]);
+    }
+
+    #[test]
+    fn stale_readout_file_is_removed_when_output_weights_are_cleared() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut exporter = dense(2, 2);
+        exporter.set_output_weights(vec![vec![0.25, 0.5]]);
+        MemFileWriter::write_mem_files(&exporter, dir.path()).expect("first write with readout");
+
+        let readout = dir.path().join("parameters_output_weights.mem");
+        assert!(readout.exists());
+
+        exporter.clear_output_weights();
+        MemFileWriter::write_mem_files(&exporter, dir.path()).expect("re-export without readout");
+
+        assert!(
+            !readout.exists(),
+            "stale parameters_output_weights.mem must not survive a readout-less re-export"
+        );
+        let json = fs::read_to_string(dir.path().join("parameters.json")).expect("json");
+        let params: FpgaParameters = serde_json::from_str(&json).expect("json");
+        assert!(params.output_weights.is_none());
+        assert!(!json.contains("output_weights"));
     }
 }

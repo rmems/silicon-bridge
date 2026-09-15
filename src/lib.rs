@@ -5,7 +5,7 @@
 //!
 //! This crate provides:
 //! - **Q8.8 fixed-point parameter export** (`FixedPointEncode`, `ParameterExport`,
-//!   `MemFileWriter`) for [silicon-hdl](https://github.com/rmems/silicon-hdl)
+//!   `CheckedParameterExport`, `MemFileWriter`) for [silicon-hdl](https://github.com/rmems/silicon-hdl)
 //!   `WeightRam` / `NeuronParamRam` via Vivado `$readmemh`
 //! - **FPGA spike readback** over UART using the SiliconBridge v3.0 protocol
 //! - **Vivado report parsing** for CI/CD gating on WNS, TNS, and LUT utilization
@@ -49,8 +49,11 @@
 //!
 //! [`encode_q88_unsigned`] and [`q88_to_f32`] remain public as an
 //! unsigned-magnitude pair over `0.0..=255.99609375`, but they are **not** the
-//! hardware convention and nothing in this crate builds `.mem` files with them.
-//! Encoding a parameter bank through them flattens every negative weight to
+//! hardware convention. [`MemFileWriter::write_mem_files`] refuses
+//! [`Q88Encoding::Unsigned`] (`ExportError::UnsignedHardwareEncoding`) because
+//! unsigned words above 127.996 stored as `i16` are read as negatives by
+//! signed FPGA RAM (`200.0` → `C800` → `-56.0`). Encoding a parameter bank
+//! through [`encode_q88_unsigned`] also flattens every negative weight to
 //! `0x0000` — a well-formed word that loads cleanly and silently drops the
 //! inhibition.
 //!
@@ -77,6 +80,12 @@
 //! assert_eq!(params.weights[0], -256); // written to .mem as `FF00`
 //! assert_eq!(q88_signed_to_f32(params.weights[0]), -1.0);
 //! println!("Memory usage: {:.2} KB", params.metadata.memory_usage_kb);
+//! // Prefer `try_export` / `CheckedParameterExport` when the bundle must be a
+//! // valid FPGA image. Under the default `RangePolicy::Reject`, it rejects
+//! // empty, ragged, mismatched, non-finite, and out-of-range values instead
+//! // of flattening or saturating them. `RangePolicy::Saturate` is not applied
+//! // by `try_export` (it would drop the clamp list); use
+//! // `try_export_with_report` to clamp and inspect a `SaturationReport`.
 //! ```
 //!
 //! ## FPGA Bridge (requires `uart` feature)
@@ -106,9 +115,12 @@ mod fpga_metrics;
 mod fpga_bridge;
 
 // Re-export public API
+// Re-export public API
 pub use fpga_export::{
-    EXPORT_FORMAT_VERSION, FixedPointEncode, FpgaMetadata, FpgaParameterExporter, FpgaParameters,
-    MemFileWriter, ParameterExport, ParameterShapeError, STIMULUS_Q88_MAX, STIMULUS_Q88_MIN,
+    CheckedParameterExport, EXPORT_FORMAT_VERSION, ExportError, FixedPointEncode, FpgaMetadata,
+    FpgaParameterExporter, FpgaParameters, MemFileWriter, NonFiniteKind, ParameterBlock,
+    ParameterExport, ParameterLocation, ParameterShapeError, Q88_UNSIGNED_MAX, Q88Encoding,
+    RangePolicy, STIMULUS_Q88_MAX, STIMULUS_Q88_MIN, SaturationEvent, SaturationReport,
     encode_q88_signed, encode_q88_unsigned, format_q88_hex, q88_signed_to_f32, q88_to_f32,
 };
 
