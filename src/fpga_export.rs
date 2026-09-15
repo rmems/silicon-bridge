@@ -737,6 +737,9 @@ pub enum ExportError {
     },
     /// [`ExportProfile::SpikenautSignedOutputV1`] requires a `K×N` readout.
     MissingRequiredReadout,
+    /// A readout matrix is present but [`ExportFileLayout::output_weights`] is
+    /// `None`, so JSON would record the block without a matching `.mem` file.
+    MissingReadoutFilename,
 }
 
 impl fmt::Display for ExportError {
@@ -775,6 +778,11 @@ impl fmt::Display for ExportError {
                 f,
                 "profile spikenaut-signed-output-v1 requires a K×N readout matrix"
             ),
+            Self::MissingReadoutFilename => write!(
+                f,
+                "readout matrix is present but ExportFileLayout::output_weights is None; \
+                 refusing to write JSON without a matching .mem file"
+            ),
         }
     }
 }
@@ -790,7 +798,8 @@ impl std::error::Error for ExportError {
             | Self::DuplicateFilename { .. }
             | Self::OverwriteRefused { .. }
             | Self::UnsupportedFlattening { .. }
-            | Self::MissingRequiredReadout => None,
+            | Self::MissingRequiredReadout
+            | Self::MissingReadoutFilename => None,
         }
     }
 }
@@ -1473,12 +1482,13 @@ impl FpgaParameterExporter {
 
     /// Write one `$readmemh` image: the raw 16-bit two's-complement pattern of
     /// each word, uppercase, one `{:04X}` per line.
-    fn write_mem_file(path: impl AsRef<Path>, values: &[i16]) -> Result<(), ExportError> {
+    fn write_mem_file(
+        path: impl AsRef<Path>,
+        values: &[i16],
+        overwrite: OverwritePolicy,
+    ) -> Result<(), ExportError> {
         let path = path.as_ref();
-        let mut file = fs::File::create(path).map_err(|source| ExportError::Io {
-            path: path.to_path_buf(),
-            source,
-        })?;
+        let mut file = Self::create_output_file(path, overwrite)?;
         for value in values {
             // Rust formats a signed integer's hex as its two's-complement
             // pattern (no `-` prefix), so `-256` already prints as `FF00`. The
@@ -1490,6 +1500,50 @@ impl FpgaParameterExporter {
             })?;
         }
         Ok(())
+    }
+
+    fn write_json_file(
+        path: impl AsRef<Path>,
+        json: &str,
+        overwrite: OverwritePolicy,
+    ) -> Result<(), ExportError> {
+        let path = path.as_ref();
+        let mut file = Self::create_output_file(path, overwrite)?;
+        file.write_all(json.as_bytes())
+            .map_err(|source| ExportError::Io {
+                path: path.to_path_buf(),
+                source,
+            })
+    }
+
+    /// Open `path` for writing. [`OverwritePolicy::Prohibit`] uses
+    /// `create_new` so a concurrent file cannot be truncated.
+    fn create_output_file(
+        path: &Path,
+        overwrite: OverwritePolicy,
+    ) -> Result<fs::File, ExportError> {
+        let mut opts = fs::OpenOptions::new();
+        opts.write(true);
+        match overwrite {
+            OverwritePolicy::Prohibit => {
+                opts.create_new(true);
+            }
+            OverwritePolicy::Replace => {
+                opts.create(true).truncate(true);
+            }
+        }
+        opts.open(path)
+            .map_err(|source| match (overwrite, source.kind()) {
+                (OverwritePolicy::Prohibit, ErrorKind::AlreadyExists) => {
+                    ExportError::OverwriteRefused {
+                        path: path.to_path_buf(),
+                    }
+                }
+                _ => ExportError::Io {
+                    path: path.to_path_buf(),
+                    source,
+                },
+            })
     }
 
     /// Remove `path` if it exists. `NotFound` is success so a first export

@@ -602,13 +602,12 @@ impl FpgaParameterExporter {
         if config.profile.requires_readout() && self.output_weights.is_none() {
             return Err(ExportError::MissingRequiredReadout);
         }
+        if self.output_weights.is_some() && config.files.output_weights.is_none() {
+            return Err(ExportError::MissingReadoutFilename);
+        }
 
         let mut params = CheckedParameterExport::try_export(self)?;
         let has_readout = params.output_weights.is_some();
-        if has_readout && config.files.output_weights.is_none() && config.profile.requires_readout()
-        {
-            return Err(ExportError::MissingRequiredReadout);
-        }
         config.files.validate_for(has_readout)?;
 
         stamp_profile_metadata(&mut params, config, self.range_policy);
@@ -642,16 +641,28 @@ impl FpgaParameterExporter {
         Self::write_mem_file(
             output_dir.join(&config.files.thresholds),
             &params.thresholds,
+            config.overwrite,
         )?;
-        Self::write_mem_file(output_dir.join(&config.files.weights), &params.weights)?;
-        Self::write_mem_file(output_dir.join(&config.files.decay), &params.decay_rates)?;
+        Self::write_mem_file(
+            output_dir.join(&config.files.weights),
+            &params.weights,
+            config.overwrite,
+        )?;
+        Self::write_mem_file(
+            output_dir.join(&config.files.decay),
+            &params.decay_rates,
+            config.overwrite,
+        )?;
         if let Some(readout) = &params.output_weights {
-            if let Some(name) = &config.files.output_weights {
-                Self::write_mem_file(output_dir.join(name), readout)?;
-            }
-        } else if matches!(config.profile, ExportProfile::LegacySpikenautV2)
+            let Some(name) = &config.files.output_weights else {
+                return Err(ExportError::MissingReadoutFilename);
+            };
+            Self::write_mem_file(output_dir.join(name), readout, config.overwrite)?;
+        } else if matches!(config.overwrite, OverwritePolicy::Replace)
             && let Some(name) = &config.files.output_weights
         {
+            // Same leftover-delete as the legacy writer: a readout-less
+            // re-export must not leave a stale `$readmemh` image.
             Self::remove_mem_file_if_present(output_dir.join(name))?;
         }
 
@@ -661,10 +672,7 @@ impl FpgaParameterExporter {
                 path: metadata_path.clone(),
                 source,
             })?;
-        std::fs::write(&metadata_path, metadata_json).map_err(|source| ExportError::Io {
-            path: metadata_path,
-            source,
-        })?;
+        Self::write_json_file(&metadata_path, &metadata_json, config.overwrite)?;
 
         Ok(ExportReport {
             profile: config.profile,
@@ -1016,8 +1024,47 @@ mod tests {
         let report = MemFileWriter::write_mem_files(&positive_2x2(), dir.path()).expect("legacy");
         assert_eq!(report.profile, ExportProfile::LegacySpikenautV2);
         assert_eq!(report.overwrite, OverwritePolicy::Replace);
-        // Historical writer still replaces existing files.
         MemFileWriter::write_mem_files(&positive_2x2(), dir.path())
             .expect("legacy overwrite still allowed");
+    }
+
+    #[test]
+    fn generic_readout_without_filename_is_rejected_before_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = ExportFileLayout {
+            thresholds: "parameters.mem".into(),
+            weights: "parameters_weights.mem".into(),
+            decay: "parameters_decay.mem".into(),
+            metadata: "parameters.json".into(),
+            output_weights: None,
+        };
+        let err = signed_readout_4x6()
+            .write_with_config(
+                dir.path(),
+                &ExportConfig::generic().with_files(layout).unwrap(),
+            )
+            .expect_err("JSON must not record readout without a .mem file");
+        assert!(matches!(err, ExportError::MissingReadoutFilename));
+        assert!(fs::read_dir(dir.path()).unwrap().next().is_none());
+    }
+
+    #[test]
+    fn generic_replace_removes_stale_readout_file() {
+        let dir = tempfile::tempdir().unwrap();
+        signed_readout_4x6()
+            .write_with_config(dir.path(), &ExportConfig::generic())
+            .unwrap();
+        let leftover = dir.path().join("parameters_output_weights.mem");
+        assert!(leftover.exists());
+
+        dense_4x6()
+            .write_with_config(dir.path(), &ExportConfig::generic().allow_replace())
+            .unwrap();
+        assert!(
+            !leftover.exists(),
+            "stale parameters_output_weights.mem must not survive a generic re-export"
+        );
+        let json = fs::read_to_string(dir.path().join("parameters.json")).unwrap();
+        assert!(!json.contains("output_weights"));
     }
 }
