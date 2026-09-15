@@ -740,6 +740,8 @@ pub enum ExportError {
     /// A readout matrix is present but [`ExportFileLayout::output_weights`] is
     /// `None`, so JSON would record the block without a matching `.mem` file.
     MissingReadoutFilename,
+    /// [`ExportConfig::with_declared_target_latency_us`] was given NaN or inf.
+    NonFiniteDeclaredLatency,
 }
 
 impl fmt::Display for ExportError {
@@ -783,6 +785,10 @@ impl fmt::Display for ExportError {
                 "readout matrix is present but ExportFileLayout::output_weights is None; \
                  refusing to write JSON without a matching .mem file"
             ),
+            Self::NonFiniteDeclaredLatency => write!(
+                f,
+                "declared target_latency_us must be finite (not NaN or inf)"
+            ),
         }
     }
 }
@@ -799,7 +805,8 @@ impl std::error::Error for ExportError {
             | Self::OverwriteRefused { .. }
             | Self::UnsupportedFlattening { .. }
             | Self::MissingRequiredReadout
-            | Self::MissingReadoutFilename => None,
+            | Self::MissingReadoutFilename
+            | Self::NonFiniteDeclaredLatency => None,
         }
     }
 }

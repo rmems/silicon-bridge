@@ -159,16 +159,18 @@ impl ExportFileLayout {
     }
 
     /// Configured names that will actually be written for this bundle.
+    ///
+    /// Order is thresholds, weights, decay, optional readout, then metadata.
     fn names_for(&self, has_readout: bool) -> Vec<&str> {
         let mut names = vec![
             self.thresholds.as_str(),
             self.weights.as_str(),
             self.decay.as_str(),
-            self.metadata.as_str(),
         ];
         if has_readout && let Some(name) = self.output_weights.as_deref() {
             names.push(name);
         }
+        names.push(self.metadata.as_str());
         names
     }
 
@@ -179,6 +181,7 @@ impl ExportFileLayout {
 
     fn validate_for(&self, include_optional_readout_name: bool) -> Result<(), ExportError> {
         let mut seen = BTreeSet::new();
+        let mut seen_folded = BTreeSet::new();
         let mut names = vec![
             self.thresholds.as_str(),
             self.weights.as_str(),
@@ -191,6 +194,13 @@ impl ExportFileLayout {
         for name in names {
             validate_basename(name)?;
             if !seen.insert(name) {
+                return Err(ExportError::DuplicateFilename {
+                    name: name.to_string(),
+                });
+            }
+            // Windows/macOS default volumes are case-insensitive; ASCII
+            // case-folded duplicates would truncate the first block.
+            if !seen_folded.insert(name.to_ascii_lowercase()) {
                 return Err(ExportError::DuplicateFilename {
                     name: name.to_string(),
                 });
@@ -596,6 +606,12 @@ impl FpgaParameterExporter {
         config: &ExportConfig,
     ) -> Result<ExportReport, ExportError> {
         config.files.validate()?;
+        if config
+            .declared_target_latency_us
+            .is_some_and(|us| !us.is_finite())
+        {
+            return Err(ExportError::NonFiniteDeclaredLatency);
+        }
         if let Some(block) = self.unsigned_hardware_block() {
             return Err(ExportError::UnsignedHardwareEncoding { block });
         }
@@ -862,6 +878,16 @@ mod tests {
             report.readout_shape,
             Some(ReadoutShape { rows: 3, cols: 4 })
         );
+        assert_eq!(
+            report.written,
+            [
+                "parameters.mem",
+                "parameters_weights.mem",
+                "parameters_decay.mem",
+                "parameters_output_weights.mem",
+                "parameters.json",
+            ]
+        );
         let json: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(dir.path().join("parameters.json")).unwrap())
                 .unwrap();
@@ -960,6 +986,18 @@ mod tests {
             .expect_err("collision");
         assert!(matches!(err, ExportError::DuplicateFilename { .. }));
 
+        let case_fold = ExportFileLayout {
+            thresholds: "Weights.mem".into(),
+            weights: "weights.mem".into(),
+            decay: "parameters_decay.mem".into(),
+            metadata: "parameters.json".into(),
+            output_weights: None,
+        };
+        let err = ExportConfig::generic()
+            .with_files(case_fold)
+            .expect_err("case-insensitive collision");
+        assert!(matches!(err, ExportError::DuplicateFilename { .. }));
+
         assert_eq!(fs::read(&marker).unwrap(), b"KEEP");
     }
 
@@ -1016,6 +1054,19 @@ mod tests {
             json["metadata"]["target_latency_us"],
             SPIKENAUT_LEGACY_TARGET_LATENCY_US
         );
+    }
+
+    #[test]
+    fn non_finite_declared_latency_is_rejected_before_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let err = dense_4x6()
+            .write_with_config(
+                dir.path(),
+                &ExportConfig::generic().with_declared_target_latency_us(f32::NAN),
+            )
+            .expect_err("NaN latency");
+        assert!(matches!(err, ExportError::NonFiniteDeclaredLatency));
+        assert!(fs::read_dir(dir.path()).unwrap().next().is_none());
     }
 
     #[test]
