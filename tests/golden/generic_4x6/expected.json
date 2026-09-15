@@ -1,0 +1,46 @@
+{
+  "profile": "generic-dense-q88",
+  "schema_version": "Spikenaut-v2",
+  "note": "Non-square 4-neuron × 6-input layer. Synthetic format fixture; not a trained model. No readout block. #50 generic profile API is not landed; schema_version is the current writer tag.",
+  "num_neurons": 4,
+  "num_channels": 6,
+  "signedness": {
+    "thresholds": "signed",
+    "weights": "signed",
+    "decay_rates": "signed",
+    "output_weights": null
+  },
+  "flattening": "row_major_dense",
+  "rounding": "truncate_toward_zero",
+  "overflow_policy": "reject",
+  "files": {
+    "parameters.mem": { "lines": 4, "role": "thresholds" },
+    "parameters_weights.mem": { "lines": 24, "role": "hidden weights N×M" },
+    "parameters_decay.mem": { "lines": 4, "role": "decay / leak" },
+    "parameters_output_weights.mem": { "present": false }
+  },
+  "thresholds_f32": [1.0, 0.5, 1.5, 0.75],
+  "decay_rates_f32": [0.5, 0.75, 0.25, 1.0],
+  "weights_f32": [
+    [0.5, -1.0, 0.25, 1.0, -0.5, 0.0],
+    [-128.0, 127.99609375, 0.00390625, -0.00390625, 2.0, -2.0],
+    [1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+    [-0.5, 0.5, -0.5, 0.5, -0.5, 0.5]
+  ],
+  "row_major_weight_hex": [
+    "0080", "FF00", "0040", "0100", "FF80", "0000",
+    "8000", "7FFF", "0001", "FFFF", "0200", "FE00",
+    "0100", "0100", "0100", "0100", "0100", "0100",
+    "FF80", "0080", "FF80", "0080", "FF80", "0080"
+  ],
+  "column_major_weight_hex_would_be": [
+    "0080", "8000", "0100", "FF80",
+    "FF00", "7FFF", "0100", "0080",
+    "0040", "0001", "0100", "FF80",
+    "0100", "FFFF", "0100", "0080",
+    "FF80", "0200", "0100", "FF80",
+    "0000", "FE00", "0100", "0080"
+  ],
+  "neuron0_all_channels_on_signed_sum_hex": "0040",
+  "neuron0_all_channels_on_signed_sum_note": "0.5 + (-1) + 0.25 + 1 + (-0.5) + 0 = 0.25 → 64 = 0040. An unsigned misread of FF00/FF80 cannot produce 0040."
+}

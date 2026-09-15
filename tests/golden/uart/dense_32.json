@@ -1,0 +1,15 @@
+{
+  "profile": "dense_q88_32_32",
+  "note": "Simulated 32-neuron host codec. Not a board-support claim. Matching firmware required.",
+  "input_channels": 32,
+  "output_neurons": 32,
+  "tx_len": 65,
+  "rx_len": 70,
+  "spike_mask_bytes": 4,
+  "stimuli_rule": "index 0 = -1.0 (FF00), index 31 = 1.0 (0100), others 0",
+  "tx_hex": "AAFF000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000100",
+  "rx_rule": "potential 0 = -1.0, potential 31 = 0.5, spike bits 0 and 31, switches 0x1234",
+  "rx_hex": "FF000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000080800000011234",
+  "rx_spike_bits": [0, 31],
+  "rx_switches": 4660
+}

@@ -1,0 +1,28 @@
+{
+  "schema_version": "Spikenaut-v2",
+  "producer_crate": "silicon-bridge",
+  "issue": "https://github.com/rmems/silicon-bridge/issues/53",
+  "generated": "hand-specified 2026-09-15; expected words are Q8.8 quanta, not encoder output",
+  "rounding": "truncate_toward_zero",
+  "overflow_policy": "reject",
+  "flattening": "row_major_dense",
+  "word_format": "16-bit Q8.8, 8 fractional bits, scale 256, uppercase four-digit ASCII hex, one word per line",
+  "uart_golden_bytes": "tests/golden/uart/",
+  "uart_note": "ASCII hex .mem layout is not UART byte order or spike-bit order. Independent v3 / dense 8 / 32 / 8×10 frames live under tests/golden/uart/ (#52 landed).",
+  "profile_note": "Issue #50 (generic vs Spikenaut export profiles) is not landed. Both bundles below use the current EXPORT_FORMAT_VERSION tag the writer emits (Spikenaut-v2). That tag is a historical layout string, not proof of a trained Spikenaut model.",
+  "peer_hdl": {
+    "repository": "https://github.com/rmems/silicon-hdl",
+    "commit": "d45163f38ac1cd88f8a3918e3793a08ace85e132",
+    "commit_url": "https://github.com/rmems/silicon-hdl/commit/d45163f38ac1cd88f8a3918e3793a08ace85e132",
+    "weight_ram": "spikenaut-core-sv/rtl/WeightRam.sv",
+    "neuron_param_ram": "spikenaut-core-sv/rtl/NeuronParamRam.sv",
+    "lif_neuron": "spikenaut-core-sv/rtl/LifNeuron.sv",
+    "output_layer": "spikenaut-core-sv/rtl/OutputLayer.sv",
+    "signedness_doc": "spikenaut-core-sv/mem/README.md — Signedness contract (GH#73)",
+    "hidden_addressing": "addr = neuron_row * num_channels + input_index (LifNeuronArray)",
+    "readout_addressing": "OutputLayer addr = neuron * NUM_CLASSES + class (class fastest)",
+    "readout_mismatch": "silicon-bridge flattens readout as K×N (class row, hidden column, row-major). silicon-hdl OutputLayer addresses the same 48 words as N×K (neuron * K + class). Recorded here; the expected K×N file is not rewritten to match HDL, and the HDL neuron-major file is not rewritten to match the exporter.",
+    "ram_storage": "WeightRam / NeuronParamRam store logic [15:0] (unsigned container). Signedness is the consumer: LifNeuron and OutputLayer $signed-extend, saturate-accumulate, and $signed-compare. File storage type alone does not settle the arithmetic.",
+    "evidence_class": "HDL simulation of $readmemh + signed accumulate. Not board-measured parity or validated supervision."
+  }
+}

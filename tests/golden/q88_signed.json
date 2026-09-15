@@ -1,0 +1,17 @@
+{
+  "encoding": "signed_twos_complement_q88",
+  "scale": 256,
+  "range": { "min": -128.0, "max": 127.99609375 },
+  "hex_range": { "min": "8000", "max": "7FFF" },
+  "rounding": "truncate_toward_zero",
+  "source": "Independently specified from raw = trunc(value × 256) packed as i16. Not produced by encode_q88_signed_full.",
+  "cases": [
+    { "value": -1.0, "hex": "FF00", "raw_i16": -256 },
+    { "value": -0.5, "hex": "FF80", "raw_i16": -128 },
+    { "value": 0.0, "hex": "0000", "raw_i16": 0 },
+    { "value": 0.5, "hex": "0080", "raw_i16": 128 },
+    { "value": 1.0, "hex": "0100", "raw_i16": 256 },
+    { "value": -128.0, "hex": "8000", "raw_i16": -32768 },
+    { "value": 127.99609375, "hex": "7FFF", "raw_i16": 32767 }
+  ]
+}
