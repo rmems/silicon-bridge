@@ -7,6 +7,8 @@
 //! - **Q8.8 fixed-point parameter export** (`FixedPointEncode`, `ParameterExport`,
 //!   `CheckedParameterExport`, `MemFileWriter`) for [silicon-hdl](https://github.com/rmems/silicon-hdl)
 //!   `WeightRam` / `NeuronParamRam` via Vivado `$readmemh`
+//! - **SiliconBridge UART codecs** (`DenseQ88Layout`, `encode_stimuli`,
+//!   `decode_response`) that do not depend on `serialport`
 //! - **FPGA spike readback** over UART using the SiliconBridge v3.0 protocol
 //! - **Vivado report parsing** for CI/CD gating on WNS, TNS, and LUT utilization
 //!
@@ -87,7 +89,8 @@
 //! explicit port, baud rate, and per-I/O timeout. [`FpgaBridge::new`] remains
 //! as a legacy probe helper and is not the recommended path. Opening a named
 //! port does not require `libudev`; Linux enumeration via
-//! [`list_serial_ports`] typically does.
+//! [`list_serial_ports`] typically does. Frame encode/decode is
+//! [`encode_stimuli`] / [`decode_response`] and does not need this feature.
 
 // `forbid(unsafe_code)` enforces an AGENTS.md *constraint* — "do not add
 // `unsafe` code without explicit safety justification" — mechanically. Nothing
@@ -102,6 +105,7 @@
 // ambiguity worth a compile error.
 #![deny(missing_docs)]
 
+mod fpga_codec;
 mod fpga_export;
 mod fpga_metrics;
 
@@ -120,9 +124,15 @@ pub use fpga_export::{
 
 pub use fpga_metrics::FpgaMetrics;
 
+pub use fpga_codec::{
+    CodecError, DENSE_Q88_SYNC, DenseQ88Layout, MAX_DENSE_CHANNELS, SILICON_BRIDGE_V3_CHANNELS,
+    SILICON_BRIDGE_V3_RX_LEN, SILICON_BRIDGE_V3_TX_LEN, StimulusResponse, decode_response,
+    encode_stimuli, encode_stimuli_legacy_v3,
+};
+
 #[cfg(feature = "uart")]
 pub use fpga_bridge::{
-    DEFAULT_BAUD_RATE, DEFAULT_IO_TIMEOUT, FpgaBridge, FpgaBridgeBuilder, SerialConfig,
-    SerialConfigError, SerialConfigureOp, SerialError, find_fpga_ports, is_fpga_port_name,
-    list_serial_ports,
+    DEFAULT_BAUD_RATE, DEFAULT_IO_TIMEOUT, ExchangeError, FpgaBridge, FpgaBridgeBuilder,
+    SerialConfig, SerialConfigError, SerialConfigureOp, SerialError, find_fpga_ports,
+    is_fpga_port_name, list_serial_ports,
 };

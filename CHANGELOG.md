@@ -19,6 +19,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `SerialError` / `SerialConfigError` carry port and operation context;
   constructors do not print to stdout or send stimulus frames.
   `is_transport_open` is distinct from the `ping` latch (`is_active`).
+- UART codecs split from transport (#52): `DenseQ88Layout`, `encode_stimuli`,
+  `encode_stimuli_legacy_v3`, `decode_response`, and `StimulusResponse` live
+  in a `serialport`-free module. The SiliconBridge v3.0 16-channel frame is
+  an explicit profile; dense 8/16/32 (and non-multiple-of-8 mask) layouts
+  are software codecs and need matching FPGA firmware. Checked encode
+  rejects wrong-length and non-finite stimuli before any write. `FpgaBridge`
+  gains `exchange` / `exchange_legacy` / `recover`; a failed I/O exchange
+  sets `needs_recovery` and does not resend the stimulus. `process_stimuli`
+  is the documented legacy pad/truncate wrapper and now returns
+  `ExchangeError`.
 - `FpgaParameterExporter::validate` and `ParameterShapeError` — reject a weight
   matrix whose rows disagree in length. `MemFileWriter::write_mem_files` now
   validates before touching the filesystem, so a ragged matrix returns an error

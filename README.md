@@ -106,14 +106,24 @@ them. `find_fpga_ports()` is a name heuristic on that list, not FPGA
 authentication. On Linux, enumeration typically requires `libudev`; macOS
 and Windows do not. Default-feature builds do not link `serialport`.
 
+Request/response bytes are encoded by `DenseQ88Layout` / `encode_stimuli` /
+`decode_response` (no `serialport` dependency). SiliconBridge v3.0 is the
+16-channel profile that matches current firmware. Other dense sizes are
+host codecs only — they need matching FPGA firmware; changing the host
+layout is not enough. The checked path requires exactly `input_channels`
+finite stimuli. `process_stimuli` remains the legacy pad/truncate wrapper.
+
 `process_stimuli` writes the request frame and then `read_exact`s the reply.
 The configured timeout is the `serialport` **per-I/O** timeout, not a hard
 wall-clock budget for the entire call: filling 36 bytes may take several
 reads, so the call can exceed the timeout. Extra reads are not a
 retransmission of the stimulus. A timeout after the write has already
-updated FPGA state; retrying applies the stimulus again. `ping()` sends a
-real 16-channel stimulus of `0.1` — it is not passive discovery. Nothing
-in this API returns a `Future`, and no async executor is required.
+updated FPGA state; this crate does not resend automatically. After a
+failed exchange the handle requires `recover()` before further stimuli.
+The unframed v3 reply cannot detect every stale same-length frame.
+`ping()` sends a real 16-channel stimulus of `0.1` — it is not passive
+discovery. Nothing in this API returns a `Future`, and no async executor
+is required.
 
 ## Q8.8 Fixed-Point Format
 

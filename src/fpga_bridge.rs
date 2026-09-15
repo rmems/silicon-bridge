@@ -56,9 +56,13 @@
 //! unsigned-magnitude pair and are **not** the hardware convention on either
 //! path: a stimulus encoded with them turns every inhibitory input into `0`.
 
-use serialport::{SerialPort, SerialPortInfo, SerialPortType};
+use crate::{
+    CodecError, DenseQ88Layout, SILICON_BRIDGE_V3_RX_LEN, StimulusResponse, decode_response,
+    encode_stimuli, encode_stimuli_legacy_v3,
+};
+use serialport::{ClearBuffer, SerialPort, SerialPortInfo, SerialPortType};
 use std::fmt;
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::time::Duration;
 
 /// Baud rate the SiliconBridge v3.0 firmware runs at.
@@ -297,6 +301,76 @@ impl From<SerialConfigError> for SerialError {
     }
 }
 
+/// Failure during a stimulus exchange on an already-open port.
+///
+/// Open/config failures stay on [`SerialError`]. Codec failures are
+/// [`ExchangeError::Codec`] and happen before any write. A failed or
+/// partial I/O transaction sets [`FpgaBridge::needs_recovery`]; the next
+/// exchange is refused until [`FpgaBridge::recover`] clears the serial
+/// buffers. This crate does not resend the stimulus frame automatically.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum ExchangeError {
+    /// [`FpgaBridge::is_active`] is false (the `ping` latch).
+    NotActive,
+    /// A previous exchange failed part-way; call [`FpgaBridge::recover`].
+    NeedsRecovery,
+    /// Encode or decode failed. No bytes were written when this comes from
+    /// [`encode_stimuli`](crate::encode_stimuli).
+    Codec(CodecError),
+    /// Writing or flushing the request failed. The peer may have seen a
+    /// prefix; the stimulus is not retried.
+    Write {
+        /// Underlying I/O error.
+        source: io::Error,
+    },
+    /// Reading the reply failed after the request was written. The peer has
+    /// already consumed the stimulus.
+    Read {
+        /// Underlying I/O error.
+        source: io::Error,
+    },
+    /// [`FpgaBridge::recover`] could not clear the port buffers.
+    Recover {
+        /// Underlying I/O error.
+        source: io::Error,
+    },
+}
+
+impl fmt::Display for ExchangeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotActive => write!(f, "FPGA bridge is not active"),
+            Self::NeedsRecovery => write!(
+                f,
+                "previous UART exchange failed; call recover() before further stimuli"
+            ),
+            Self::Codec(err) => write!(f, "{err}"),
+            Self::Write { source } => write!(f, "failed to write stimulus frame: {source}"),
+            Self::Read { source } => write!(f, "failed to read stimulus reply: {source}"),
+            Self::Recover { source } => write!(f, "failed to recover serial buffers: {source}"),
+        }
+    }
+}
+
+impl std::error::Error for ExchangeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Codec(err) => Some(err),
+            Self::Write { source } | Self::Read { source } | Self::Recover { source } => {
+                Some(source)
+            }
+            Self::NotActive | Self::NeedsRecovery => None,
+        }
+    }
+}
+
+impl From<CodecError> for ExchangeError {
+    fn from(err: CodecError) -> Self {
+        Self::Codec(err)
+    }
+}
+
 /// Map `serialport::available_ports` into [`SerialError::Enumerate`].
 ///
 /// Extracted so tests can cover the error path without depending on `libudev`.
@@ -395,6 +469,9 @@ pub struct FpgaBridge {
     /// Latch used by [`Self::ping`]. Starts `true` (transport open, not
     /// verified). A failed ping sets it `false`; this is not device identity.
     active: bool,
+    /// Set when a write/read fails mid-exchange. Further stimuli are refused
+    /// until [`Self::recover`].
+    needs_recovery: bool,
 }
 
 impl fmt::Debug for FpgaBridge {
@@ -403,6 +480,7 @@ impl fmt::Debug for FpgaBridge {
             .field("port", &self.port.name())
             .field("transport_open", &self.transport_open)
             .field("active", &self.active)
+            .field("needs_recovery", &self.needs_recovery)
             .finish()
     }
 }
@@ -622,15 +700,15 @@ impl FpgaBridge {
             port,
             transport_open: true,
             active: true,
+            needs_recovery: false,
         })
     }
 
     /// Wrap an already-open serial transport.
     ///
     /// Use this in tests (and hosts that opened the port themselves) so
-    /// configuration and error paths can run without a physical board.
-    /// Scripted Read/Write exchange tests belong with the protocol-codec
-    /// split, not here.
+    /// configuration, recovery, and scripted Read/Write exchanges can run
+    /// without a physical board.
     ///
     /// The handle is marked transport-open only. This does not send frames or
     /// verify SiliconBridge identity.
@@ -639,6 +717,7 @@ impl FpgaBridge {
             port,
             transport_open: true,
             active: true,
+            needs_recovery: false,
         }
     }
 
@@ -667,70 +746,118 @@ impl FpgaBridge {
             port,
             transport_open: true,
             active: true,
+            needs_recovery: false,
         })
     }
 
-    /// Send neural stimuli to FPGA and read back spike states.
+    /// Legacy v3 exchange: pad/truncate to 16 channels and return potentials
+    /// and spikes (switch state discarded).
     ///
-    /// Protocol (16-neuron SiliconBridge v3.0):
-    ///   TX: 0xAA + 32 bytes (16 × signed Q8.8 stimuli, big-endian)
-    ///   RX: 32 bytes (16 × signed Q8.8 potentials) + 2 bytes (spike flags) + 2 bytes (switches)
+    /// Prefer [`Self::exchange`] with [`DenseQ88Layout::silicon_bridge_v3`]
+    /// when the caller can supply an exact finite vector and wants the
+    /// structured [`StimulusResponse`] (including switches).
     ///
-    /// Stimuli are encoded with [`crate::encode_q88_signed`] (`i16`) — the
-    /// UART clamp of ±127.99, **not** [`crate::encode_q88_signed_full`] and
-    /// **not** the unsigned-magnitude [`crate::encode_q88_unsigned`], which
-    /// would flatten every inhibitory input to `0`. RX potentials use
-    /// [`crate::q88_signed_to_f32`].
-    ///
-    /// Input is accepted as a dynamic slice; if fewer than 16 values are provided,
-    /// remaining channels are zero-padded. If more are provided, only the first 16 are sent.
+    /// Encoding is [`encode_stimuli_legacy_v3`]. A non-v3 [`DenseQ88Layout`]
+    /// needs matching FPGA firmware; changing the host layout alone is not
+    /// sufficient.
     ///
     /// # Timeouts and retries
     ///
     /// The port's timeout is per `read`/`write`, not a deadline for this
-    /// whole call. `read_exact` may perform several reads to fill 36 bytes;
+    /// whole call. `read_exact` may perform several reads to fill the reply;
     /// those extra reads are **not** a retransmission of the stimulus frame.
-    /// This method does not resend `tx_data` on a short or timed-out reply.
+    /// This method does not resend the request on a short or timed-out reply.
     /// If the write succeeded and the read then fails, the FPGA has already
-    /// consumed the stimulus — retrying this method applies it again.
+    /// consumed the stimulus — retrying applies it again. After any I/O
+    /// failure the handle requires [`Self::recover`] before another exchange.
+    ///
+    /// The unframed v3 RX format cannot reliably detect a stale or
+    /// misaligned same-length reply. There is no checksum and this crate
+    /// does not claim resynchronization.
     pub fn process_stimuli(
         &mut self,
         stimuli: &[f32],
-    ) -> Result<(Vec<f32>, Vec<bool>), Box<dyn std::error::Error>> {
+    ) -> Result<(Vec<f32>, Vec<bool>), ExchangeError> {
+        let response = self.exchange_legacy(stimuli)?;
+        Ok((response.potentials, response.spikes))
+    }
+
+    /// Legacy v3 exchange returning the full structured reply.
+    ///
+    /// Pads/truncates like [`encode_stimuli_legacy_v3`]. For a checked
+    /// exact-length encode, use [`Self::exchange`].
+    pub fn exchange_legacy(&mut self, stimuli: &[f32]) -> Result<StimulusResponse, ExchangeError> {
+        self.ensure_ready()?;
+        let tx = encode_stimuli_legacy_v3(stimuli);
+        self.write_frame(&tx)?;
+        let rx = self.read_frame(SILICON_BRIDGE_V3_RX_LEN)?;
+        decode_response(&DenseQ88Layout::silicon_bridge_v3(), &rx).map_err(ExchangeError::from)
+    }
+
+    /// Checked exchange for an explicit layout.
+    ///
+    /// `stimuli` must have exactly `layout.input_channels()` finite values or
+    /// this returns [`ExchangeError::Codec`] **before** any write. Non-v3
+    /// layouts require matching FPGA firmware.
+    pub fn exchange(
+        &mut self,
+        layout: &DenseQ88Layout,
+        stimuli: &[f32],
+    ) -> Result<StimulusResponse, ExchangeError> {
+        self.ensure_ready()?;
+        let tx = encode_stimuli(layout, stimuli)?;
+        let rx_len = layout.rx_len()?;
+        self.write_frame(&tx)?;
+        let rx = self.read_frame(rx_len)?;
+        decode_response(layout, &rx).map_err(ExchangeError::from)
+    }
+
+    fn ensure_ready(&self) -> Result<(), ExchangeError> {
         if !self.active {
-            return Err("FPGA bridge not active".into());
+            return Err(ExchangeError::NotActive);
         }
-
-        // ENCODE SITE (signed Q8.8) — UART TX with the legacy ±127.99 clamp.
-        // Parameter `.mem` export uses `encode_q88_signed_full` instead.
-        let mut tx_data = vec![0xAAu8]; // Sync byte
-        for i in 0..16 {
-            let s = stimuli.get(i).copied().unwrap_or(0.0);
-            let q8_8 = crate::encode_q88_signed(s);
-            tx_data.extend_from_slice(&q8_8.to_be_bytes());
+        if self.needs_recovery {
+            return Err(ExchangeError::NeedsRecovery);
         }
+        Ok(())
+    }
 
-        // Send to FPGA
-        self.port.write_all(&tx_data)?;
-        self.port.flush()?;
-
-        // Read response: 32 bytes potentials + 2 bytes spike flags + 2 bytes switches
-        let mut rx_data = vec![0u8; 36];
-        self.port.read_exact(&mut rx_data)?;
-
-        // DECODE SITE (signed Q8.8, big-endian) — membrane potentials can be negative.
-        let mut potentials = Vec::with_capacity(16);
-        for i in 0..16 {
-            let raw = i16::from_be_bytes([rx_data[i * 2], rx_data[i * 2 + 1]]);
-            potentials.push(crate::q88_signed_to_f32(raw));
+    fn write_frame(&mut self, tx: &[u8]) -> Result<(), ExchangeError> {
+        if let Err(source) = self.port.write_all(tx).and_then(|()| self.port.flush()) {
+            self.needs_recovery = true;
+            return Err(ExchangeError::Write { source });
         }
+        Ok(())
+    }
 
-        // Parse spike flags (16-bit, 1 per neuron)
-        let spike_word = u16::from_be_bytes([rx_data[32], rx_data[33]]);
-        let spikes = (0..16).map(|i| (spike_word & (1 << i)) != 0).collect();
-        // rx_data[34..36] = switch state (available but unused here)
+    fn read_frame(&mut self, len: usize) -> Result<Vec<u8>, ExchangeError> {
+        let mut rx = vec![0u8; len];
+        if let Err(source) = self.port.read_exact(&mut rx) {
+            self.needs_recovery = true;
+            return Err(ExchangeError::Read { source });
+        }
+        Ok(rx)
+    }
 
-        Ok((potentials, spikes))
+    /// Clear serial buffers after a failed exchange so the next call does
+    /// not consume leftover bytes as a fresh reply.
+    ///
+    /// Required after [`ExchangeError::Write`] or [`ExchangeError::Read`].
+    /// Clearing the host buffers cannot detect a stale same-length reply
+    /// already sitting in the FPGA UART; the legacy RX format has no marker.
+    pub fn recover(&mut self) -> Result<(), ExchangeError> {
+        self.port
+            .clear(ClearBuffer::All)
+            .map_err(|source| ExchangeError::Recover {
+                source: io::Error::from(source),
+            })?;
+        self.needs_recovery = false;
+        Ok(())
+    }
+
+    /// Whether the next exchange is blocked pending [`Self::recover`].
+    pub fn needs_recovery(&self) -> bool {
+        self.needs_recovery
     }
 
     /// Send a real 16-channel stimulus of `0.1` and treat any reply as success.
@@ -805,7 +932,9 @@ pub fn find_fpga_ports() -> Result<Vec<SerialPortInfo>, SerialError> {
 mod tests {
     use super::*;
     use serialport::{ClearBuffer, DataBits, FlowControl, Parity, StopBits, UsbPortInfo};
+    use std::collections::VecDeque;
     use std::io;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn linux_usb_serial_nodes_are_fpga_ports() {
@@ -1154,6 +1283,10 @@ mod tests {
         timeout: Duration,
         fail_baud: bool,
         fail_timeout: bool,
+        writes: Arc<Mutex<Vec<Vec<u8>>>>,
+        read_chunks: VecDeque<io::Result<Vec<u8>>>,
+        leftover: Vec<u8>,
+        write_err: Option<io::ErrorKind>,
     }
 
     impl MockPort {
@@ -1164,6 +1297,10 @@ mod tests {
                 timeout: DEFAULT_IO_TIMEOUT,
                 fail_baud: false,
                 fail_timeout: false,
+                writes: Arc::new(Mutex::new(Vec::new())),
+                read_chunks: VecDeque::new(),
+                leftover: Vec::new(),
+                write_err: None,
             }
         }
 
@@ -1173,14 +1310,39 @@ mod tests {
     }
 
     impl io::Read for MockPort {
-        fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
-            Err(io::Error::other("mock port is not a data path"))
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            if !self.leftover.is_empty() {
+                let n = buf.len().min(self.leftover.len());
+                buf[..n].copy_from_slice(&self.leftover[..n]);
+                self.leftover.drain(..n);
+                return Ok(n);
+            }
+            match self.read_chunks.pop_front() {
+                None => Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "mock port: no scripted read",
+                )),
+                Some(Err(err)) => Err(err),
+                Some(Ok(data)) if data.is_empty() => Ok(0),
+                Some(Ok(data)) => {
+                    let n = buf.len().min(data.len());
+                    buf[..n].copy_from_slice(&data[..n]);
+                    if n < data.len() {
+                        self.leftover.extend_from_slice(&data[n..]);
+                    }
+                    Ok(n)
+                }
+            }
         }
     }
 
     impl io::Write for MockPort {
-        fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
-            Err(io::Error::other("mock port is not a data path"))
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            if let Some(kind) = self.write_err {
+                return Err(io::Error::new(kind, "mock port: scripted write failure"));
+            }
+            self.writes.lock().expect("write log").push(buf.to_vec());
+            Ok(buf.len())
         }
 
         fn flush(&mut self) -> io::Result<()> {
@@ -1372,5 +1534,129 @@ mod tests {
         let bridge = FpgaBridge::from_port(Box::new(MockPort::ok("mock0")));
         assert!(bridge.is_active());
         assert!(bridge.is_transport_open());
+        assert!(!bridge.needs_recovery());
+    }
+
+    fn v3_zero_reply() -> Vec<u8> {
+        vec![0u8; SILICON_BRIDGE_V3_RX_LEN]
+    }
+
+    #[test]
+    fn scripted_legacy_exchange_is_one_write_and_returns_switches() {
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let mut mock = MockPort::ok("script");
+        mock.writes = Arc::clone(&writes);
+        let mut rx = v3_zero_reply();
+        rx[0] = 0xFF;
+        rx[1] = 0x00; // -1.0
+        rx[34] = 0x00;
+        rx[35] = 0x42;
+        mock.read_chunks.push_back(Ok(rx));
+        let mut bridge = FpgaBridge::from_port(Box::new(mock));
+        let response = bridge
+            .exchange_legacy(&[0.1; 16])
+            .expect("scripted v3 reply");
+        assert_eq!(response.potentials[0], -1.0);
+        assert_eq!(response.switches, Some(0x0042));
+        let log = writes.lock().expect("log");
+        assert_eq!(log.len(), 1, "must not retransmit the stimulus");
+        assert_eq!(log[0], encode_stimuli_legacy_v3(&[0.1; 16]));
+    }
+
+    #[test]
+    fn scripted_short_reads_fill_the_reply_without_a_second_write() {
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let mut mock = MockPort::ok("short");
+        mock.writes = Arc::clone(&writes);
+        mock.read_chunks.push_back(Ok(vec![0u8; 10]));
+        mock.read_chunks.push_back(Ok(vec![0u8; 10]));
+        mock.read_chunks.push_back(Ok(vec![0u8; 16]));
+        let mut bridge = FpgaBridge::from_port(Box::new(mock));
+        bridge
+            .process_stimuli(&[0.0; 16])
+            .expect("short reads assemble 36 bytes");
+        assert_eq!(writes.lock().expect("log").len(), 1);
+    }
+
+    #[test]
+    fn scripted_eof_and_timeout_require_recover_and_do_not_resend() {
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let mut mock = MockPort::ok("eof");
+        mock.writes = Arc::clone(&writes);
+        mock.read_chunks.push_back(Ok(Vec::new()));
+        let mut bridge = FpgaBridge::from_port(Box::new(mock));
+        let err = bridge
+            .process_stimuli(&[0.1; 16])
+            .expect_err("EOF after write");
+        assert!(matches!(err, ExchangeError::Read { .. }));
+        assert!(bridge.needs_recovery());
+        assert_eq!(writes.lock().expect("log").len(), 1);
+
+        let err = bridge
+            .process_stimuli(&[0.1; 16])
+            .expect_err("blocked until recover");
+        assert!(matches!(err, ExchangeError::NeedsRecovery));
+        assert_eq!(
+            writes.lock().expect("log").len(),
+            1,
+            "must not resend while recovery is pending"
+        );
+
+        bridge.recover().expect("clear buffers");
+        assert!(!bridge.needs_recovery());
+    }
+
+    #[test]
+    fn scripted_timeout_is_a_read_error() {
+        let mut mock = MockPort::ok("timeout");
+        mock.read_chunks.push_back(Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "mock read timeout",
+        )));
+        let mut bridge = FpgaBridge::from_port(Box::new(mock));
+        let err = bridge.process_stimuli(&[0.0; 16]).expect_err("timeout");
+        match err {
+            ExchangeError::Read { ref source } => {
+                assert_eq!(source.kind(), io::ErrorKind::TimedOut);
+            }
+            other => panic!("expected Read timeout, got {other}"),
+        }
+        assert!(bridge.needs_recovery());
+    }
+
+    #[test]
+    fn scripted_write_error_sets_recovery_and_does_not_read() {
+        let mut mock = MockPort::ok("wr");
+        mock.write_err = Some(io::ErrorKind::BrokenPipe);
+        mock.read_chunks.push_back(Ok(v3_zero_reply()));
+        let mut bridge = FpgaBridge::from_port(Box::new(mock));
+        let err = bridge.process_stimuli(&[0.0; 16]).expect_err("write");
+        assert!(matches!(err, ExchangeError::Write { .. }));
+        assert!(bridge.needs_recovery());
+    }
+
+    #[test]
+    fn checked_exchange_rejects_wrong_length_before_any_write() {
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let mut mock = MockPort::ok("checked");
+        mock.writes = Arc::clone(&writes);
+        mock.read_chunks.push_back(Ok(v3_zero_reply()));
+        let mut bridge = FpgaBridge::from_port(Box::new(mock));
+        let layout = DenseQ88Layout::silicon_bridge_v3();
+        let err = bridge
+            .exchange(&layout, &[0.1; 15])
+            .expect_err("wrong length");
+        assert!(matches!(
+            err,
+            ExchangeError::Codec(CodecError::WrongInputLength {
+                expected: 16,
+                actual: 15
+            })
+        ));
+        assert!(
+            writes.lock().expect("log").is_empty(),
+            "checked encode must fail before transport write"
+        );
+        assert!(!bridge.needs_recovery());
     }
 }
