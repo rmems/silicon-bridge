@@ -28,12 +28,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `examples/dense_codec.rs` (host codec only; no live UART).
   `FpgaParameterExporter::set_format_version` /
   `set_timestamp` / `use_wall_clock_timestamp` make JSON reproducible and
-  let generic bundles drop the historical layout name. README/rustdoc
-  distinguish unpublished git/path installs from a future crates.io
-  version (registry 404 as of 2026-09-15). See `docs/consumer.md` and
-  `docs/release-readiness.md`. `scripts/smoke-packaged-consumer.sh` builds
-  an out-of-tree crate against `cargo package` output; that is not
-  registry proof.
+  let generic bundles drop the historical layout name. `set_timestamp`
+  rejects non-RFC-3339 and non-UTC strings. README/rustdoc distinguish
+  unpublished git/path installs from a future crates.io version (registry
+  404 as of 2026-09-15); rewrite those install lines on the candidate
+  commit **before** `cargo publish` because the tarball is immutable.
+  See `docs/consumer.md` and `docs/release-readiness.md`.
+  `scripts/smoke-packaged-consumer.sh` builds an out-of-tree crate against
+  `cargo package` output; that is not registry proof.
 - Explicit UART serial configuration (#51): `SerialConfig` (nonzero baud,
   finite nonzero per-I/O timeout), `FpgaBridge::open_with_config`,
   `FpgaBridge::builder`, `FpgaBridge::from_port` /

@@ -350,6 +350,29 @@ pub enum RangePolicy {
     Saturate,
 }
 
+/// Failure from [`FpgaParameterExporter::set_timestamp`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MetadataTimestampError {
+    /// The string is not RFC 3339.
+    InvalidRfc3339,
+    /// RFC 3339 parsed, but the offset is not UTC (`Z` or `±00:00`).
+    NotUtc,
+}
+
+impl fmt::Display for MetadataTimestampError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidRfc3339 => write!(f, "timestamp is not RFC 3339"),
+            Self::NotUtc => write!(
+                f,
+                "timestamp must be UTC (RFC 3339 with Z or a zero offset)"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for MetadataTimestampError {}
+
 /// One value that [`RangePolicy::Saturate`] clamped before encoding.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SaturationEvent {
@@ -669,9 +692,9 @@ pub struct FpgaMetadata {
     /// RFC 3339 UTC timestamp of the export.
     ///
     /// [`FpgaParameterExporter`] uses `chrono::Utc::now` unless
-    /// [`FpgaParameterExporter::set_timestamp`] supplied a fixed string.
-    /// [`FpgaParameterExporter::use_wall_clock_timestamp`] restores that
-    /// default.
+    /// [`FpgaParameterExporter::set_timestamp`] supplied a fixed RFC 3339 UTC
+    /// string. [`FpgaParameterExporter::use_wall_clock_timestamp`] restores
+    /// that default. Caller-supplied values are parsed before they are stored.
     pub timestamp: String,
     /// Number of neurons, taken from the threshold count.
     ///
@@ -852,11 +875,23 @@ impl FpgaParameterExporter {
 
     /// Set the timestamp written into [`FpgaMetadata::timestamp`].
     ///
-    /// Pass a fixed RFC 3339 string for byte-identical `parameters.json` across
-    /// repeated exports. Call [`Self::use_wall_clock_timestamp`] to restore
-    /// `chrono::Utc::now` at export time (the default).
-    pub fn set_timestamp(&mut self, timestamp: impl Into<String>) {
-        self.timestamp = Some(timestamp.into());
+    /// `timestamp` must be RFC 3339 with a UTC offset (`Z` or `±00:00`).
+    /// The caller’s spelling is stored unchanged so repeated exports stay
+    /// byte-identical. Non-UTC offsets and unparsable strings return
+    /// [`MetadataTimestampError`]. Call [`Self::use_wall_clock_timestamp`] to
+    /// restore `chrono::Utc::now` at export time (the default).
+    pub fn set_timestamp(
+        &mut self,
+        timestamp: impl AsRef<str>,
+    ) -> Result<(), MetadataTimestampError> {
+        let timestamp = timestamp.as_ref();
+        let parsed = chrono::DateTime::parse_from_rfc3339(timestamp)
+            .map_err(|_| MetadataTimestampError::InvalidRfc3339)?;
+        if parsed.offset().local_minus_utc() != 0 {
+            return Err(MetadataTimestampError::NotUtc);
+        }
+        self.timestamp = Some(timestamp.to_owned());
+        Ok(())
     }
 
     /// Restore wall-clock timestamps (`chrono::Utc::now` at export time).
@@ -1809,7 +1844,9 @@ mod tests {
         let mut exporter =
             FpgaParameterExporter::from_params(vec![1.0], vec![vec![-1.0]], vec![0.5]);
         exporter.set_format_version("generic-dense-q88");
-        exporter.set_timestamp("1970-01-01T00:00:00Z");
+        exporter
+            .set_timestamp("1970-01-01T00:00:00Z")
+            .expect("rfc3339 utc");
 
         let params = exporter.try_export().expect("checked");
         assert_eq!(params.metadata.version, "generic-dense-q88");
@@ -1829,11 +1866,36 @@ mod tests {
     fn wall_clock_timestamp_can_be_restored() {
         let mut exporter =
             FpgaParameterExporter::from_params(vec![1.0], vec![vec![0.5]], vec![0.5]);
-        exporter.set_timestamp("1970-01-01T00:00:00Z");
+        exporter
+            .set_timestamp("1970-01-01T00:00:00Z")
+            .expect("rfc3339 utc");
         exporter.use_wall_clock_timestamp();
         let params = exporter.try_export().expect("checked");
         assert_ne!(params.metadata.timestamp, "1970-01-01T00:00:00Z");
         assert!(!params.metadata.timestamp.is_empty());
+    }
+
+    #[test]
+    fn set_timestamp_rejects_empty_invalid_and_non_utc() {
+        let mut exporter =
+            FpgaParameterExporter::from_params(vec![1.0], vec![vec![0.5]], vec![0.5]);
+        assert_eq!(
+            exporter.set_timestamp(""),
+            Err(MetadataTimestampError::InvalidRfc3339)
+        );
+        assert_eq!(
+            exporter.set_timestamp("not-a-timestamp"),
+            Err(MetadataTimestampError::InvalidRfc3339)
+        );
+        assert_eq!(
+            exporter.set_timestamp("2020-01-01T00:00:00-05:00"),
+            Err(MetadataTimestampError::NotUtc)
+        );
+        exporter
+            .set_timestamp("1970-01-01T00:00:00+00:00")
+            .expect("explicit zero offset is UTC");
+        let params = exporter.try_export().expect("checked");
+        assert_eq!(params.metadata.timestamp, "1970-01-01T00:00:00+00:00");
     }
 
     /// Small fixture whose floats are exact Q8.8 multiples of 1/256.

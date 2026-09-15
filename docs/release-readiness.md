@@ -17,9 +17,16 @@ explicitly authorized that exact version.
 3. If a version exists, pick the next semver and confirm it is not already
    yanked/occupied.
 4. Set `[package].version` to that number on the **exact candidate commit**.
+5. **Rewrite installation docs on that same commit** before `cargo package`
+   / `cargo publish --dry-run`: README and crate-level rustdoc must say
+   `silicon-bridge = "<that version>"` (and drop “not published” language).
+   crates.io tarballs and the docs.rs build for that version are immutable;
+   a later git commit cannot correct them.
 
 As of 2026-09-15 the registry returned 404. The in-tree version `0.1.0` is
 the intended first release number only until someone actually publishes it.
+Git/path install instructions in this tree are correct **until** that
+candidate commit rewrites them.
 
 ## 2. Supported Rust version
 
@@ -76,9 +83,11 @@ Only then:
 
 - Confirm `https://crates.io/crates/silicon-bridge` shows the version.
 - Confirm `https://docs.rs/silicon-bridge` builds with no rustdoc warnings.
-- Point README installation at `silicon-bridge = "<published version>"`.
 - Repeat the smoke test with `silicon-bridge = "<published version>"` from
   the registry, not a path. Do not call a package-source test a registry test.
+
+Do **not** wait until this step to rewrite README/rustdoc installation;
+that rewrite belongs on the candidate commit in step 1.5 / item 5 above.
 
 ## 7. Out of scope here
 

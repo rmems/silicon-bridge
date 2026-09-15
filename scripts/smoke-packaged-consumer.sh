@@ -8,16 +8,24 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)"
-if [[ -z "$VERSION" ]]; then
-  echo "could not read package version from Cargo.toml" >&2
+eval "$(
+  cargo metadata --format-version 1 --no-deps | python3 -c '
+import json, sys
+meta = json.load(sys.stdin)
+pkg = next(p for p in meta["packages"] if p["name"] == "silicon-bridge")
+print("TARGET_DIR=" + json.dumps(meta["target_directory"]))
+print("VERSION=" + json.dumps(pkg["version"]))
+'
+)"
+if [[ -z "${TARGET_DIR:-}" || -z "${VERSION:-}" ]]; then
+  echo "could not read target_directory / version from cargo metadata" >&2
   exit 1
 fi
 
-echo "==> packaging silicon-bridge ${VERSION}"
+echo "==> packaging silicon-bridge ${VERSION} (target dir ${TARGET_DIR})"
 cargo package --no-verify --allow-dirty
 
-CRATE_TAR="${ROOT}/target/package/silicon-bridge-${VERSION}.crate"
+CRATE_TAR="${TARGET_DIR}/package/silicon-bridge-${VERSION}.crate"
 if [[ ! -f "$CRATE_TAR" ]]; then
   echo "expected ${CRATE_TAR}" >&2
   exit 1
@@ -67,7 +75,9 @@ fn main() {
         vec![0.5, 0.75, 0.25, 1.0],
     );
     exporter.set_format_version("generic-dense-q88");
-    exporter.set_timestamp("1970-01-01T00:00:00Z");
+    exporter
+        .set_timestamp("1970-01-01T00:00:00Z")
+        .expect("rfc3339 utc");
     let params = CheckedParameterExport::try_export(&exporter).expect("checked");
     assert_eq!(params.metadata.version, "generic-dense-q88");
     assert!(!params.metadata.version.contains("Spikenaut"));

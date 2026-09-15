@@ -118,7 +118,7 @@ against the public crate surface.
 | Legacy unsigned `.mem` | Re-export with signed `encode_q88_signed_full`. Old unsigned hex above `7FFF` is a different number under `$signed`. |
 | Signed parameter / readout | Hidden and readout default signed; set `set_encoding` per block. Read `metadata.encodings`. |
 | Legacy UART clipping | Keep `encode_q88_signed` on the wire. Do not reuse it for `.mem`. |
-| Timestamps / printing | `set_timestamp` for byte-identical JSON. `write_mem_files` still prints a summary (legacy). |
+| Timestamps / printing | `set_timestamp` requires RFC 3339 UTC. `write_mem_files` still prints a summary (legacy). |
 | `Spikenaut-v2` tag | Layout identifier, not a model. Override with `set_format_version` for generic bundles. Do not silently retag signed-readout JSON as a new schema without a distinct name. |
 | Pre-1.0 | Public types are `#[non_exhaustive]` where noted. Field additions (`tns_ns`, `encodings`) need `..Default::default()` in struct literals. No 1.0 stability promise. |
 
@@ -128,6 +128,8 @@ Publication is a **separately authorized** action. This guide and the
 examples do not run `cargo publish`, flash an FPGA, or implement NIR (see
 GitHub [#15](https://github.com/rmems/silicon-bridge/issues/15)).
 
-After a real publish, repeat the packaged-crate smoke test against the
-registry version. A path/`cargo package` test does **not** prove crates.io
-publication.
+Rewrite README and crate rustdoc to the selected crates.io version **on the
+candidate commit**, before `cargo publish --dry-run`. Published versions are
+immutable. After a real publish, repeat the packaged-crate smoke test
+against the **registry** version. A path/`cargo package` test does **not**
+prove crates.io publication.

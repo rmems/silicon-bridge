@@ -105,7 +105,7 @@ let mut exporter = FpgaParameterExporter::from_params(
     vec![0.5, 0.75, 0.25, 1.0],
 );
 exporter.set_format_version("generic-dense-q88");
-exporter.set_timestamp("1970-01-01T00:00:00Z");
+exporter.set_timestamp("1970-01-01T00:00:00Z").unwrap();
 
 let params = CheckedParameterExport::try_export(&exporter).expect("rectangular, finite, in-range");
 assert_eq!(params.metadata.version, "generic-dense-q88");
@@ -262,7 +262,7 @@ list other revisions without fixtures.
   with `set_format_version` for generic bundles.
 - **UART clamp:** keep `encode_q88_signed` on the wire; do not use it for
   `.mem`.
-- **Timestamps / printing:** `set_timestamp` for deterministic JSON.
+- **Timestamps / printing:** `set_timestamp` requires RFC 3339 UTC.
   `write_mem_files` still prints a summary.
 - **Pre-1.0:** no stability promise. New public fields may appear; use
   `..Default::default()` on struct literals.
@@ -270,12 +270,14 @@ list other revisions without fixtures.
 ## Public-release readiness
 
 See [docs/release-readiness.md](docs/release-readiness.md). Checklist: verify
-registry state, choose the real version, test Rust `1.98.1`, review
-license/`cargo package --list`, run default and UART checks, deny rustdoc
-warnings, `cargo publish --dry-run` on the candidate commit. Verify docs.rs
-and a **registry** consumer only after publish. This ticket does not run
-`cargo publish`. Packaged-crate smoke: `bash scripts/smoke-packaged-consumer.sh`
-(not a crates.io proof). CI matrix remains [#24](https://github.com/rmems/silicon-bridge/issues/24).
+registry state, choose the real version, **rewrite README and crate rustdoc
+installation to that version on the candidate commit** (the crates.io tarball
+is immutable), test Rust `1.98.1`, review license/`cargo package --list`, run
+default and UART checks, deny rustdoc warnings, `cargo publish --dry-run`.
+Verify docs.rs and a **registry** consumer only after publish. This ticket does
+not run `cargo publish`. Packaged-crate smoke:
+`bash scripts/smoke-packaged-consumer.sh` (not a crates.io proof). CI matrix
+remains [#24](https://github.com/rmems/silicon-bridge/issues/24).
 
 ## Vivado Timing Metrics
 

@@ -20,7 +20,9 @@ fn generic_4x6() -> FpgaParameterExporter {
         vec![0.5, 0.75, 0.25, 1.0],
     );
     exporter.set_format_version("generic-dense-q88");
-    exporter.set_timestamp("1970-01-01T00:00:00Z");
+    exporter
+        .set_timestamp("1970-01-01T00:00:00Z")
+        .expect("rfc3339 utc");
     exporter
 }
 

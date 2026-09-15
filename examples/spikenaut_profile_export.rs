@@ -48,7 +48,9 @@ fn synthetic_spikenaut_16() -> FpgaParameterExporter {
     exporter.set_output_weights(readout);
     exporter.set_encoding(ParameterBlock::Readout, Q88Encoding::Signed);
     exporter.set_format_version(EXPORT_FORMAT_VERSION);
-    exporter.set_timestamp("1970-01-01T00:00:00Z");
+    exporter
+        .set_timestamp("1970-01-01T00:00:00Z")
+        .expect("rfc3339 utc");
     exporter
 }
 

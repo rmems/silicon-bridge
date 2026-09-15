@@ -33,7 +33,9 @@ fn generic_4x6() -> FpgaParameterExporter {
     // Layout tag only. Same 16-bit Q8.8 words as the default writer; this is
     // not a second on-disk format and is not Spikenaut-specific.
     exporter.set_format_version("generic-dense-q88");
-    exporter.set_timestamp("1970-01-01T00:00:00Z");
+    exporter
+        .set_timestamp("1970-01-01T00:00:00Z")
+        .expect("rfc3339 utc");
     exporter
 }
 
