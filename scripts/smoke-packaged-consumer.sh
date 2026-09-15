@@ -17,18 +17,26 @@ fi
 echo "==> packaging silicon-bridge ${VERSION}"
 cargo package --no-verify --allow-dirty
 
-CRATE_DIR="${ROOT}/target/package/silicon-bridge-${VERSION}"
+CRATE_TAR="${ROOT}/target/package/silicon-bridge-${VERSION}.crate"
+if [[ ! -f "$CRATE_TAR" ]]; then
+  echo "expected ${CRATE_TAR}" >&2
+  exit 1
+fi
+
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/silicon-bridge-package-smoke.XXXXXX")"
+cleanup() {
+  rm -rf "$WORK"
+}
+trap cleanup EXIT
+
+tar -xzf "$CRATE_TAR" -C "$WORK"
+CRATE_DIR="${WORK}/silicon-bridge-${VERSION}"
 if [[ ! -d "$CRATE_DIR" ]]; then
   echo "expected unpacked crate at ${CRATE_DIR}" >&2
   exit 1
 fi
 
-CONSUMER="$(mktemp -d "${TMPDIR:-/tmp}/silicon-bridge-packaged-consumer.XXXXXX")"
-cleanup() {
-  rm -rf "$CONSUMER"
-}
-trap cleanup EXIT
-
+CONSUMER="${WORK}/consumer"
 mkdir -p "${CONSUMER}/src"
 cat > "${CONSUMER}/Cargo.toml" <<EOF
 [package]
