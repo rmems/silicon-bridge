@@ -1,0 +1,13 @@
+Vendored RTL for silicon-bridge #53 (Rust↔HDL golden contract).
+
+Peer repository: https://github.com/rmems/silicon-hdl
+Pinned commit:   d45163f38ac1cd88f8a3918e3793a08ace85e132
+Source path:     spikenaut-core-sv/rtl/WeightRam.sv
+License:         MIT OR Apache-2.0 (same dual license as this crate)
+
+This is a recorded copy so ordinary Rust tests and the optional HDL
+simulation do not depend on floating `main`. SHA-256 of WeightRam.sv is
+listed in tests/golden/checksums.sha256.
+
+Do not "fix" WeightRam here to make a fixture pass. If the peer RTL is
+wrong, file a coordinated silicon-hdl change and bump the pin.

@@ -1,0 +1,26 @@
+{
+  "encoding": "unsigned_magnitude_q88",
+  "scale": 256,
+  "range": { "min": 0.0, "max": 255.99609375 },
+  "hex_range": { "min": "0000", "max": "FFFF" },
+  "rounding": "truncate_toward_zero",
+  "hardware": "not a silicon-hdl .mem encoding; write_mem_files refuses Q88Encoding::Unsigned",
+  "source": "Independently specified from raw = trunc(value × 256) packed as u16. Not produced by encode_q88_unsigned.",
+  "cases": [
+    { "value": 0.0, "hex": "0000", "raw_u16": 0 },
+    { "value": 0.5, "hex": "0080", "raw_u16": 128 },
+    { "value": 1.0, "hex": "0100", "raw_u16": 256 },
+    { "value": 127.99609375, "hex": "7FFF", "raw_u16": 32767 },
+    { "value": 128.0, "hex": "8000", "raw_u16": 32768 },
+    { "value": 200.0, "hex": "C800", "raw_u16": 51200 },
+    { "value": 255.99609375, "hex": "FFFF", "raw_u16": 65535 }
+  ],
+  "ffff_dual_interpretation": {
+    "hex": "FFFF",
+    "unsigned_f32": 255.99609375,
+    "unsigned_note": "q88_to_f32(0xFFFF) = 65535 / 256",
+    "signed_f32": -0.00390625,
+    "signed_note": "q88_signed_to_f32(0xFFFF as i16) = -1 / 256",
+    "hardware": "silicon-hdl $signed-reads FFFF as -1/256, never as 255.99609375"
+  }
+}

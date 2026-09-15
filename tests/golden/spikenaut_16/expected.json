@@ -1,0 +1,47 @@
+{
+  "profile": "spikenaut-shaped-synthetic",
+  "schema_version": "Spikenaut-v2",
+  "note": "Synthetic 16-neuron × 16-channel bundle plus a separate 3×16 signed readout. Tests the format, not whether existing model weights were trained or useful.",
+  "num_neurons": 16,
+  "num_channels": 16,
+  "num_classes": 3,
+  "readout_shape": { "rows": 3, "cols": 16, "order": "K_rows_by_N_hidden_row_major" },
+  "signedness": {
+    "thresholds": "signed",
+    "weights": "signed",
+    "decay_rates": "signed",
+    "output_weights": "signed"
+  },
+  "flattening": "row_major_dense",
+  "rounding": "truncate_toward_zero",
+  "overflow_policy": "reject",
+  "files": {
+    "parameters.mem": { "lines": 16, "role": "thresholds" },
+    "parameters_weights.mem": { "lines": 256, "role": "hidden weights 16×16" },
+    "parameters_decay.mem": { "lines": 16, "role": "decay / leak" },
+    "parameters_output_weights.mem": { "lines": 48, "role": "readout K×N as silicon-bridge writes it" },
+    "hdl_readout_neuron_major.mem": { "lines": 48, "role": "same readout values addressed as silicon-hdl OutputLayer (neuron * 3 + class)" }
+  },
+  "thresholds_f32_rule": "neuron 0 = 0.5, neuron 15 = 1.5, others = 1.0",
+  "decay_rates_f32_rule": "all 0.5",
+  "hidden_weight_rules": [
+    "default 0.0 (0000)",
+    "diagonal [i][i] = 1.0 (0100) except neuron 15, which is the signed maximum",
+    "[0][1] = -1.0 (FF00)",
+    "[1][0] = -0.5 (FF80)",
+    "[15][0] = -128.0 (8000)",
+    "[15][15] = 127.99609375 (7FFF)"
+  ],
+  "readout_rules_kxN": [
+    "class 0 neuron 0 = -1.0 (FF00); rest of class 0 = 0",
+    "class 1 neuron 1 = 0.5 (0080); rest of class 1 = 0",
+    "class 2 neuron 15 = 1.0 (0100); rest of class 2 = 0"
+  ],
+  "pinned_hidden_addresses": [
+    { "neuron": 0, "channel": 0, "hex": "0100" },
+    { "neuron": 0, "channel": 1, "hex": "FF00" },
+    { "neuron": 1, "channel": 0, "hex": "FF80" },
+    { "neuron": 15, "channel": 0, "hex": "8000" },
+    { "neuron": 15, "channel": 15, "hex": "7FFF" }
+  ]
+}

@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Independent Rust↔HDL golden export contracts (#53): committed
+  `tests/golden/` fixtures (signed/unsigned Q8.8 tables, a non-square 4×6
+  layer, and a synthetic 16-neuron Spikenaut-shaped bundle with signed
+  readout) plus `tests/golden_export_contract.rs`. Expected words are
+  hand-specified, not produced by the encoder. A vendored silicon-hdl
+  `WeightRam` at `d45163f` and `tests/golden/hdl/run.sh` provide optional
+  `$readmemh` simulation evidence (Icarus; not board-measured parity).
+  The exporter K×N readout layout vs silicon-hdl `OutputLayer` N×K
+  addressing is recorded, not silently rewritten.
 - Explicit UART serial configuration (#51): `SerialConfig` (nonzero baud,
   finite nonzero per-I/O timeout), `FpgaBridge::open_with_config`,
   `FpgaBridge::builder`, `FpgaBridge::from_port` /
