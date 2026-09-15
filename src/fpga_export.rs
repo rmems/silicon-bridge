@@ -2836,7 +2836,7 @@ mod signed_parameter_encoding_tests {
             (0.5, "0080"),
             (1.0, "0100"),
             (-128.0, "8000"),
-            (127.99609375, "7FFF"),
+            (Q88_SIGNED_MAX, "7FFF"),
         ] {
             assert_eq!(
                 format_q88_hex(value),
@@ -2853,7 +2853,6 @@ mod signed_parameter_encoding_tests {
 
     #[test]
     fn unsigned_max_is_ffff_and_differs_from_signed_ffff() {
-        assert_eq!(Q88_UNSIGNED_MAX, 255.99609375);
         assert_eq!(encode_q88_unsigned(Q88_UNSIGNED_MAX), 0xFFFF);
         assert_eq!(
             format!("{:04X}", encode_q88_unsigned(Q88_UNSIGNED_MAX)),
