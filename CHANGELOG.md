@@ -20,6 +20,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   request/response golden bytes for SiliconBridge v3 and simulated
   dense 8 / 32 / 8×10 profiles live in `tests/golden/uart/` (binary
   frames; not `.mem` hex).
+- Framework-agnostic consumer examples and a public-release readiness
+  guide (#54): `examples/generic_mem_export.rs` (4×6 checked export,
+  deterministic metadata, no Spikenaut identity),
+  `examples/spikenaut_profile_export.rs` (synthetic 16-neuron + signed
+  readout under the `Spikenaut-v2` layout tag), and
+  `examples/dense_codec.rs` (host codec only; no live UART).
+  `FpgaParameterExporter::set_format_version` /
+  `set_timestamp` / `use_wall_clock_timestamp` make JSON reproducible and
+  let generic bundles drop the historical layout name. README/rustdoc
+  distinguish unpublished git/path installs from a future crates.io
+  version (registry 404 as of 2026-09-15). See `docs/consumer.md` and
+  `docs/release-readiness.md`. `scripts/smoke-packaged-consumer.sh` builds
+  an out-of-tree crate against `cargo package` output; that is not
+  registry proof.
 - Explicit UART serial configuration (#51): `SerialConfig` (nonzero baud,
   finite nonzero per-I/O timeout), `FpgaBridge::open_with_config`,
   `FpgaBridge::builder`, `FpgaBridge::from_port` /

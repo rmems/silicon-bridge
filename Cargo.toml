@@ -21,9 +21,12 @@ categories = ["science", "hardware-support", "algorithms"]
 # anything added later, which is how AGENTS.md, CLAUDE.md, REVIEW.md, .codacy.yml
 # and .github/ ended up in the published tarball. docs/ stays out — logo.png
 # alone is 2.4 MB, and crates.io resolves the README's relative links against
-# `repository`.
+# `repository`. `examples/` ships so a packaged-crate consumer can compile the
+# public demos without a git checkout.
 include = [
     "src/**/*.rs",
+    "examples/**/*.rs",
+    "examples/README.md",
     "README.md",
     "CHANGELOG.md",
     "LICENSE-MIT",

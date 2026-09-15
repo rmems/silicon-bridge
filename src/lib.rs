@@ -14,6 +14,24 @@
 //!
 //! Licensed under either of MIT or Apache-2.0 at your option.
 //!
+//! ## Installation
+//!
+//! This crate is **not on crates.io or docs.rs** as of 2026-09-15 (registry
+//! lookup returned 404). A README badge is not publication. Until a
+//! separately authorized `cargo publish`:
+//!
+//! ```toml
+//! silicon-bridge = { git = "https://github.com/rmems/silicon-bridge" }
+//! ```
+//!
+//! After a real publish, depend on the version crates.io actually serves, and
+//! verify docs.rs only then. `rust-version` is `1.98.1`. See the crate
+//! README and `docs/release-readiness.md` in the git tree.
+//!
+//! Offline examples (`examples/generic_mem_export.rs`,
+//! `examples/spikenaut_profile_export.rs`, `examples/dense_codec.rs`) use only
+//! this public surface. They do not open serial ports or send live stimuli.
+//!
 //! ## Q8.8 conventions
 //!
 //! Q8.8 always means “value × 256 packed into a 16-bit word”, truncated toward
@@ -70,19 +88,29 @@
 //! assert_eq!(params.weights[0], -256); // written to .mem as `FF00`
 //! assert_eq!(q88_signed_to_f32(params.weights[0]), -1.0);
 //! println!("Memory usage: {:.2} KB", params.metadata.memory_usage_kb);
-//! // Prefer `try_export` / `CheckedParameterExport` when the bundle must be a
-//! // valid FPGA image. Under the default `RangePolicy::Reject`, it rejects
-//! // empty, ragged, mismatched, non-finite, and out-of-range values instead
-//! // of flattening or saturating them. `RangePolicy::Saturate` is not applied
-//! // by `try_export` (it would drop the clamp list); use
-//! // `try_export_with_report` to clamp and inspect a `SaturationReport`.
 //! ```
+//!
+//! Prefer [`CheckedParameterExport::try_export`] when the bundle must be a
+//! valid FPGA image. Under the default [`RangePolicy::Reject`], it rejects
+//! empty, ragged, mismatched, non-finite, and out-of-range values instead of
+//! flattening or saturating them. [`RangePolicy::Saturate`] is not applied
+//! by `try_export` (it would drop the clamp list); use
+//! [`FpgaParameterExporter::try_export_with_report`] to clamp and inspect a
+//! [`SaturationReport`].
+//!
+//! Generic consumers should call
+//! [`FpgaParameterExporter::set_format_version`] so `parameters.json` does
+//! not inherit the historical `Spikenaut-v2` layout tag. See
+//! `examples/generic_mem_export.rs`.
 //!
 //! ## FPGA Bridge (requires `uart` feature)
 //!
+//! Not published on crates.io as of this writing. Enable the feature on a git
+//! or path dependency:
+//!
 //! ```toml
 //! [dependencies]
-//! silicon-bridge = { version = "0.1", features = ["uart"] }
+//! silicon-bridge = { git = "https://github.com/rmems/silicon-bridge", features = ["uart"] }
 //! ```
 //!
 //! Prefer [`FpgaBridge::open_with_config`] or [`FpgaBridge::builder`] with an

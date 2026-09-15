@@ -139,8 +139,9 @@ pub trait MemFileWriter {
 
 /// Default FPGA parameter exporter for the silicon-hdl Q8.8 layout.
 ///
-/// Exports learned SNN parameters in Q8.8 fixed-point format for FPGA
-/// deployment with a &lt;35µs/tick target latency budget.
+/// Exports learned SNN parameters in Q8.8 fixed-point format. Metadata records
+/// a 35 µs/tick **design target** (`FpgaMetadata::target_latency_us`); that
+/// number is not a measured latency of this export or of any board.
 pub struct FpgaParameterExporter {
     thresholds: Vec<f32>,
     weights: Vec<Vec<f32>>,
@@ -151,6 +152,10 @@ pub struct FpgaParameterExporter {
     decay_encoding: Q88Encoding,
     readout_encoding: Q88Encoding,
     range_policy: RangePolicy,
+    /// Layout tag written into [`FpgaMetadata::version`].
+    format_version: String,
+    /// Caller-supplied RFC 3339 timestamp; `None` uses `chrono::Utc::now`.
+    timestamp: Option<String>,
 }
 
 /// Which parameter bank a validation error refers to.
@@ -649,16 +654,24 @@ pub struct FpgaParameters {
 /// `..Default::default()`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FpgaMetadata {
-    /// Format tag for the `.mem` bundle — [`EXPORT_FORMAT_VERSION`] for any
-    /// metadata produced by [`ParameterExport::export`]. Not the crate
-    /// version: downstream tooling keys on this string, so it moves only
-    /// when the on-disk layout does.
+    /// Format tag for the `.mem` bundle. Defaults to [`EXPORT_FORMAT_VERSION`]
+    /// (`Spikenaut-v2`) unless the caller set
+    /// [`FpgaParameterExporter::set_format_version`]. That default is a
+    /// historical **layout identifier**, not proof of a trained Spikenaut
+    /// model. Generic consumers should override it. Not the crate version:
+    /// downstream tooling keys on this string, so the default moves only when
+    /// the on-disk layout does.
     ///
     /// Not a validated invariant of the type itself: `FpgaMetadata` is public
     /// and `Deserialize`, so a value built by hand or read from an
     /// externally-supplied `parameters.json` can carry any string here.
     pub version: String,
-    /// RFC 3339 UTC timestamp of the export, from `chrono::Utc::now`.
+    /// RFC 3339 UTC timestamp of the export.
+    ///
+    /// [`FpgaParameterExporter`] uses `chrono::Utc::now` unless
+    /// [`FpgaParameterExporter::set_timestamp`] supplied a fixed string.
+    /// [`FpgaParameterExporter::use_wall_clock_timestamp`] restores that
+    /// default.
     pub timestamp: String,
     /// Number of neurons, taken from the threshold count.
     ///
@@ -744,6 +757,8 @@ impl FpgaParameterExporter {
             decay_encoding: Q88Encoding::Signed,
             readout_encoding: Q88Encoding::Signed,
             range_policy: RangePolicy::Reject,
+            format_version: EXPORT_FORMAT_VERSION.to_string(),
+            timestamp: None,
         }
     }
 
@@ -825,6 +840,40 @@ impl FpgaParameterExporter {
         self.range_policy = policy;
     }
 
+    /// Set the layout tag written into [`FpgaMetadata::version`].
+    ///
+    /// The default is [`EXPORT_FORMAT_VERSION`] (`Spikenaut-v2`), a historical
+    /// layout identifier. It does **not** change word width, signedness, or
+    /// flattening. Generic consumers should pass a name that does not imply
+    /// a Spikenaut model (for example `generic-dense-q88`).
+    pub fn set_format_version(&mut self, version: impl Into<String>) {
+        self.format_version = version.into();
+    }
+
+    /// Set the timestamp written into [`FpgaMetadata::timestamp`].
+    ///
+    /// Pass a fixed RFC 3339 string for byte-identical `parameters.json` across
+    /// repeated exports. Call [`Self::use_wall_clock_timestamp`] to restore
+    /// `chrono::Utc::now` at export time (the default).
+    pub fn set_timestamp(&mut self, timestamp: impl Into<String>) {
+        self.timestamp = Some(timestamp.into());
+    }
+
+    /// Restore wall-clock timestamps (`chrono::Utc::now` at export time).
+    pub fn use_wall_clock_timestamp(&mut self) {
+        self.timestamp = None;
+    }
+
+    fn metadata_version(&self) -> String {
+        self.format_version.clone()
+    }
+
+    fn metadata_timestamp(&self) -> String {
+        self.timestamp
+            .clone()
+            .unwrap_or_else(|| chrono::Utc::now().to_rfc3339())
+    }
+
     fn block_encodings(&self, include_readout: bool) -> BlockEncodings {
         BlockEncodings {
             thresholds: self.threshold_encoding,
@@ -873,6 +922,8 @@ impl FpgaParameterExporter {
             decay_encoding: Q88Encoding::Signed,
             readout_encoding: Q88Encoding::Signed,
             range_policy: RangePolicy::Reject,
+            format_version: EXPORT_FORMAT_VERSION.to_string(),
+            timestamp: None,
         }
     }
 
@@ -1199,8 +1250,8 @@ impl FpgaParameterExporter {
         output_weights: Option<Vec<i16>>,
     ) -> FpgaParameters {
         let metadata = FpgaMetadata {
-            version: EXPORT_FORMAT_VERSION.to_string(),
-            timestamp: chrono::Utc::now().to_rfc3339(),
+            version: self.metadata_version(),
+            timestamp: self.metadata_timestamp(),
             num_neurons: self.thresholds.len(),
             num_channels: if self.weights.is_empty() {
                 0
@@ -1402,8 +1453,8 @@ impl ParameterExport for FpgaParameterExporter {
             .collect();
 
         let metadata = FpgaMetadata {
-            version: EXPORT_FORMAT_VERSION.to_string(),
-            timestamp: chrono::Utc::now().to_rfc3339(),
+            version: self.metadata_version(),
+            timestamp: self.metadata_timestamp(),
             num_neurons: self.thresholds.len(),
             num_channels: if self.weights.is_empty() {
                 0
@@ -1751,6 +1802,38 @@ mod tests {
         assert_eq!(params.thresholds, vec![256]);
         assert_eq!(params.weights, vec![128]);
         assert_eq!(params.decay_rates, vec![230]);
+    }
+
+    #[test]
+    fn format_version_override_is_not_forced_to_spikenaut() {
+        let mut exporter =
+            FpgaParameterExporter::from_params(vec![1.0], vec![vec![-1.0]], vec![0.5]);
+        exporter.set_format_version("generic-dense-q88");
+        exporter.set_timestamp("1970-01-01T00:00:00Z");
+
+        let params = exporter.try_export().expect("checked");
+        assert_eq!(params.metadata.version, "generic-dense-q88");
+        assert_eq!(params.metadata.timestamp, "1970-01-01T00:00:00Z");
+        assert_eq!(params.weights[0], -256);
+        assert!(
+            !params.metadata.version.contains("Spikenaut"),
+            "generic layout tag must not inherit Spikenaut identity"
+        );
+
+        let again = exporter.try_export().expect("repeat");
+        assert_eq!(params.metadata.timestamp, again.metadata.timestamp);
+        assert_eq!(params.metadata.version, again.metadata.version);
+    }
+
+    #[test]
+    fn wall_clock_timestamp_can_be_restored() {
+        let mut exporter =
+            FpgaParameterExporter::from_params(vec![1.0], vec![vec![0.5]], vec![0.5]);
+        exporter.set_timestamp("1970-01-01T00:00:00Z");
+        exporter.use_wall_clock_timestamp();
+        let params = exporter.try_export().expect("checked");
+        assert_ne!(params.metadata.timestamp, "1970-01-01T00:00:00Z");
+        assert!(!params.metadata.timestamp.is_empty());
     }
 
     /// Small fixture whose floats are exact Q8.8 multiples of 1/256.
