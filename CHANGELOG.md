@@ -35,7 +35,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   commit **before** `cargo publish` because the tarball is immutable.
   See `docs/consumer.md` and `docs/release-readiness.md`.
   `scripts/smoke-packaged-consumer.sh` builds an out-of-tree crate against
-  `cargo package` output; that is not registry proof.
+  `cargo package` output; that is not registry proof. The package allow-list
+  ships `docs/consumer.md` and `docs/release-readiness.md` (not `docs/logo.png`)
+  so README links in the unpacked crate resolve.
 - Explicit UART serial configuration (#51): `SerialConfig` (nonzero baud,
   finite nonzero per-I/O timeout), `FpgaBridge::open_with_config`,
   `FpgaBridge::builder`, `FpgaBridge::from_port` /
