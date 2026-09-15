@@ -26,7 +26,8 @@ stimuli and reading back spike states at runtime.
   - `FixedPointEncode` — `f32` → signed Q8.8 (`i16`)
   - `ParameterExport` — build the FPGA parameter bundle (infallible, legacy)
   - `CheckedParameterExport` — same bundle, or a typed `ParameterShapeError`
-  - `MemFileWriter` — write `$readmemh` `.mem` files (validates before writing)
+  - `MemFileWriter` — write `$readmemh` `.mem` files (legacy Spikenaut-v2 path)
+  - `ExportConfig` / `write_with_config` — generic, legacy, and signed-output profiles
 - `FpgaParameterExporter` — default implementation of those traits
 - `format_q88_hex` / `encode_q88_signed_full` / `q88_signed_to_f32` — signed
   parameter Q8.8 helpers (full `i16` range). `encode_q88_signed` remains the
@@ -59,7 +60,7 @@ silicon-bridge = "0.1"
 ### Export Parameters
 
 ```rust
-use silicon_bridge::{CheckedParameterExport, FpgaParameterExporter};
+use silicon_bridge::{CheckedParameterExport, ExportConfig, FpgaParameterExporter};
 
 let mut exporter = FpgaParameterExporter::new();
 exporter.set_thresholds(vec![0.6; 16]);
@@ -69,13 +70,36 @@ exporter.set_decay_rates(vec![0.9; 16]);
 let params = exporter.try_export().expect("rectangular, finite, in-range");
 // → params.thresholds, .weights, .decay_rates are Vec<i16> (signed Q8.8)
 // → negative (Dale-inhibitory) weights survive: -1.0 → -256 → `FF00`
-// → ready for silicon-hdl WeightRam / NeuronParamRam via Vivado $readmemh
+
+// Framework-agnostic disk write: no Spikenaut tag, no invented timing, no stdout.
+let report = exporter
+    .write_with_config("fpga_output", &ExportConfig::generic())
+    .expect("generic export");
+assert_eq!(report.written[0], "parameters.mem");
 
 // ParameterExport::export is the documented legacy wrapper: it still
 // flattens a ragged matrix and saturates out-of-range values. Prefer try_export
 // (or MemFileWriter::write_mem_files) for any image that will be synthesized.
+// write_mem_files is the Spikenaut-v2 compatibility path: it replaces
+// existing files and records the historical layout tag.
 let _legacy = silicon_bridge::ParameterExport::export(&exporter);
 ```
+
+### Export profiles
+
+Dense `.mem` export is profiled. See
+[docs/export-profiles.md](docs/export-profiles.md) for the migration note.
+
+| Profile | API | Use when |
+|---|---|---|
+| **Generic** `generic-dense-q88` | `ExportConfig::generic()` + `write_with_config` | Your model is not a Spikenaut deployment. No Spikenaut metadata, no timestamp unless you supply one, no `target_latency_us` unless you declare a target (never a measurement). Refuses to overwrite files unless you call `allow_replace()`. |
+| **Legacy Spikenaut-v2** | `MemFileWriter::write_mem_files` / `ExportConfig::legacy_spikenaut_v2()` | Reproduce `parameters.mem`, `parameters_weights.mem`, `parameters_decay.mem`, optional `parameters_output_weights.mem`, and `parameters.json` with `version: "Spikenaut-v2"`. Replaces existing files (historical). Records a declared 35 µs target, not a measured latency. Names alone do not imply HDL compatibility. |
+| **Signed-output Spikenaut** `spikenaut-signed-output-v1` | `ExportConfig::spikenaut_signed_output_v1()` | Corrected contract that **requires** a signed `K×N` readout (or rejects). Distinct schema — it does **not** redefine `Spikenaut-v2`. |
+
+The checked writer returns an `ExportReport` and does not print. Same
+input, config, and metadata produce byte-identical `.mem` and JSON.
+Only dense **row-major** flattening is implemented; other layouts are
+rejected. ASCII hex word order is not UART byte order.
 
 ### UART Spike Readback (requires the `uart` feature)
 

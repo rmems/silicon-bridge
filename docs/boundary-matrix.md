@@ -55,7 +55,7 @@ training / runtime crates
 | Export trait surface | Traits such as fixed-point encode / parameter export / mem write (for silicon-hdl alignment) |
 | UART host client | SiliconBridge-style host protocol when `uart` is enabled |
 | Timing metrics | Parse WNS / TNS from Vivado timing summary reports, and LUT % from utilization reports, for CI gates |
-| Deployment metadata | Version/timestamp/size of exported parameter sets |
+| Deployment metadata | Version/timestamp/size of exported parameter sets; named generic vs Spikenaut export profiles (#50) |
 
 ## Does not own
 

@@ -77,6 +77,7 @@ Tests live inline in source files, plus the #53 golden-contract suite:
 | Module | Tests | What's covered |
 |--------|-------|----------------|
 | `src/fpga_export.rs` | unit tests | Q8.8 conversion, checked export, `.mem` writer, signed encoding |
+| `src/export_profile.rs` | unit tests | generic / legacy / signed-output profiles, determinism, filename and overwrite rejection |
 | `src/fpga_codec.rs` | unit tests (default features) | v3 golden frames, checked vs legacy encode, 8/16/32 and non-multiple-of-8 masks |
 | `src/fpga_bridge.rs` | unit tests (`uart` feature) | port-name heuristic, `SerialConfig` validation/defaults, open/enumerate/configure failures, USB-serial selection, mock-port injection, scripted mock transport errors / no-resend |
 | `src/lib.rs` | doctest | Quick Start example |
