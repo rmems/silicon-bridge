@@ -25,8 +25,12 @@ reopen those issues. UART request/response golden bytes are under `uart/`
 - Software-vs-FPGA SNN trajectory parity
 - Board programming or live UART traffic
 - That fixture weights are trained or useful
-- That #50 generic/Spikenaut profile APIs exist (they do not yet; both
-  bundles still carry the current `Spikenaut-v2` writer tag)
+- That #50 generic/Spikenaut profile APIs exist. `ExportConfig::generic`
+  writes `silicon-bridge-dense-v1` without a Spikenaut tag.
+  `try_export` / `write_mem_files` still emit the historical `Spikenaut-v2`
+  writer tag so these committed `.mem` fixtures stay comparable to the
+  compatibility path. JSON profile identity is not part of the `.mem`
+  golden bytes.
 
 ## Layout
 

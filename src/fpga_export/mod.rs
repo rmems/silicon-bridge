@@ -45,12 +45,34 @@
 //! protocol artifact, **not** the parameter-export contract: `-128.0` encodes
 //! as `8003` on the UART path and as `8000` on the parameter path. Do not
 //! reuse that helper for `.mem` images.
+//!
+//! ## Export profiles
+//!
+//! [`ExportConfig::generic`] is the recommended on-disk path: no Spikenaut
+//! branding, no wall-clock timestamp, no invented latency, overwrite refused.
+//! [`MemFileWriter::write_mem_files`] is the explicit Spikenaut-v2
+//! compatibility writer (documented filenames, declared 35 µs target,
+//! overwrite allowed). A corrected signed-readout Spikenaut contract is
+//! [`ExportConfig::spikenaut_signed_output`] with schema
+//! [`SPIKENAUT_SIGNED_OUTPUT_SCHEMA_VERSION`], not a silent reuse of
+//! [`EXPORT_FORMAT_VERSION`]. See the `profile` submodule docs for migration.
 
 use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt;
 use std::fs;
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
+
+mod profile;
+
+pub use profile::{
+    BlockShape, ExportConfig, ExportFileLayout, ExportLayout, ExportProfile, ExportReport,
+    FilenameReason, GENERIC_EXPORT_SCHEMA_VERSION, GENERIC_PROFILE_ID, MatrixLayout, MemWordFormat,
+    OverflowPolicy, OverwritePolicy, Q88_FRACTIONAL_BITS, Q88_TOTAL_BITS, RoundingMode,
+    SPIKENAUT_DECLARED_TARGET_LATENCY_US, SPIKENAUT_LEGACY_PROFILE_ID,
+    SPIKENAUT_SIGNED_OUTPUT_PROFILE_ID, SPIKENAUT_SIGNED_OUTPUT_SCHEMA_VERSION, TimestampSpec,
+    WrittenFiles,
+};
 
 /// Metadata / layout tag for the Q8.8 `.mem` bundle shared with silicon-hdl.
 ///
@@ -127,20 +149,29 @@ pub trait MemFileWriter {
     /// represented as a flat `.mem` file.
     type Error;
 
-    /// Write `parameters.mem`, `parameters_weights.mem`, `parameters_decay.mem`,
-    /// and `parameters.json` under `output_dir`.
+    /// Write the Spikenaut-v2 compatibility bundle under `output_dir`.
+    ///
+    /// Documented names: `parameters.mem`, `parameters_weights.mem`,
+    /// `parameters_decay.mem`, optional `parameters_output_weights.mem`,
+    /// and `parameters.json`. Existing files are replaced (legacy behaviour).
+    /// This method does **not** print to stdout; it returns an [`ExportReport`].
+    /// Prefer [`FpgaParameterExporter::write_with_config`] with
+    /// [`ExportConfig::generic`] for a non-Spikenaut caller.
     ///
     /// Implementations must validate the complete bundle **before** creating
     /// or truncating any output file. A validation failure leaves existing
     /// files untouched. This does not claim multi-file atomicity if a later
     /// filesystem write fails.
-    fn write_mem_files(&self, output_dir: impl AsRef<Path>) -> Result<(), Self::Error>;
+    fn write_mem_files(&self, output_dir: impl AsRef<Path>) -> Result<ExportReport, Self::Error>;
 }
 
-/// Default FPGA parameter exporter for the silicon-hdl Q8.8 layout.
+/// Default FPGA parameter exporter for dense Q8.8 `.mem` images.
 ///
-/// Exports learned SNN parameters in Q8.8 fixed-point format for FPGA
-/// deployment with a &lt;35µs/tick target latency budget.
+/// In-memory [`Self::export`] / [`Self::try_export`] keep the historical
+/// Spikenaut-v2 metadata contract (including the declared 35 µs target).
+/// Prefer [`Self::write_with_config`] with [`ExportConfig::generic`] when the
+/// caller is not a Spikenaut deployment — that path records no Spikenaut
+/// schema tag, no wall-clock timestamp, and no timing claim unless supplied.
 pub struct FpgaParameterExporter {
     thresholds: Vec<f32>,
     weights: Vec<Vec<f32>>,
@@ -465,6 +496,8 @@ pub enum ParameterShapeError {
     /// values and drop the [`SaturationReport`]. Call
     /// [`FpgaParameterExporter::try_export_with_report`] instead.
     SaturationRequiresReport,
+    /// [`ExportConfig::spikenaut_signed_output`] requires a K×N readout matrix.
+    ReadoutRequired,
 }
 
 impl fmt::Display for ParameterShapeError {
@@ -531,6 +564,11 @@ impl fmt::Display for ParameterShapeError {
                  saturation events would be discarded; call try_export_with_report \
                  instead"
             ),
+            Self::ReadoutRequired => write!(
+                f,
+                "signed-output profile requires a K×N readout matrix \
+                 (K output rows by N hidden-neuron columns); none was supplied"
+            ),
         }
     }
 }
@@ -573,6 +611,28 @@ pub enum ExportError {
         /// Block configured as unsigned-magnitude Q8.8.
         block: ParameterBlock,
     },
+    /// A configured output name is not a safe relative basename.
+    InvalidFilename {
+        /// Name as supplied.
+        name: String,
+        /// Why the name was rejected.
+        reason: FilenameReason,
+    },
+    /// Two configured outputs would write the same basename.
+    DuplicateFilename {
+        /// Colliding basename.
+        name: String,
+    },
+    /// [`OverwritePolicy::Refuse`] and a destination already exists.
+    OverwriteRefused {
+        /// Existing path that would have been truncated.
+        path: PathBuf,
+    },
+    /// Caller requested a matrix layout that is not implemented.
+    UnsupportedMatrixLayout {
+        /// Name that was requested (`column_major`, …).
+        requested: String,
+    },
 }
 
 impl fmt::Display for ExportError {
@@ -591,6 +651,22 @@ impl fmt::Display for ExportError {
                  (values above 127.996 would be interpreted as negatives by \
                  silicon-hdl RAM)"
             ),
+            Self::InvalidFilename { name, reason } => {
+                write!(f, "invalid export filename {name:?}: {reason}")
+            }
+            Self::DuplicateFilename { name } => {
+                write!(f, "export filenames are not unique: {name:?} is used twice")
+            }
+            Self::OverwriteRefused { path } => write!(
+                f,
+                "refusing to overwrite existing file {} (pass ExportConfig::allow_overwrite \
+                 to replace)",
+                path.display()
+            ),
+            Self::UnsupportedMatrixLayout { requested } => write!(
+                f,
+                "unsupported matrix layout {requested:?}; only row-major is implemented"
+            ),
         }
     }
 }
@@ -601,7 +677,11 @@ impl std::error::Error for ExportError {
             Self::InvalidParameters(err) => Some(err),
             Self::Io { source, .. } => Some(source),
             Self::Serialize { source, .. } => Some(source),
-            Self::UnsignedHardwareEncoding { .. } => None,
+            Self::UnsignedHardwareEncoding { .. }
+            | Self::InvalidFilename { .. }
+            | Self::DuplicateFilename { .. }
+            | Self::OverwriteRefused { .. }
+            | Self::UnsupportedMatrixLayout { .. } => None,
         }
     }
 }
@@ -643,22 +723,36 @@ pub struct FpgaParameters {
 /// Serialized alongside the Q8.8 vectors as `parameters.json`, so a `.mem` set
 /// on disk can be matched back to the shape it was generated for.
 ///
+/// Schema ([`Self::version`]), producer crate version
+/// ([`Self::producer_crate_version`]), and profile / model identity
+/// ([`Self::profile`], [`Self::model_id`]) are separate fields. A generic
+/// export must not reuse [`EXPORT_FORMAT_VERSION`].
+///
 /// [`Default`] is empty provenance strings, zero counts, and
 /// [`BlockEncodings::default`] (all signed, no readout). Downstream struct
 /// literals can keep compiling after additive fields by writing
 /// `..Default::default()`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct FpgaMetadata {
-    /// Format tag for the `.mem` bundle — [`EXPORT_FORMAT_VERSION`] for any
-    /// metadata produced by [`ParameterExport::export`]. Not the crate
-    /// version: downstream tooling keys on this string, so it moves only
-    /// when the on-disk layout does.
+    /// Schema / layout tag for the `.mem` bundle.
+    ///
+    /// [`EXPORT_FORMAT_VERSION`] (`Spikenaut-v2`) for
+    /// [`ParameterExport::export`], [`CheckedParameterExport::try_export`],
+    /// and [`MemFileWriter::write_mem_files`]. [`GENERIC_EXPORT_SCHEMA_VERSION`]
+    /// or [`SPIKENAUT_SIGNED_OUTPUT_SCHEMA_VERSION`] when writing through
+    /// [`ExportConfig`]. Not the crate version.
     ///
     /// Not a validated invariant of the type itself: `FpgaMetadata` is public
     /// and `Deserialize`, so a value built by hand or read from an
     /// externally-supplied `parameters.json` can carry any string here.
     pub version: String,
-    /// RFC 3339 UTC timestamp of the export, from `chrono::Utc::now`.
+    /// RFC 3339 timestamp, caller-supplied string, or empty when omitted.
+    ///
+    /// Empty is skipped in JSON. The generic and signed-output profiles omit
+    /// this unless the caller opts in, so the same input yields byte-identical
+    /// files. The Spikenaut-v2 writer still stamps `chrono::Utc::now` unless
+    /// [`ExportConfig::with_timestamp`] is used.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub timestamp: String,
     /// Number of neurons, taken from the threshold count.
     ///
@@ -678,14 +772,16 @@ pub struct FpgaMetadata {
     /// the buffer does not contain, and indexing misreads or overruns from the
     /// first short row onward.
     pub num_channels: usize,
-    /// Per-tick latency budget for the silicon-hdl deployment, in
-    /// microseconds.
+    /// Declared per-tick latency target in microseconds, if the caller or
+    /// legacy Spikenaut profile supplied one.
     ///
-    /// A fixed design target (35 µs) recorded for downstream tooling, not a
-    /// measurement of this export.
-    pub target_latency_us: f32,
-    /// Total size of the three Q8.8 vectors in kibibytes, at 2 bytes per
-    /// parameter.
+    /// Never a measured latency. Omitted from JSON when `None`. The generic
+    /// profile leaves this unset unless [`ExportConfig::with_target_latency_us`]
+    /// is used. [`ExportConfig::spikenaut_legacy`] records
+    /// [`SPIKENAUT_DECLARED_TARGET_LATENCY_US`] as a declared target.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_latency_us: Option<f32>,
+    /// Total size of the Q8.8 vectors in kibibytes, at 2 bytes per parameter.
     ///
     /// Counts parameters only — it excludes `$readmemh` ASCII overhead and any
     /// padding the target RAM applies.
@@ -700,6 +796,21 @@ pub struct FpgaMetadata {
     /// `encodings.output_weights = Some(Signed)`.
     #[serde(default)]
     pub encodings: BlockEncodings,
+    /// Export profile identity (`generic`, `spikenaut-legacy`,
+    /// `spikenaut-signed-output`). Distinct from [`Self::version`].
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub profile: String,
+    /// `CARGO_PKG_VERSION` of this crate. Distinct from [`Self::version`].
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub producer_crate_version: String,
+    /// Optional caller model identity. Distinct from profile and schema.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    /// Per-block dimensions, signedness, Q-format, rounding, overflow, and
+    /// flattening. Present on profile-configured writes; omitted from the
+    /// historical in-memory `export()` JSON when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout: Option<ExportLayout>,
 }
 
 impl<'de> Deserialize<'de> for FpgaParameters {
@@ -851,10 +962,148 @@ impl FpgaParameterExporter {
     /// Export parameters to `.mem` files for silicon-hdl / Vivado `$readmemh`.
     ///
     /// Prefer [`MemFileWriter::write_mem_files`] when coding against the trait.
-    /// This is the checked writer: it uses [`CheckedParameterExport::try_export`]
-    /// and does not create or truncate files if validation fails.
-    pub fn export_to_mem_files<P: AsRef<Path>>(&self, output_dir: P) -> Result<(), ExportError> {
+    /// This is the checked Spikenaut-v2 compatibility writer: it uses
+    /// [`ExportConfig::spikenaut_legacy`], does not print to stdout, and does
+    /// not create or truncate files if validation fails. Prefer
+    /// [`Self::write_with_config`] with [`ExportConfig::generic`] for a
+    /// non-Spikenaut caller.
+    pub fn export_to_mem_files<P: AsRef<Path>>(
+        &self,
+        output_dir: P,
+    ) -> Result<ExportReport, ExportError> {
         self.write_mem_files(output_dir)
+    }
+
+    /// Validate, encode, and apply [`ExportConfig`] metadata without writing.
+    ///
+    /// `# Errors`
+    ///
+    /// [`ParameterShapeError::ReadoutRequired`] when the signed-output profile
+    /// is selected and no readout matrix is set. Other failures match
+    /// [`Self::try_export`].
+    pub fn try_export_with_config(
+        &self,
+        config: &ExportConfig,
+    ) -> Result<FpgaParameters, ParameterShapeError> {
+        if config.profile().requires_readout() && self.output_weights.is_none() {
+            return Err(ParameterShapeError::ReadoutRequired);
+        }
+        let mut params = self.try_export()?;
+        self.apply_profile_metadata(&mut params, config);
+        Ok(params)
+    }
+
+    /// Checked write using an explicit [`ExportConfig`].
+    ///
+    /// The generic profile refuses overwrites, omits timestamps and latency,
+    /// and writes [`GENERIC_EXPORT_SCHEMA_VERSION`]. Filenames are validated
+    /// before any file is created. This method does not print to stdout.
+    ///
+    /// `# Errors`
+    ///
+    /// Shape, filename, overwrite, unsigned-hardware, I/O, and JSON errors.
+    pub fn write_with_config(
+        &self,
+        output_dir: impl AsRef<Path>,
+        config: &ExportConfig,
+    ) -> Result<ExportReport, ExportError> {
+        config.files().validate()?;
+        if let Some(block) = self.unsigned_hardware_block() {
+            return Err(ExportError::UnsignedHardwareEncoding { block });
+        }
+
+        let params = self.try_export_with_config(config)?;
+        let output_dir = output_dir.as_ref();
+        let write_readout = params.output_weights.is_some();
+        let mem_paths = profile::destinations(output_dir, config.files(), write_readout)?;
+        let json_path = profile::metadata_json_path(output_dir, config.files());
+
+        let mut all_destinations: Vec<PathBuf> =
+            mem_paths.iter().map(|(_, path)| path.clone()).collect();
+        all_destinations.push(json_path.clone());
+
+        if config.overwrite() == OverwritePolicy::Refuse {
+            for path in &all_destinations {
+                if path.exists() {
+                    return Err(ExportError::OverwriteRefused { path: path.clone() });
+                }
+            }
+        }
+
+        let replaced_existing = all_destinations.iter().any(|path| path.exists());
+
+        fs::create_dir_all(output_dir).map_err(|source| ExportError::Io {
+            path: output_dir.to_path_buf(),
+            source,
+        })?;
+
+        let mut files_written = Vec::new();
+        for ((_, path), values) in mem_paths
+            .iter()
+            .zip(Self::mem_blocks(&params, write_readout))
+        {
+            Self::write_mem_file(path, values)?;
+            files_written.push(path.clone());
+        }
+
+        let metadata_json =
+            serde_json::to_string_pretty(&params).map_err(|source| ExportError::Serialize {
+                path: json_path.clone(),
+                source,
+            })?;
+        fs::write(&json_path, metadata_json).map_err(|source| ExportError::Io {
+            path: json_path.clone(),
+            source,
+        })?;
+        files_written.push(json_path);
+
+        let mut files_removed = Vec::new();
+        if config.profile() == ExportProfile::SpikenautLegacy && !write_readout {
+            let leftover = output_dir.join(config.files().output_weights());
+            let existed = leftover.exists();
+            Self::remove_mem_file_if_present(leftover.clone())?;
+            if existed {
+                files_removed.push(leftover);
+            }
+        }
+
+        Ok(ExportReport {
+            output_dir: output_dir.to_path_buf(),
+            profile: config.profile(),
+            schema_version: config.schema_version().to_string(),
+            files_written,
+            files_removed,
+            replaced_existing,
+            metadata: params.metadata,
+        })
+    }
+
+    fn mem_blocks(params: &FpgaParameters, write_readout: bool) -> Vec<&[i16]> {
+        let mut blocks = vec![
+            params.thresholds.as_slice(),
+            params.weights.as_slice(),
+            params.decay_rates.as_slice(),
+        ];
+        if write_readout && let Some(readout) = &params.output_weights {
+            blocks.push(readout.as_slice());
+        }
+        blocks
+    }
+
+    fn apply_profile_metadata(&self, params: &mut FpgaParameters, config: &ExportConfig) {
+        let write_readout = params.output_weights.is_some();
+        params.metadata.version = config.schema_version().to_string();
+        params.metadata.profile = config.profile().id().to_string();
+        params.metadata.producer_crate_version = profile::producer_crate_version();
+        params.metadata.model_id = config.model_id().map(str::to_string);
+        params.metadata.timestamp = profile::resolve_timestamp(config.timestamp());
+        params.metadata.target_latency_us = config.target_latency_us();
+        params.metadata.layout = Some(profile::layout_for_params(
+            params,
+            config.files(),
+            OverflowPolicy::from(self.range_policy),
+            write_readout,
+        ));
     }
 
     /// Create an exporter pre-populated with given parameters.
@@ -1207,9 +1456,13 @@ impl FpgaParameterExporter {
             } else {
                 self.weights[0].len()
             },
-            target_latency_us: 35.0,
+            target_latency_us: Some(SPIKENAUT_DECLARED_TARGET_LATENCY_US),
             memory_usage_kb: self.calculate_memory_usage(),
             encodings: self.block_encodings(output_weights.is_some()),
+            profile: SPIKENAUT_LEGACY_PROFILE_ID.to_string(),
+            producer_crate_version: profile::producer_crate_version(),
+            model_id: None,
+            layout: None,
         };
 
         FpgaParameters {
@@ -1265,40 +1518,6 @@ impl FpgaParameterExporter {
             Err(source) if source.kind() == ErrorKind::NotFound => Ok(()),
             Err(source) => Err(ExportError::Io { path, source }),
         }
-    }
-
-    fn print_export_summary<P: AsRef<Path>>(&self, params: &FpgaParameters, output_dir: P) {
-        println!("=== FPGA Parameter Export Summary ===");
-        println!("Output Directory: {}", output_dir.as_ref().display());
-        println!("Version: {}", params.metadata.version);
-        println!("Timestamp: {}", params.metadata.timestamp);
-        println!("Neurons: {}", params.metadata.num_neurons);
-        println!("Channels: {}", params.metadata.num_channels);
-        println!("Target Latency: {:.1}µs", params.metadata.target_latency_us);
-        println!("Memory Usage: {:.2} KB", params.metadata.memory_usage_kb);
-        println!();
-        println!("Files Generated:");
-        println!(
-            "  parameters.mem         - {} thresholds",
-            params.thresholds.len()
-        );
-        println!(
-            "  parameters_weights.mem - {} weights",
-            params.weights.len()
-        );
-        println!(
-            "  parameters_decay.mem   - {} decay rates",
-            params.decay_rates.len()
-        );
-        if let Some(readout) = &params.output_weights {
-            println!(
-                "  parameters_output_weights.mem - {} output weights",
-                readout.len()
-            );
-        }
-        println!("  parameters.json        - metadata and configuration");
-        println!();
-        println!("SUCCESS: FPGA parameters ready for silicon-hdl deployment");
     }
 }
 
@@ -1410,7 +1629,7 @@ impl ParameterExport for FpgaParameterExporter {
             } else {
                 self.weights[0].len()
             },
-            target_latency_us: 35.0,
+            target_latency_us: Some(SPIKENAUT_DECLARED_TARGET_LATENCY_US),
             memory_usage_kb: self.calculate_memory_usage(),
             // Legacy path always encodes signed full-range, regardless of
             // `set_encoding`. Record that fact rather than the unused knobs.
@@ -1418,6 +1637,10 @@ impl ParameterExport for FpgaParameterExporter {
                 output_weights: self.output_weights.is_some().then_some(Q88Encoding::Signed),
                 ..BlockEncodings::default()
             },
+            profile: SPIKENAUT_LEGACY_PROFILE_ID.to_string(),
+            producer_crate_version: profile::producer_crate_version(),
+            model_id: None,
+            layout: None,
         };
 
         FpgaParameters {
@@ -1447,50 +1670,10 @@ impl CheckedParameterExport for FpgaParameterExporter {
 impl MemFileWriter for FpgaParameterExporter {
     type Error = ExportError;
 
-    fn write_mem_files(&self, output_dir: impl AsRef<Path>) -> Result<(), Self::Error> {
-        // silicon-hdl RAM is signed two's-complement. Unsigned words above
-        // 127.996 become negative `i16` bit patterns (`200.0` → `C800` →
-        // `-56.0`) and must not land in a hardware `.mem` image.
-        if let Some(block) = self.unsigned_hardware_block() {
-            return Err(ExportError::UnsignedHardwareEncoding { block });
-        }
-
-        // Validate and encode the complete bundle before creating or truncating
-        // anything on disk. A malformed parameter set must not overwrite an
-        // existing fixture or leave a half-written export that looks valid.
-        // `try_export` also refuses `RangePolicy::Saturate` so a saturation
-        // report cannot be dropped on this path.
-        let params = CheckedParameterExport::try_export(self)?;
-
-        let output_dir = output_dir.as_ref();
-        fs::create_dir_all(output_dir).map_err(|source| ExportError::Io {
-            path: output_dir.to_path_buf(),
-            source,
-        })?;
-
-        Self::write_mem_file(output_dir.join("parameters.mem"), &params.thresholds)?;
-        Self::write_mem_file(output_dir.join("parameters_weights.mem"), &params.weights)?;
-        Self::write_mem_file(output_dir.join("parameters_decay.mem"), &params.decay_rates)?;
-        if let Some(readout) = &params.output_weights {
-            Self::write_mem_file(output_dir.join("parameters_output_weights.mem"), readout)?;
-        } else {
-            Self::remove_mem_file_if_present(output_dir.join("parameters_output_weights.mem"))?;
-        }
-
-        let metadata_path = output_dir.join("parameters.json");
-        let metadata_json =
-            serde_json::to_string_pretty(&params).map_err(|source| ExportError::Serialize {
-                path: metadata_path.clone(),
-                source,
-            })?;
-        fs::write(&metadata_path, metadata_json).map_err(|source| ExportError::Io {
-            path: metadata_path,
-            source,
-        })?;
-
-        self.print_export_summary(&params, output_dir);
-
-        Ok(())
+    fn write_mem_files(&self, output_dir: impl AsRef<Path>) -> Result<ExportReport, Self::Error> {
+        // Spikenaut-v2 compatibility: documented filenames, overwrite allowed,
+        // declared 35 µs target, leftover readout removed. No stdout.
+        self.write_with_config(output_dir, &ExportConfig::spikenaut_legacy())
     }
 }
 
@@ -1886,7 +2069,10 @@ mod tests {
             Q88Encoding::Signed
         );
         assert!(!round_tripped.metadata.timestamp.is_empty());
-        assert!((round_tripped.metadata.target_latency_us - 35.0).abs() < 1e-6);
+        assert_eq!(
+            round_tripped.metadata.target_latency_us,
+            Some(SPIKENAUT_DECLARED_TARGET_LATENCY_US)
+        );
         // (2 thresholds + 4 weights + 2 decay) * 2 bytes = 16 bytes
         assert!((round_tripped.metadata.memory_usage_kb - 16.0 / 1024.0).abs() < 1e-6);
     }
@@ -3080,7 +3266,7 @@ mod signed_parameter_encoding_tests {
             timestamp: "2026-01-01T00:00:00Z".into(),
             num_neurons: 1,
             num_channels: 1,
-            target_latency_us: 35.0,
+            target_latency_us: Some(SPIKENAUT_DECLARED_TARGET_LATENCY_US),
             memory_usage_kb: 0.0,
             ..Default::default()
         };

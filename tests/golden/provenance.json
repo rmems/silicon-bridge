@@ -9,7 +9,7 @@
   "word_format": "16-bit Q8.8, 8 fractional bits, scale 256, uppercase four-digit ASCII hex, one word per line",
   "uart_golden_bytes": "tests/golden/uart/",
   "uart_note": "ASCII hex .mem layout is not UART byte order or spike-bit order. Independent v3 / dense 8 / 32 / 8×10 frames live under tests/golden/uart/ (#52 landed).",
-  "profile_note": "Issue #50 (generic vs Spikenaut export profiles) is not landed. Both bundles below use the current EXPORT_FORMAT_VERSION tag the writer emits (Spikenaut-v2). That tag is a historical layout string, not proof of a trained Spikenaut model.",
+  "profile_note": "Issue #50 landed ExportConfig profiles. These committed .mem fixtures still match the Spikenaut-v2 compatibility writer (EXPORT_FORMAT_VERSION). Generic JSON uses silicon-bridge-dense-v1 and is not this file's schema_version. The tag here is a historical layout string, not proof of a trained Spikenaut model.",
   "peer_hdl": {
     "repository": "https://github.com/rmems/silicon-hdl",
     "commit": "d45163f38ac1cd88f8a3918e3793a08ace85e132",

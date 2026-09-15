@@ -47,6 +47,12 @@
 //! on the saturating helpers; the checked export path rejects non-finite
 //! inputs and, under [`RangePolicy::Reject`], overflow.
 //!
+//! Prefer [`FpgaParameterExporter::write_with_config`] with
+//! [`ExportConfig::generic`] when exporting a dense layer that is not a
+//! Spikenaut deployment: that path records no Spikenaut schema tag, no
+//! wall-clock timestamp, and no timing claim. [`MemFileWriter::write_mem_files`]
+//! remains the explicit Spikenaut-v2 compatibility writer.
+//!
 //! ## Provenance
 //!
 //! Extracted from Eagle-Lander, the author's own private neuromorphic GPU supervisor
@@ -70,8 +76,10 @@
 //! assert_eq!(params.weights[0], -256); // written to .mem as `FF00`
 //! assert_eq!(q88_signed_to_f32(params.weights[0]), -1.0);
 //! println!("Memory usage: {:.2} KB", params.metadata.memory_usage_kb);
-//! // Prefer `try_export` / `CheckedParameterExport` when the bundle must be a
-//! // valid FPGA image. Under the default `RangePolicy::Reject`, it rejects
+//! // Prefer `write_with_config(ExportConfig::generic())` for a non-Spikenaut
+//! // image: no Spikenaut-v2 tag, no wall-clock timestamp, no 35 µs claim.
+//! // `try_export` / `write_mem_files` keep the historical Spikenaut-v2 contract.
+//! // Under the default `RangePolicy::Reject`, the checked path rejects
 //! // empty, ragged, mismatched, non-finite, and out-of-range values instead
 //! // of flattening or saturating them. `RangePolicy::Saturate` is not applied
 //! // by `try_export` (it would drop the clamp list); use
@@ -117,12 +125,18 @@ mod fpga_bridge;
 
 // Re-export public API
 pub use fpga_export::{
-    BlockEncodings, CheckedParameterExport, EXPORT_FORMAT_VERSION, ExportError, FixedPointEncode,
-    FpgaMetadata, FpgaParameterExporter, FpgaParameters, MemFileWriter, NonFiniteKind,
-    ParameterBlock, ParameterExport, ParameterLocation, ParameterShapeError, Q88_SIGNED_MAX,
-    Q88_SIGNED_MIN, Q88_UNSIGNED_MAX, Q88Encoding, RangePolicy, STIMULUS_Q88_MAX, STIMULUS_Q88_MIN,
-    SaturationEvent, SaturationReport, encode_q88_signed, encode_q88_signed_full,
-    encode_q88_unsigned, format_q88_hex, q88_signed_to_f32, q88_to_f32,
+    BlockEncodings, BlockShape, CheckedParameterExport, EXPORT_FORMAT_VERSION, ExportConfig,
+    ExportError, ExportFileLayout, ExportLayout, ExportProfile, ExportReport, FilenameReason,
+    FixedPointEncode, FpgaMetadata, FpgaParameterExporter, FpgaParameters,
+    GENERIC_EXPORT_SCHEMA_VERSION, GENERIC_PROFILE_ID, MatrixLayout, MemFileWriter, MemWordFormat,
+    NonFiniteKind, OverflowPolicy, OverwritePolicy, ParameterBlock, ParameterExport,
+    ParameterLocation, ParameterShapeError, Q88_FRACTIONAL_BITS, Q88_SIGNED_MAX, Q88_SIGNED_MIN,
+    Q88_TOTAL_BITS, Q88_UNSIGNED_MAX, Q88Encoding, RangePolicy, RoundingMode,
+    SPIKENAUT_DECLARED_TARGET_LATENCY_US, SPIKENAUT_LEGACY_PROFILE_ID,
+    SPIKENAUT_SIGNED_OUTPUT_PROFILE_ID, SPIKENAUT_SIGNED_OUTPUT_SCHEMA_VERSION, STIMULUS_Q88_MAX,
+    STIMULUS_Q88_MIN, SaturationEvent, SaturationReport, TimestampSpec, WrittenFiles,
+    encode_q88_signed, encode_q88_signed_full, encode_q88_unsigned, format_q88_hex,
+    q88_signed_to_f32, q88_to_f32,
 };
 
 pub use fpga_metrics::FpgaMetrics;

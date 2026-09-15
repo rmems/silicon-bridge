@@ -14,9 +14,10 @@
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use silicon_bridge::{
-    BlockEncodings, EXPORT_FORMAT_VERSION, FpgaParameterExporter, MemFileWriter, Q88_SIGNED_MAX,
-    Q88_SIGNED_MIN, Q88_UNSIGNED_MAX, Q88Encoding, encode_q88_signed_full, encode_q88_unsigned,
-    format_q88_hex, q88_signed_to_f32, q88_to_f32,
+    BlockEncodings, EXPORT_FORMAT_VERSION, ExportConfig, FpgaParameterExporter,
+    GENERIC_EXPORT_SCHEMA_VERSION, MemFileWriter, Q88_SIGNED_MAX, Q88_SIGNED_MIN, Q88_UNSIGNED_MAX,
+    Q88Encoding, encode_q88_signed_full, encode_q88_unsigned, format_q88_hex, q88_signed_to_f32,
+    q88_to_f32,
 };
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -326,7 +327,7 @@ fn generic_4x6_matches_committed_mem_and_row_major_layout() {
 
     let params = generic_4x6_exporter()
         .try_export()
-        .expect("checked generic export");
+        .expect("checked in-memory export still uses the Spikenaut-v2 tag");
     assert_eq!(params.metadata.version, EXPORT_FORMAT_VERSION);
     assert_eq!(params.metadata.num_neurons, 4);
     assert_eq!(params.metadata.num_channels, 6);
@@ -347,6 +348,35 @@ fn generic_4x6_matches_committed_mem_and_row_major_layout() {
         .collect();
     assert_eq!(reconstructed[1], -1.0);
     assert_eq!(reconstructed[6], -128.0);
+}
+
+#[test]
+fn generic_profile_4x6_matches_mem_without_spikenaut_json() {
+    let fixture = golden_root().join("generic_4x6");
+    let dir = tempfile::tempdir().expect("tempdir");
+    generic_4x6_exporter()
+        .write_with_config(dir.path(), &ExportConfig::generic())
+        .expect("generic profile write");
+
+    for name in [
+        "parameters.mem",
+        "parameters_weights.mem",
+        "parameters_decay.mem",
+    ] {
+        assert_eq!(
+            read_mem_lines(dir.path().join(name)),
+            read_mem_lines(fixture.join(name)),
+            "{name} words are independent of the JSON profile tag"
+        );
+    }
+
+    let json = fs::read_to_string(dir.path().join("parameters.json")).expect("json");
+    assert!(
+        !json.contains("Spikenaut"),
+        "generic profile JSON must not mention Spikenaut: {json}"
+    );
+    assert!(json.contains(GENERIC_EXPORT_SCHEMA_VERSION));
+    assert!(!json.contains("target_latency"));
 }
 
 #[test]

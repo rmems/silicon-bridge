@@ -1,7 +1,7 @@
 {
   "profile": "generic-dense-q88",
   "schema_version": "Spikenaut-v2",
-  "note": "Non-square 4-neuron × 6-input layer. Synthetic format fixture; not a trained model. No readout block. #50 generic profile API is not landed; schema_version is the current writer tag.",
+  "note": "Non-square 4-neuron × 6-input layer. Synthetic format fixture; not a trained model. No readout block. #50 generic profile writes silicon-bridge-dense-v1 JSON; this schema_version is the Spikenaut-v2 compatibility writer tag used by try_export / write_mem_files.",
   "num_neurons": 4,
   "num_channels": 6,
   "signedness": {

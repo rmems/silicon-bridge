@@ -8,6 +8,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Generic vs Spikenaut export profiles (#50): `ExportConfig::generic`
+  (`silicon-bridge-dense-v1`), `ExportConfig::spikenaut_legacy`
+  (`Spikenaut-v2`), and `ExportConfig::spikenaut_signed_output`
+  (`Spikenaut-signed-output-v1`, required K×N readout). Schema version,
+  producer crate version, and profile / model identity are separate
+  metadata fields. Filenames are a small validated layout (unique relative
+  basenames; absolute paths and `..` rejected). Timestamps are opt-in or
+  caller-supplied so repeats are byte-identical. `target_latency_us` is
+  omitted unless supplied as a declared target (legacy still records 35 µs
+  as a declared target, not a measurement). The checked writer returns
+  `ExportReport` and does not print to stdout. Generic / signed-output
+  refuse overwrites unless `allow_overwrite()` is set. See
+  [docs/export-profiles.md](docs/export-profiles.md).
 - Independent Rust↔HDL golden export contracts (#53): committed
   `tests/golden/` fixtures (signed/unsigned Q8.8 tables, a non-square 4×6
   layer, and a synthetic 16-neuron Spikenaut-shaped bundle with signed
@@ -130,6 +143,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- `MemFileWriter::write_mem_files` returns `ExportReport` instead of `()`
+  and no longer prints an export summary. It is the Spikenaut-v2
+  compatibility path (`ExportConfig::spikenaut_legacy`): documented
+  `parameters*.mem` names, overwrite allowed, leftover readout removed.
+- `FpgaMetadata::target_latency_us` is `Option<f32>` and skipped in JSON
+  when unset. Legacy payloads with `"target_latency_us": 35.0` still
+  deserialize. Struct literals that set the field must wrap `Some(...)`.
 - Post-transfer hygiene: live docs, CI badge, package `homepage`, and MIT
   copyright point at [`rmems/silicon-bridge`](https://github.com/rmems/silicon-bridge)
   after return from Limen-Neural (#27). Wiki is enabled under `rmems`; durable

@@ -26,7 +26,8 @@ stimuli and reading back spike states at runtime.
   - `FixedPointEncode` — `f32` → signed Q8.8 (`i16`)
   - `ParameterExport` — build the FPGA parameter bundle (infallible, legacy)
   - `CheckedParameterExport` — same bundle, or a typed `ParameterShapeError`
-  - `MemFileWriter` — write `$readmemh` `.mem` files (validates before writing)
+  - `MemFileWriter` — Spikenaut-v2 compatibility `.mem` writer (returns `ExportReport`, no stdout)
+- `ExportConfig` — generic / Spikenaut-legacy / signed-output profiles, configurable filenames, opt-in timestamps, explicit overwrite
 - `FpgaParameterExporter` — default implementation of those traits
 - `format_q88_hex` / `encode_q88_signed_full` / `q88_signed_to_f32` — signed
   parameter Q8.8 helpers (full `i16` range). `encode_q88_signed` remains the
@@ -59,23 +60,29 @@ silicon-bridge = "0.1"
 ### Export Parameters
 
 ```rust
-use silicon_bridge::{CheckedParameterExport, FpgaParameterExporter};
+use silicon_bridge::{ExportConfig, FpgaParameterExporter};
 
 let mut exporter = FpgaParameterExporter::new();
-exporter.set_thresholds(vec![0.6; 16]);
-exporter.set_weights(vec![vec![0.5; 16]; 16]);
-exporter.set_decay_rates(vec![0.9; 16]);
+exporter.set_thresholds(vec![0.6; 4]);
+exporter.set_weights(vec![vec![0.5; 6]; 4]);
+exporter.set_decay_rates(vec![0.9; 4]);
 
-let params = exporter.try_export().expect("rectangular, finite, in-range");
-// → params.thresholds, .weights, .decay_rates are Vec<i16> (signed Q8.8)
-// → negative (Dale-inhibitory) weights survive: -1.0 → -256 → `FF00`
-// → ready for silicon-hdl WeightRam / NeuronParamRam via Vivado $readmemh
+// Generic dense export: no Spikenaut-v2 tag, no wall clock, no 35 µs claim.
+let report = exporter
+    .write_with_config("out", &ExportConfig::generic())
+    .expect("rectangular, finite, in-range");
+assert_eq!(report.schema_version, silicon_bridge::GENERIC_EXPORT_SCHEMA_VERSION);
+// `report` replaces the old stdout summary. The writer prints nothing.
 
-// ParameterExport::export is the documented legacy wrapper: it still
-// flattens a ragged matrix and saturates out-of-range values. Prefer try_export
-// (or MemFileWriter::write_mem_files) for any image that will be synthesized.
+// ParameterExport::export / try_export / MemFileWriter::write_mem_files keep
+// the historical Spikenaut-v2 contract (documented filenames, overwrite,
+// declared 35 µs target). Prefer ExportConfig::generic for new callers, or
+// ExportConfig::spikenaut_signed_output when a signed K×N readout is required.
 let _legacy = silicon_bridge::ParameterExport::export(&exporter);
 ```
+
+See [docs/export-profiles.md](docs/export-profiles.md) for the generic vs
+Spikenaut-v2 vs `Spikenaut-signed-output-v1` migration.
 
 ### UART Spike Readback (requires the `uart` feature)
 

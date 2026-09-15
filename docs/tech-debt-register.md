@@ -29,7 +29,7 @@ the file and symbol names are the durable part.
 | 6 | CI never runs on a stacked PR | `.github/workflows/ci.yml:6-7` | High | PR #46 |
 | 7 | Published crate shipped agent instructions; no MSRV | `Cargo.toml` | Medium | PR #40 |
 | 8 | Doc and `unsafe` conventions unenforced | `src/lib.rs`, `src/fpga_export.rs:104` | Medium | PR #42 |
-| 9 | A library writes 20 lines to stdout on every export | `src/fpga_export.rs:195`, `src/fpga_bridge.rs:46` | Medium | queued |
+| 9 | A library writes 20 lines to stdout on every export | `src/fpga_export/` | Medium | **#50** (this PR) |
 | 10 | No dependency automation | repo-wide | Medium | PR #43 |
 | 11 | `load_from_project` hard-codes an Eagle-Lander path | `src/fpga_metrics.rs:58` | Medium | blocked by #33 |
 | 12 | No `cargo doc` gate, though docs.rs breakage is a stated concern | `.github/workflows/ci.yml` | Medium | blocked by #31 |
@@ -180,18 +180,11 @@ override that could go unnoticed in review.
 
 ### 9. A library writes 20 lines to stdout on every export
 
-`print_export_summary` (`src/fpga_export.rs:195`) issues twenty `println!`s and
-is called unconditionally from `MemFileWriter::write_mem_files`
-(`src/fpga_export.rs:301`). `FpgaBridge::new` no longer prints on connect
-(#51). A library has no business owning its caller's stdout — any tool that
-emits JSON or pipes `.mem` output gets it interleaved with export chatter,
-with no way to turn it off.
-
-**Fix scope** — return the summary as a `Display` type, or gate it behind an
-opt-in `FpgaParameterExporter::with_summary(bool)` defaulting to silent. Pre-1.0
-and CHANGELOG-able. One PR, `src/fpga_export.rs`; fold the bridge `println!` in
-or take it with #39's follow-up. Sequence after #41 — same file, overlapping
-region.
+`print_export_summary` used to issue twenty `println!`s from
+`MemFileWriter::write_mem_files`. The checked writer now returns
+[`ExportReport`](../src/fpga_export/profile.rs) and prints nothing (#50).
+Callers that want a summary can `Display` the report. `FpgaBridge::new`
+already stopped printing on connect (#51).
 
 ### 10. No dependency automation
 
