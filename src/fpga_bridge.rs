@@ -9,16 +9,19 @@
 //! ## Q8.8 convention used here: signed
 //!
 //! Host stimuli and membrane potentials on the wire are **signed** Q8.8
-//! (`i16`, two's complement, big-endian) — the same convention `fpga_export`
-//! writes into `.mem` parameter images. Both encode through
-//! [`crate::encode_q88_signed`]; only the framing differs.
+//! (`i16`, two's complement, big-endian) encoded with
+//! [`crate::encode_q88_signed`] — the **legacy UART clamp** of
+//! [`crate::STIMULUS_Q88_MIN`]`..=`[`crate::STIMULUS_Q88_MAX`] (`±127.99`).
+//! That helper is not the parameter-export contract: `.mem` images use
+//! [`crate::encode_q88_signed_full`] over `[-128, 127.99609375]`, so `-128.0`
+//! is `8003` on this wire and `8000` in a parameter file.
 //!
 //! | Aspect | This module (UART TX/RX) | `fpga_export` (`.mem`) |
 //! |---|---|---|
-//! | Encode with | [`crate::encode_q88_signed`] | [`crate::encode_q88_signed`] |
+//! | Encode with | [`crate::encode_q88_signed`] | [`crate::encode_q88_signed_full`] |
 //! | Decode with | [`crate::q88_signed_to_f32`] | [`crate::q88_signed_to_f32`] |
 //! | Raw type | `i16` (two's complement) | `i16` (two's complement) |
-//! | Encoder input clamp | [`crate::STIMULUS_Q88_MIN`]`..=`[`crate::STIMULUS_Q88_MAX`] | same |
+//! | Encoder input clamp | [`crate::STIMULUS_Q88_MIN`]`..=`[`crate::STIMULUS_Q88_MAX`] | [`crate::Q88_SIGNED_MIN`]`..=`[`crate::Q88_SIGNED_MAX`] |
 //! | Byte order | raw binary, big-endian (MSB first) | ASCII hex, one `{:04X}` word per line |
 //! | Use it for | host stimuli, RX membrane potentials | weights, thresholds, decay rates |
 //!
@@ -225,9 +228,10 @@ impl FpgaBridge {
     ///   TX: 0xAA + 32 bytes (16 × signed Q8.8 stimuli, big-endian)
     ///   RX: 32 bytes (16 × signed Q8.8 potentials) + 2 bytes (spike flags) + 2 bytes (switches)
     ///
-    /// Stimuli are encoded with [`crate::encode_q88_signed`] (`i16`) — **not**
-    /// the unsigned-magnitude [`crate::encode_q88_unsigned`], which would flatten
-    /// every inhibitory input to `0`. RX potentials use
+    /// Stimuli are encoded with [`crate::encode_q88_signed`] (`i16`) — the
+    /// UART clamp of ±127.99, **not** [`crate::encode_q88_signed_full`] and
+    /// **not** the unsigned-magnitude [`crate::encode_q88_unsigned`], which
+    /// would flatten every inhibitory input to `0`. RX potentials use
     /// [`crate::q88_signed_to_f32`].
     ///
     /// Input is accepted as a dynamic slice; if fewer than 16 values are provided,
@@ -240,8 +244,8 @@ impl FpgaBridge {
             return Err("FPGA bridge not active".into());
         }
 
-        // ENCODE SITE (signed Q8.8) — UART TX. Same encoder as the `.mem`
-        // export path; see fpga_export's module docs for the shared contract.
+        // ENCODE SITE (signed Q8.8) — UART TX with the legacy ±127.99 clamp.
+        // Parameter `.mem` export uses `encode_q88_signed_full` instead.
         let mut tx_data = vec![0xAAu8]; // Sync byte
         for i in 0..16 {
             let s = stimuli.get(i).copied().unwrap_or(0.0);

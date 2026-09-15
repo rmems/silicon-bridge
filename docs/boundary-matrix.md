@@ -11,9 +11,10 @@ This is **documentation only** — no runtime behavior changes.
 `silicon-bridge` is the **host-side deployment bridge** between trained SNN
 parameters and FPGA hardware in the Limen-Neural stack. It:
 
-1. Converts float SNN parameters to **signed two's-complement Q8.8** and
-   writes Vivado `$readmemh` `.mem` files — the signedness silicon-hdl's RTL
-   reads (`spikenaut-core-sv/mem/README.md`, "Signedness contract (GH#73)")
+1. Converts float SNN parameters to **signed two's-complement Q8.8**
+   (`[-128, 127.99609375]`) and writes Vivado `$readmemh` `.mem` files — the
+   signedness silicon-hdl's RTL reads (`spikenaut-core-sv/mem/README.md`,
+   "Signedness contract (GH#73)"). UART stimuli keep a narrower ±127.99 clamp.
 2. Optionally exchanges stimuli / spikes with the FPGA over **UART**
    (`uart` feature)
 3. Parses **Vivado timing reports for WNS and TNS** (worst / total negative slack)
