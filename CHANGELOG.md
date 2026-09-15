@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- UART codecs split from transport (#52): `DenseQ88Layout`, `encode_stimuli`,
+  `encode_stimuli_legacy_v3`, `decode_response`, and `StimulusResponse` live
+  in a `serialport`-free module. SiliconBridge v3.0 is an explicit 16-channel
+  profile; dense 8/16/32 (and non-multiple-of-8 mask) layouts are host codecs
+  and need matching FPGA firmware. Checked encode rejects wrong-length and
+  non-finite stimuli before any write. `FpgaBridge` gains `from_port`,
+  `exchange` / `exchange_legacy` / `recover`; a failed I/O exchange sets
+  `needs_recovery` and does not resend the stimulus. `process_stimuli` is
+  the documented legacy pad/truncate wrapper and now returns `ExchangeError`.
 - `FpgaParameterExporter::validate` and `ParameterShapeError` — reject a weight
   matrix whose rows disagree in length. `MemFileWriter::write_mem_files` now
   validates before touching the filesystem, so a ragged matrix returns an error

@@ -93,11 +93,20 @@ accepts 115200 baud (falling back to the historical `/dev/ttyUSB0..2` probe
 list when port enumeration itself comes back empty). A port that opens is
 assumed to be the board — construction does not verify the peer.
 
+Request/response bytes are encoded by `DenseQ88Layout` / `encode_stimuli` /
+`decode_response` (no `serialport` dependency). SiliconBridge v3.0 is the
+16-channel profile that matches current firmware. Other dense sizes are
+host codecs only — they need matching FPGA firmware; changing the host
+layout is not enough. The checked path requires exactly `input_channels`
+finite stimuli. `process_stimuli` remains the legacy pad/truncate wrapper.
+
 `process_stimuli` writes the request frame and then `read_exact`s the reply.
 The 100 ms value is the `serialport` **per-read** timeout, not a hard
-wall-clock budget for the entire call: a partial reply can retry, so the
-call can exceed 100 ms. Nothing in this API returns a `Future`, and no async
-executor is required.
+wall-clock budget for the entire call: filling 36 bytes may take several
+reads, so the call can exceed 100 ms. Extra reads are not a retransmission.
+After a failed exchange the handle requires `recover()` before further
+stimuli. The unframed v3 reply cannot detect every stale same-length frame.
+Nothing in this API returns a `Future`, and no async executor is required.
 
 ## Q8.8 Fixed-Point Format
 
