@@ -81,6 +81,7 @@ Tests live inline in source files, plus the #53 golden-contract suite:
 | `src/fpga_bridge.rs` | unit tests (`uart` feature) | port-name heuristic, `SerialConfig` validation/defaults, open/enumerate/configure failures, USB-serial selection, mock-port injection, scripted mock transport errors / no-resend |
 | `src/lib.rs` | doctest | Quick Start example |
 | `tests/golden_export_contract.rs` | integration | Independent Rust↔HDL numeric and memory-layout fixtures (#53) |
+| `tests/golden_uart_contract.rs` | integration | Independent UART v3 / dense-profile golden bytes (#53 after #52) |
 
 `tests/golden/` is the committed expected output (not encoder-generated).
 Ordinary `cargo test` does not run HDL simulation. Optional Icarus evidence:

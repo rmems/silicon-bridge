@@ -1,0 +1,35 @@
+{
+  "profile": "silicon_bridge_v3",
+  "firmware": "current Basys3 SiliconBridge v3.0 (16/16 + switch field)",
+  "sync": "AA",
+  "tx_len": 33,
+  "rx_len": 36,
+  "word_order": "big_endian_i16",
+  "clamp": "STIMULUS_Q88 ±127.99 → raw ±32765 (8003/7FFD)",
+  "not_mem_hex": true,
+  "stimuli_f32": [
+    0.0, 0.5, 1.0, -1.0,
+    0.25, -0.5, 2.0, -2.0,
+    10.0, -10.0, 127.99, -127.99,
+    -128.0, 127.99609375, 0.00390625, -0.00390625
+  ],
+  "tx_words_hex": [
+    "0000", "0080", "0100", "FF00",
+    "0040", "FF80", "0200", "FE00",
+    "0A00", "F600", "7FFD", "8003",
+    "8003", "7FFD", "0001", "FFFF"
+  ],
+  "tx_hex": "AA000000800100FF000040FF800200FE000A00F6007FFD800380037FFD0001FFFF",
+  "clamp_vs_mem": [
+    { "value": -128.0, "uart": "8003", "mem": "8000" },
+    { "value": 127.99609375, "uart": "7FFD", "mem": "7FFF" }
+  ],
+  "rx_hex": "FF00008000000000000000000000000000000000000000000000000000000000800100A5",
+  "rx_potentials_f32": [
+    -1.0, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+  ],
+  "rx_spike_bits": [0, 15],
+  "rx_spike_mask_hex": "8001",
+  "rx_switches": 165
+}

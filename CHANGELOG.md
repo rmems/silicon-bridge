@@ -16,7 +16,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `WeightRam` at `d45163f` and `tests/golden/hdl/run.sh` provide optional
   `$readmemh` simulation evidence (Icarus; not board-measured parity).
   The exporter K×N readout layout vs silicon-hdl `OutputLayer` N×K
-  addressing is recorded, not silently rewritten.
+  addressing is recorded, not silently rewritten. Independent UART
+  request/response golden bytes for SiliconBridge v3 and simulated
+  dense 8 / 32 / 8×10 profiles live in `tests/golden/uart/` (binary
+  frames; not `.mem` hex).
 - Explicit UART serial configuration (#51): `SerialConfig` (nonzero baud,
   finite nonzero per-I/O timeout), `FpgaBridge::open_with_config`,
   `FpgaBridge::builder`, `FpgaBridge::from_port` /

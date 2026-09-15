@@ -8,7 +8,8 @@ overflow policy, and schema version are specified here. They are **not**
 produced by `encode_q88_*` or `write_mem_files`.
 
 This extends the #22 writer tests and the #49 encoding table. It does not
-reopen those issues. UART request/response golden bytes wait for #52.
+reopen those issues. UART request/response golden bytes are under `uart/`
+(#52 landed); they are binary frames, not `.mem` lines.
 
 ## What is claimed
 

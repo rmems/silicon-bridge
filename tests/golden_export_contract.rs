@@ -158,7 +158,7 @@ fn fixture_provenance_records_schema_and_hdl_pin() {
     assert_eq!(prov.rounding, "truncate_toward_zero");
     assert_eq!(prov.overflow_policy, "reject");
     assert_eq!(prov.flattening, "row_major_dense");
-    assert_eq!(prov.uart_golden_bytes, "deferred_until_#52");
+    assert_eq!(prov.uart_golden_bytes, "tests/golden/uart/");
     assert_eq!(
         prov.peer_hdl.commit,
         "d45163f38ac1cd88f8a3918e3793a08ace85e132"
@@ -457,10 +457,10 @@ fn missing_output_weight_file_fails_the_spikenaut_bundle_contract() {
 }
 
 #[test]
-fn uart_golden_bytes_are_explicitly_deferred() {
+fn uart_golden_bytes_live_beside_mem_fixtures() {
     let raw = fs::read_to_string(golden_root().join("provenance.json")).expect("provenance");
     let v: serde_json::Value = serde_json::from_str(&raw).expect("json");
-    assert_eq!(v["uart_golden_bytes"], "deferred_until_#52");
+    assert_eq!(v["uart_golden_bytes"], "tests/golden/uart/");
     assert!(
         v["uart_note"]
             .as_str()

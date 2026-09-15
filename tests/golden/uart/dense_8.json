@@ -1,0 +1,15 @@
+{
+  "profile": "dense_q88_8_8",
+  "note": "Simulated 8-neuron host codec. Not a board-support claim. Matching firmware required.",
+  "input_channels": 8,
+  "output_neurons": 8,
+  "tx_len": 17,
+  "rx_len": 19,
+  "spike_mask_bytes": 1,
+  "stimuli_f32": [1.0, -1.0, 0.5, -0.5, 0.0, 0.0, 0.0, 0.0],
+  "tx_hex": "AA0100FF000080FF800000000000000000",
+  "rx_hex": "0080FF00000000000000000000000000810001",
+  "rx_potentials_f32": [0.5, -1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+  "rx_spike_bits": [0, 7],
+  "rx_switches": 1
+}
