@@ -9,7 +9,9 @@ This is **documentation only** — no runtime behavior changes.
 ## Purpose
 
 `silicon-bridge` is the **host-side deployment bridge** between trained SNN
-parameters and FPGA hardware in the Limen-Neural stack. It:
+parameters and FPGA hardware, owned under
+[`rmems/silicon-bridge`](https://github.com/rmems/silicon-bridge)
+(historically Limen-Neural). It:
 
 1. Converts float SNN parameters to **signed two's-complement Q8.8**
    (`[-128, 127.99609375]`) and writes Vivado `$readmemh` `.mem` files — the
@@ -87,7 +89,7 @@ Future (allowed when explicitly landed):
 
 | Crate | Why |
 |-------|-----|
-| `nir-rs` (Limen-Neural) | NIR → Q8.8 mapping without local HDF5 reimplementation |
+| `nir-rs` ([Limen-Neural/nir-rs](https://github.com/Limen-Neural/nir-rs); not transferred) | NIR → Q8.8 mapping without local HDF5 reimplementation |
 
 ## Forbidden dependencies / content
 
@@ -137,6 +139,13 @@ Future (allowed when explicitly landed):
 2. HDL interface alignment issue on silicon-hdl
 3. Optional NIR consumer after shared IR crate exists
 
+## Wiki
+
+GitHub wiki is **enabled** on [`rmems/silicon-bridge`](https://github.com/rmems/silicon-bridge/wiki).
+Prefer this in-repo file and `README.md` for durable process documentation; treat
+the wiki as optional narrative only. Local personal shelf clones of the wiki
+are not part of the published process.
+
 ## Validation checklist
 
 - [x] Purpose documented
@@ -145,3 +154,4 @@ Future (allowed when explicitly landed):
 - [x] Core vs runtime vs deployment/hardware layers explicit
 - [x] Risks and sequencing recorded
 - [x] Linkable from Linear (this file path: `docs/boundary-matrix.md`)
+- [x] Wiki story explicit (enabled under rmems; durable docs stay in-repo)

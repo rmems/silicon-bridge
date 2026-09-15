@@ -39,7 +39,7 @@ the file and symbol names are the durable part.
 | 16 | Report paths are `&str`, not `AsRef<Path>` | `src/fpga_metrics.rs:70` | Low-med | blocked by #33 |
 | 17 | Neuron counts across the three vectors are unchecked | `src/fpga_export.rs` | Low-med | **#48** (this PR) |
 | 18 | `ping()` latches the bridge inactive forever | `src/fpga_bridge.rs:108-117` | Low-med | queued |
-| 19 | `LICENSE-MIT` still names the pre-transfer org | `LICENSE-MIT:3` | Low | **owner decision** |
+| 19 | `LICENSE-MIT` still names the pre-transfer org | `LICENSE-MIT:3` | Low | **#27** (this PR) |
 | 20 | 2.4 MB logo; the `imgbot` branch that shrinks it is unmergeable | `docs/logo.png` | Low | queued |
 | 21 | 12 stale remote branches | remote refs | Low | cleanup |
 | 22 | No `CONTRIBUTING`, `SECURITY`, templates, or `CODEOWNERS` | `.github/` | Low | queued |
@@ -309,15 +309,13 @@ bridge not active" without touching the port.
 
 ### 19. `LICENSE-MIT` still names the pre-transfer org
 
-`LICENSE-MIT:3` reads `Copyright (c) 2025 Limen-Neural`. Issue #27's acceptance
-criteria explicitly cover licences, and this is the last file that still names
-the old org in a load-bearing way.
+`LICENSE-MIT:3` read `Copyright (c) 2025 Limen-Neural`. Issue #27's acceptance
+criteria explicitly cover licences.
 
-**This one is not an agent's call.** Who holds copyright after the transfer is a
-decision for the owner; the register flags it, and deliberately proposes no
-patch. The other `Limen-Neural` mentions in the tree were checked and are
-**correct**: `neuromod` and `nir-rs` really do still live under that org, and
-`docs/boundary-matrix.md` refers to the stack by name, not by URL.
+**Fix (#27)** — copyright line is now `Copyright (c) 2025 rmems contributors`,
+matching the silicon-hdl hygiene. Remaining `Limen-Neural` mentions are
+intentional: `neuromod` and `nir-rs` still live under that org, and the
+project-board workflow comments record the old Hardware board as history.
 
 ### 20. 2.4 MB logo and an unmergeable `imgbot` branch
 

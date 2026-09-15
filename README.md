@@ -6,6 +6,7 @@
 <p align="center">SNN-to-FPGA deployment pipeline: Q8.8 parameter export, .mem generation, and UART spike readback</p>
 
 <p align="center">
+  <a href="https://github.com/rmems/silicon-bridge/actions/workflows/ci.yml"><img src="https://github.com/rmems/silicon-bridge/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://crates.io/crates/silicon-bridge"><img src="https://img.shields.io/crates/v/silicon-bridge" alt="crates.io"></a>
   <a href="https://docs.rs/silicon-bridge"><img src="https://docs.rs/silicon-bridge/badge.svg" alt="docs.rs"></a>
   <img src="https://img.shields.io/badge/license-MIT%2FApache--2.0-blue" alt="MIT/Apache-2.0">
@@ -211,11 +212,21 @@ training orchestrator so it works with any SNN framework.
 |---------|---------|
 | [silicon-hdl](https://github.com/rmems/silicon-hdl) | SystemVerilog core, bridge, and SoC for Basys3 / Artix-7 |
 | [SynapticDistill.jl](https://github.com/rmems/SynapticDistill.jl) | Julia training + distillation (Q8.8 export path) |
-| [neuromod](https://github.com/Limen-Neural/neuromod) | SNN dynamics / core runtime traits |
+| [neuromod](https://github.com/Limen-Neural/neuromod) | SNN dynamics / core runtime traits (still hosted under Limen-Neural) |
 
 ## License
 
 Licensed under either of [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE) at your option.
+
+## Ownership and wiki
+
+Live source, issues, and Actions live under
+[`rmems/silicon-bridge`](https://github.com/rmems/silicon-bridge) after return
+from Limen-Neural. The GitHub wiki is **enabled** at
+[`rmems/silicon-bridge/wiki`](https://github.com/rmems/silicon-bridge/wiki).
+Prefer in-repo `README.md` and `docs/` for durable documentation; treat the wiki
+as optional narrative. Some generated wiki pages still mention the pre-transfer
+org — this tree is the source of truth.
 
 ## CI
 
