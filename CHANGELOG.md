@@ -29,6 +29,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Re-exporting without a readout deletes a leftover
   `parameters_output_weights.mem`. The infallible `ParameterExport::export` is
   unchanged (flatten + saturate) and remains the documented legacy wrapper.
+- Full-range signed parameter Q8.8 with explicit per-block encoding (#49):
+  `encode_q88_signed_full`, `Q88_SIGNED_MIN` / `Q88_SIGNED_MAX`
+  (`[-128, 127.99609375]` → `8000..=7FFF`), and `BlockEncodings` on
+  `FpgaMetadata` so a consuming profile reads signedness from the manifest
+  rather than inferring it from a filename or `i16` storage. Thresholds and
+  decay may be selected `Q88Encoding::Unsigned` for in-memory consumers;
+  hidden and readout weights default to signed. `encode_q88_signed` stays the
+  UART helper with the ±127.99 clamp (`-128.0` → `8003` there, `8000` on the
+  parameter path). Optional readout remains the #48 `K×N` matrix.
 - `FpgaBridge::open` and `is_fpga_port_name` (`uart` feature) — open a serial
   port by name, and classify a port name across Linux, macOS, and Windows.
 - `encode_q88_unsigned` — free-function unsigned-magnitude Q8.8 encoder (#23).
@@ -66,10 +75,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   return `i16` instead of `u16`; `FpgaParameters::{thresholds, weights, decay_rates}`
   are `Vec<i16>`, so `parameters.json` now records `-256` where it recorded `65280`.
   `format_q88_hex` formats the signed pattern (`-1.0` → `"FF00"`, was `"0000"`).
-  Parameter magnitudes now saturate at `±127.99` rather than reaching `255.99`,
-  matching silicon-hdl's `scripts/q88.py` clamp bit-for-bit. `encode_q88_unsigned`
-  and `q88_to_f32` are unchanged and still public, but are documented as an
-  unsigned-magnitude pair that must not be used to build hardware images.
+  Parameter magnitudes saturate at `±127.99` on the UART helper; the later
+  #49 change (see Changed) widens the parameter path to the full `i16` range.
+  `encode_q88_unsigned` and `q88_to_f32` are unchanged and still public, but are
+  documented as an unsigned-magnitude pair that must not be used to build
+  hardware images.
 
   **Reading old `parameters.json` fails.** Any word above `32767` — every
   pre-fix threshold or weight over `127.99` — no longer deserializes into the
@@ -77,15 +87,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   payload changed under an unchanged `"Spikenaut-v2"` tag. The failure is a loud
   serde error rather than a silent misread, and the tag is documented as a
   layout identifier that downstream tooling keys on (bumping it breaks that
-  tooling). Re-export rather than migrating old JSON in place. Whether the tag
-  should nevertheless gain a signedness discriminator is tracked with the rest
-  of the encoding design in #49.
+  tooling). Re-export rather than migrating old JSON in place. Signedness is
+  now an explicit per-block field on `FpgaMetadata::encodings` (#49), not a
+  bump of this layout tag.
 - `FpgaMetrics::parse_from_report` now skips the rule of dashes Vivado prints
   under the `WNS(ns)` column headers, so a verbatim timing summary parses
   instead of returning `None` (#21).
 
 ### Changed
 
+- Parameter `.mem` export uses full-range signed Q8.8 (`encode_q88_signed_full`)
+  instead of the UART helper's ±127.99 clamp (#49). `-128.0` is `8000` on the
+  parameter path and remains `8003` on UART (`encode_q88_signed`). Docs
+  distinguish signed parameter, unsigned parameter, and legacy UART encodings.
+  `FpgaMetadata` gains `encodings` (`BlockEncodings`, serde-defaulted so older
+  JSON still loads). New public field: code that builds `FpgaMetadata` with a
+  struct literal must add `encodings`.
 - `find_fpga_ports` now matches macOS `cu.usb*` / `tty.usb*` nodes and Windows
   `COM<n>` ports as well as Linux `ttyUSB` / `ttyACM`; it previously filtered on
   a `ttyUSB` substring and so returned an empty list off Linux. `FpgaBridge::new`
@@ -94,8 +111,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - License switched from GPL-3.0-or-later to dual MIT/Apache-2.0 (#6).
 - Documented the Q8.8 conventions with a side-by-side table in the crate,
   module, and README docs, plus tests covering the clamp boundaries (#23).
-  The table originally described the `.mem` path as unsigned; it now records the
-  single signed convention both paths share (see Fixed, above).
+  The table originally described the `.mem` path as unsigned; #60 recorded a
+  single signed convention; #49 splits signed parameter, unsigned parameter,
+  and legacy UART clamp (see Changed, above).
 - Declared `rust-version = "1.98.1"`, not `"1.85"`, the dependency-derived
   floor — edition 2024 and `getrandom` 0.4 (via the `tempfile` dev-dependency)
   both only require 1.85.0. This is a deliberate policy choice to track the

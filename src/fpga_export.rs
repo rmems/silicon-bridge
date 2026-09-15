@@ -16,32 +16,35 @@
 //!   [`ParameterShapeError`]
 //! - [`MemFileWriter`] — write `.mem` + metadata JSON
 //!
-//! ## Q8.8 convention used here: signed two's complement
+//! ## Three Q8.8 encodings
 //!
-//! Every `.mem` image is read by the silicon-hdl RTL as **signed
-//! two's-complement Q8.8**: `0xFF00` is `-1.0`, not `65280`. `LifNeuron` /
-//! `LifNeuronArray` (weights, thresholds, decay) and `OutputLayer` (output
-//! weights) all `$signed`-compare at runtime, so a Dale-inhibitory weight
-//! subtracts from the membrane instead of adding to it. See silicon-hdl
+//! Q8.8 always means `value × 256` packed into a 16-bit word, truncated toward
+//! zero. This crate keeps **three** interpretations of that word. Signedness is
+//! selected per [`ParameterBlock`] via [`FpgaParameterExporter::set_encoding`]
+//! and recorded on [`FpgaMetadata::encodings`] — never inferred from a
+//! filename or from storing the word as `i16`.
+//!
+//! | Aspect | Signed parameter (`.mem`) | Unsigned parameter | Legacy UART clamp |
+//! |---|---|---|---|
+//! | Encode with | [`encode_q88_signed_full`] | [`encode_q88_unsigned`] | [`encode_q88_signed`] |
+//! | Decode with | [`q88_signed_to_f32`] | [`q88_to_f32`] | [`q88_signed_to_f32`] |
+//! | Range | [`Q88_SIGNED_MIN`]`..=`[`Q88_SIGNED_MAX`] (`-128..=127.99609375`) | `0..=`[`Q88_UNSIGNED_MAX`] (`0..=255.99609375`) | [`STIMULUS_Q88_MIN`]`..=`[`STIMULUS_Q88_MAX`] (`-127.99..=127.99`) |
+//! | Raw output | `i16::MIN..=i16::MAX` (`8000`..=`7FFF`) | `u16` `0000`..=`FFFF` | `-32765..=32765` (`8003`..=`7FFD`) |
+//! | Serialized as | ASCII hex, one `{:04X}` word of the 16-bit pattern | same hex of the unsigned pattern | raw binary, big-endian |
+//! | Use it for | hidden + readout weights; hardware `.mem` images | in-memory unsigned consumers; thresholds/decay when explicitly selected | UART host stimuli only |
+//!
+//! silicon-hdl RAM reads every `.mem` image as **signed** two's complement
+//! (`0xFF00` is `-1.0`, not `65280`). `LifNeuron` / `LifNeuronArray` and
+//! `OutputLayer` `$signed`-compare at runtime, so a Dale-inhibitory weight
+//! subtracts from the membrane. See silicon-hdl
 //! `spikenaut-core-sv/mem/README.md`, “Signedness contract (GH#73)”.
+//! [`MemFileWriter::write_mem_files`] therefore refuses
+//! [`Q88Encoding::Unsigned`].
 //!
-//! This module therefore encodes through [`encode_q88_signed`] — the same
-//! function, clamp, and bit patterns the UART stimulus path uses. There is one
-//! signed Q8.8 convention across the crate, not one per path.
-//!
-//! | Aspect | This module (`.mem` export) |
-//! |---|---|
-//! | Raw type | `i16` (two's complement — negatives **are** representable) |
-//! | Width | 16 bits — 8 integer + 8 fractional |
-//! | Scaling | `raw = value × 256`, truncated toward zero |
-//! | Encoder input clamp | [`STIMULUS_Q88_MIN`]`..=`[`STIMULUS_Q88_MAX`] (`-127.99..=127.99`) |
-//! | Encoder raw output | `-32765..=32765` |
-//! | Serialized as | ASCII hex, one `{:04X}` word of the raw 16-bit pattern per line |
-//! | Use it for | weights, thresholds, decay rates |
-//!
-//! [`encode_q88_unsigned`] / [`q88_to_f32`] are still public as an
-//! unsigned-magnitude pair, but they are **not** the `.mem` convention and
-//! nothing in this crate builds hardware images with them.
+//! [`encode_q88_signed`] is the UART helper. Its ±127.99 clamp is a wire
+//! protocol artifact, **not** the parameter-export contract: `-128.0` encodes
+//! as `8003` on the UART path and as `8000` on the parameter path. Do not
+//! reuse that helper for `.mem` images.
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -55,23 +58,25 @@ use std::path::{Path, PathBuf};
 /// tooling that keys on this string.
 pub const EXPORT_FORMAT_VERSION: &str = "Spikenaut-v2";
 
-/// Encode host floating-point values as signed two's-complement Q8.8 (`i16`).
+/// Encode host floating-point values as **full-range** signed Q8.8 (`i16`).
 ///
-/// Q8.8 maps `value × 256` into a 16-bit word. Values outside the representable
-/// range are clamped.
+/// Q8.8 maps `value × 256` into a 16-bit word. This trait is the
+/// parameter-export encoder: [`encode_q88_signed_full`], range
+/// [`Q88_SIGNED_MIN`]`..=`[`Q88_SIGNED_MAX`]. It is **not** the UART helper
+/// [`encode_q88_signed`], whose narrower ±127.99 clamp would map `-128.0` to
+/// `8003` instead of `8000`.
 ///
-/// This is the convention silicon-hdl reads for **both** `.mem` parameter
-/// images and UART host stimuli (silicon-hdl GH#73); [`encode_q88_signed`] is
-/// the free-function form. The unsigned pair [`encode_q88_unsigned`] /
-/// [`q88_to_f32`] is a magnitude-only helper that cannot express an inhibitory
+/// Per-block signed/unsigned selection lives on
+/// [`FpgaParameterExporter::set_encoding`]. The unsigned pair
+/// [`encode_q88_unsigned`] / [`q88_to_f32`] cannot express an inhibitory
 /// weight — see the crate-root “Q8.8 conventions” table.
 pub trait FixedPointEncode {
-    /// Convert one `f32` to signed Q8.8 fixed-point.
+    /// Convert one `f32` to full-range signed Q8.8 fixed-point.
     ///
-    /// Inputs below [`STIMULUS_Q88_MIN`] clamp to `-32765` and inputs above
-    /// [`STIMULUS_Q88_MAX`] clamp to `32765`; `NaN` encodes as `0`. Negatives
-    /// survive as two's complement, so `-1.0` encodes as `-256` and is written
-    /// to a `.mem` file as `FF00`.
+    /// Inputs below [`Q88_SIGNED_MIN`] saturate to `i16::MIN` (`8000`) and
+    /// inputs above [`Q88_SIGNED_MAX`] saturate to `i16::MAX` (`7FFF`); `NaN`
+    /// encodes as `0`. Negatives survive as two's complement, so `-1.0`
+    /// encodes as `-256` and is written to a `.mem` file as `FF00`.
     fn encode_q88(&self, value: f32) -> i16;
 }
 
@@ -213,17 +218,28 @@ impl fmt::Display for NonFiniteKind {
     }
 }
 
-/// Q8.8 numeric interpretation used for representability checks.
+/// Q8.8 numeric interpretation used for representability checks and encoding.
 ///
-/// Per-block signed/unsigned *policy* (which blocks default to which encoding,
-/// and the full `[-128, 127.99609375]` signed contract) is owned by issue
-/// #49. This enum is the validation hook that #48 needs so range errors can
-/// name the encoding they were checked against.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// Selected **per [`ParameterBlock`]** with
+/// [`FpgaParameterExporter::set_encoding`], not as an ambiguous global meaning
+/// of `u16` / `i16`. The choice is recorded on [`FpgaMetadata::encodings`] so a
+/// consuming profile or `parameters.json` reader does not infer signedness
+/// from a filename or Rust storage type.
+///
+/// Hardware `.mem` images require [`Q88Encoding::Signed`]
+/// ([`ExportError::UnsignedHardwareEncoding`]). Unsigned remains available for
+/// in-memory consumers of thresholds/decay (and any other block) that still
+/// want the `0..=255.99609375` magnitude range.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Q88Encoding {
-    /// Signed two's-complement Q8.8, matching [`encode_q88_signed`].
+    /// Full-range signed two's-complement Q8.8, matching
+    /// [`encode_q88_signed_full`].
     ///
-    /// Representable without saturation: [`STIMULUS_Q88_MIN`]`..=`[`STIMULUS_Q88_MAX`].
+    /// Representable without saturation:
+    /// [`Q88_SIGNED_MIN`]`..=`[`Q88_SIGNED_MAX`] (`-128..=127.99609375`).
+    /// Distinct from the UART helper [`encode_q88_signed`], which clamps at
+    /// ±127.99.
     #[default]
     Signed,
     /// Unsigned-magnitude Q8.8, matching [`encode_q88_unsigned`].
@@ -235,8 +251,7 @@ pub enum Q88Encoding {
     /// `-14336` as a signed integer). silicon-hdl RAM interprets every `.mem`
     /// word as signed two's-complement, so that pattern is `-56.0`, not
     /// `200.0`. [`MemFileWriter::write_mem_files`] therefore refuses this
-    /// variant ([`ExportError::UnsignedHardwareEncoding`]). Use it only for
-    /// in-memory range checks; fuller per-block signedness policy is #49.
+    /// variant ([`ExportError::UnsignedHardwareEncoding`]).
     Unsigned,
 }
 
@@ -244,7 +259,7 @@ impl Q88Encoding {
     /// Inclusive bounds the checked path treats as representable for `self`.
     pub fn representable_range(self) -> (f32, f32) {
         match self {
-            Self::Signed => (STIMULUS_Q88_MIN, STIMULUS_Q88_MAX),
+            Self::Signed => (Q88_SIGNED_MIN, Q88_SIGNED_MAX),
             Self::Unsigned => (0.0, Q88_UNSIGNED_MAX),
         }
     }
@@ -255,6 +270,51 @@ impl fmt::Display for Q88Encoding {
         match self {
             Self::Signed => write!(f, "signed Q8.8"),
             Self::Unsigned => write!(f, "unsigned Q8.8"),
+        }
+    }
+}
+
+/// Per-block Q8.8 signedness recorded in the export manifest.
+///
+/// This is the contract a consuming profile reads. A raw `i16` / `u16`
+/// container does not itself imply signed or unsigned numerical semantics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlockEncodings {
+    /// Encoding for the threshold vector.
+    pub thresholds: Q88Encoding,
+    /// Encoding for the hidden weight matrix.
+    pub weights: Q88Encoding,
+    /// Encoding for the decay-rate vector.
+    pub decay_rates: Q88Encoding,
+    /// Encoding for the optional readout matrix.
+    ///
+    /// `None` when no readout was exported. Omitted from JSON when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_weights: Option<Q88Encoding>,
+}
+
+impl Default for BlockEncodings {
+    fn default() -> Self {
+        Self {
+            thresholds: Q88Encoding::Signed,
+            weights: Q88Encoding::Signed,
+            decay_rates: Q88Encoding::Signed,
+            output_weights: None,
+        }
+    }
+}
+
+impl BlockEncodings {
+    /// Encoding recorded for `block`.
+    ///
+    /// Readout is [`Q88Encoding::Signed`] when the matrix was absent, matching
+    /// the exporter default rather than inventing an unsigned interpretation.
+    pub fn for_block(self, block: ParameterBlock) -> Q88Encoding {
+        match block {
+            ParameterBlock::Thresholds => self.thresholds,
+            ParameterBlock::Weights => self.weights,
+            ParameterBlock::DecayRates => self.decay_rates,
+            ParameterBlock::Readout => self.output_weights.unwrap_or(Q88Encoding::Signed),
         }
     }
 }
@@ -617,6 +677,14 @@ pub struct FpgaMetadata {
     /// Counts parameters only — it excludes `$readmemh` ASCII overhead and any
     /// padding the target RAM applies.
     pub memory_usage_kb: f32,
+    /// Per-block signed/unsigned interpretation used to produce the Q8.8
+    /// words in this bundle.
+    ///
+    /// Signedness is never inferred from a filename or from storing words as
+    /// `i16`. Older `parameters.json` without this field deserializes as
+    /// all-signed ([`BlockEncodings::default`]).
+    #[serde(default)]
+    pub encodings: BlockEncodings,
 }
 
 impl FpgaParameterExporter {
@@ -664,20 +732,39 @@ impl FpgaParameterExporter {
         self.output_weights = None;
     }
 
-    /// Select signed or unsigned representability checks for `block`.
+    /// Select signed or unsigned encoding for `block`.
     ///
-    /// Defaults are all [`Q88Encoding::Signed`] (the silicon-hdl `.mem`
-    /// convention). Changing a block to [`Q88Encoding::Unsigned`] changes the
-    /// checked-path range and in-memory encoder; [`MemFileWriter::write_mem_files`]
-    /// still requires signed encoding and returns
-    /// [`ExportError::UnsignedHardwareEncoding`]. It does not change
-    /// [`ParameterExport::export`], which always uses [`encode_q88_signed`].
+    /// Defaults are all [`Q88Encoding::Signed`] — the silicon-hdl `.mem`
+    /// convention, and the only encoding [`MemFileWriter::write_mem_files`]
+    /// will write. Thresholds and decay **may** be switched to
+    /// [`Q88Encoding::Unsigned`] for in-memory consumers that still want the
+    /// `0..=255.99609375` magnitude range; hidden and readout weights support
+    /// signed encoding (the default) so inhibitory values survive.
+    ///
+    /// Changing a block to unsigned changes the checked-path range and
+    /// in-memory encoder. [`MemFileWriter::write_mem_files`] still requires
+    /// signed encoding and returns [`ExportError::UnsignedHardwareEncoding`].
+    /// It does not change [`ParameterExport::export`], which always uses
+    /// [`encode_q88_signed_full`].
     pub fn set_encoding(&mut self, block: ParameterBlock, encoding: Q88Encoding) {
         match block {
             ParameterBlock::Thresholds => self.threshold_encoding = encoding,
             ParameterBlock::Weights => self.weight_encoding = encoding,
             ParameterBlock::DecayRates => self.decay_encoding = encoding,
             ParameterBlock::Readout => self.readout_encoding = encoding,
+        }
+    }
+
+    /// Encoding currently selected for `block`.
+    ///
+    /// This is the explicit interpretation a consuming profile should read,
+    /// not a property of the `i16` storage type.
+    pub fn encoding(&self, block: ParameterBlock) -> Q88Encoding {
+        match block {
+            ParameterBlock::Thresholds => self.threshold_encoding,
+            ParameterBlock::Weights => self.weight_encoding,
+            ParameterBlock::DecayRates => self.decay_encoding,
+            ParameterBlock::Readout => self.readout_encoding,
         }
     }
 
@@ -694,12 +781,12 @@ impl FpgaParameterExporter {
         self.range_policy = policy;
     }
 
-    fn encoding(&self, block: ParameterBlock) -> Q88Encoding {
-        match block {
-            ParameterBlock::Thresholds => self.threshold_encoding,
-            ParameterBlock::Weights => self.weight_encoding,
-            ParameterBlock::DecayRates => self.decay_encoding,
-            ParameterBlock::Readout => self.readout_encoding,
+    fn block_encodings(&self, include_readout: bool) -> BlockEncodings {
+        BlockEncodings {
+            thresholds: self.threshold_encoding,
+            weights: self.weight_encoding,
+            decay_rates: self.decay_encoding,
+            output_weights: include_readout.then_some(self.readout_encoding),
         }
     }
 
@@ -1078,6 +1165,7 @@ impl FpgaParameterExporter {
             },
             target_latency_us: 35.0,
             memory_usage_kb: self.calculate_memory_usage(),
+            encodings: self.block_encodings(output_weights.is_some()),
         };
 
         FpgaParameters {
@@ -1194,12 +1282,12 @@ fn non_finite_kind(value: f32) -> Option<NonFiniteKind> {
 
 fn encode_for(encoding: Q88Encoding, value: f32) -> i16 {
     match encoding {
-        Q88Encoding::Signed => encode_q88_signed(value),
+        Q88Encoding::Signed => encode_q88_signed_full(value),
         // Bit-pattern storage: `u16 as i16` keeps the 16-bit word
         // (`200.0` → `C800` → `i16` `-14336`). That `i16` is **not** a signed
         // Q8.8 value — signed FPGA RAM would read it as `-56.0`.
         // `write_mem_files` refuses `Q88Encoding::Unsigned` so this pattern
-        // never reaches silicon-hdl. #49 owns a fuller per-block contract.
+        // never reaches silicon-hdl.
         Q88Encoding::Unsigned => encode_q88_unsigned(value) as i16,
     }
 }
@@ -1240,12 +1328,11 @@ fn matrix_width(
 
 impl FixedPointEncode for FpgaParameterExporter {
     fn encode_q88(&self, value: f32) -> i16 {
-        // ENCODE SITE (signed Q8.8) — `.mem` / synthesis path.
-        // silicon-hdl reads every `.mem` image as signed two's complement
-        // (GH#73), so this shares one encoder with the UART stimulus path.
-        // Encoding here with encode_q88_unsigned would flatten every
+        // ENCODE SITE (signed Q8.8, full i16 range) — `.mem` / synthesis path.
+        // Distinct from encode_q88_signed, the UART helper with the ±127.99
+        // clamp. Encoding here with encode_q88_unsigned would flatten every
         // Dale-inhibitory weight to 0x0000.
-        encode_q88_signed(value)
+        encode_q88_signed_full(value)
     }
 }
 
@@ -1281,6 +1368,12 @@ impl ParameterExport for FpgaParameterExporter {
             },
             target_latency_us: 35.0,
             memory_usage_kb: self.calculate_memory_usage(),
+            // Legacy path always encodes signed full-range, regardless of
+            // `set_encoding`. Record that fact rather than the unused knobs.
+            encodings: BlockEncodings {
+                output_weights: self.output_weights.is_some().then_some(Q88Encoding::Signed),
+                ..BlockEncodings::default()
+            },
         };
 
         FpgaParameters {
@@ -1363,19 +1456,30 @@ impl Default for FpgaParameterExporter {
     }
 }
 
-/// Lower clamp bound for every signed Q8.8 encode in this crate.
+/// Inclusive lower bound of **signed parameter-export** Q8.8 (`i16::MIN / 256`).
 ///
-/// Values below this saturate to raw `-32765` (`i16`). The `STIMULUS_` prefix
-/// is historical: [`encode_q88_signed`] now backs `.mem` parameter export as
-/// well as the UART stimulus path, and both clamp here. silicon-hdl's
-/// `scripts/q88.py` mirrors this exact bound — changing it desynchronises the
-/// two implementations.
+/// Distinct from [`STIMULUS_Q88_MIN`]: the UART helper saturates at `-127.99`
+/// (`8003`), while a parameter word of `-128.0` is `8000`.
+pub const Q88_SIGNED_MIN: f32 = -128.0;
+
+/// Inclusive upper bound of **signed parameter-export** Q8.8 (`i16::MAX / 256`).
+///
+/// `32767 / 256 = 127.99609375`. Distinct from [`STIMULUS_Q88_MAX`] (`127.99`
+/// → `7FFD`); the parameter maximum is `7FFF`.
+pub const Q88_SIGNED_MAX: f32 = 32767.0 / 256.0;
+
+/// Lower clamp bound for the **legacy UART** signed Q8.8 helper.
+///
+/// Values below this saturate to raw `-32765` (`8003`) in
+/// [`encode_q88_signed`]. This is **not** the parameter-export range — see
+/// [`Q88_SIGNED_MIN`]. silicon-hdl's `scripts/q88.py` mirrors this exact UART
+/// bound; changing it desynchronises the stimulus path.
 pub const STIMULUS_Q88_MIN: f32 = -127.99;
 
-/// Upper clamp bound for every signed Q8.8 encode in this crate.
+/// Upper clamp bound for the **legacy UART** signed Q8.8 helper.
 ///
-/// Values above this saturate to raw `32765` (`i16`). See
-/// [`STIMULUS_Q88_MIN`] for why the name says `STIMULUS_`.
+/// Values above this saturate to raw `32765` (`7FFD`) in
+/// [`encode_q88_signed`]. See [`STIMULUS_Q88_MIN`] and [`Q88_SIGNED_MAX`].
 pub const STIMULUS_Q88_MAX: f32 = 127.99;
 
 /// Inclusive upper bound of unsigned-magnitude Q8.8 (`65535 / 256`).
@@ -1390,11 +1494,12 @@ pub const Q88_UNSIGNED_MAX: f32 = 65535.0 / 256.0;
 ///
 /// # This is not the hardware convention
 ///
-/// Nothing that talks to silicon-hdl may use this function. Both `.mem`
-/// parameter images and UART stimuli are signed two's-complement Q8.8
-/// (silicon-hdl GH#73) — use [`encode_q88_signed`] for either. Encoding a
-/// parameter bank here flattens every inhibitory weight to `0x0000`, which is
-/// silent: the resulting `.mem` file is well-formed and loads cleanly.
+/// Nothing that talks to silicon-hdl may use this function for a hardware
+/// `.mem` image. Parameter images are signed two's-complement Q8.8
+/// (silicon-hdl GH#73) — use [`encode_q88_signed_full`]. UART stimuli use
+/// [`encode_q88_signed`]. Encoding a parameter bank here flattens every
+/// inhibitory weight to `0x0000`, which is silent: the resulting `.mem` file
+/// is well-formed and loads cleanly.
 ///
 /// It remains public for callers that genuinely want an unsigned magnitude in
 /// the wider `0.0..=255.99609375` range, paired with [`q88_to_f32`].
@@ -1418,16 +1523,16 @@ pub fn encode_q88_unsigned(value: f32) -> u16 {
     scaled.clamp(0.0, 65535.0) as u16
 }
 
-/// Encode an `f32` as **signed** Q8.8 (`i16`, two's complement).
+/// Encode an `f32` as **legacy UART** signed Q8.8 (`i16`, two's complement).
 ///
-/// The single encoder for everything silicon-hdl reads: `.mem` parameter
-/// images (`WeightRam` / `NeuronParamRam`, via
-/// [`MemFileWriter::write_mem_files`]) and UART host stimuli alike.
+/// This is the host-stimulus helper. `raw = value × 256`, truncated toward
+/// zero, with the *unscaled* input clamped to
+/// [`STIMULUS_Q88_MIN`]`..=`[`STIMULUS_Q88_MAX`]. `NaN` encodes as `0`. The
+/// UART wire format is big-endian (`to_be_bytes()`).
 ///
-/// `raw = value × 256`, truncated toward zero, with the *unscaled* input
-/// clamped to [`STIMULUS_Q88_MIN`]`..=`[`STIMULUS_Q88_MAX`]. `NaN` encodes as
-/// `0`. The UART wire format is big-endian (`to_be_bytes()`); the `.mem` format
-/// is the same word as uppercase `{:04X}` hex.
+/// **Not the parameter-export contract.** `.mem` images use
+/// [`encode_q88_signed_full`]: `-128.0` is `8000` there and `8003` here.
+/// Do not silently repurpose this helper for parameter banks.
 ///
 /// This is not interchangeable with [`encode_q88_unsigned`].
 ///
@@ -1438,9 +1543,10 @@ pub fn encode_q88_unsigned(value: f32) -> u16 {
 /// assert_eq!(encode_q88_signed(-1.0), -256); // negatives survive here
 /// assert_eq!(encode_q88_signed(-1.0).to_be_bytes(), [0xFF, 0x00]);
 /// assert_eq!(q88_signed_to_f32(encode_q88_signed(-0.5)), -0.5);
+/// assert_eq!(encode_q88_signed(-128.0), -32765); // UART clamp, not 0x8000
 /// ```
 pub fn encode_q88_signed(value: f32) -> i16 {
-    // ENCODE SITE (signed Q8.8) — UART / host-stimulus path.
+    // ENCODE SITE (signed Q8.8) — UART / host-stimulus path only.
     // Clamp happens on the *unscaled* value so saturation lands on raw
     // ±32765 (±127.99 × 256, truncated) rather than the i16 limits.
     // `f32::clamp` propagates NaN, so map it to 0 before the i16 cast.
@@ -1450,34 +1556,73 @@ pub fn encode_q88_signed(value: f32) -> i16 {
     (value.clamp(STIMULUS_Q88_MIN, STIMULUS_Q88_MAX) * 256.0) as i16
 }
 
+/// Encode an `f32` as **full-range signed parameter** Q8.8 (`i16`).
+///
+/// 16-bit two's complement, 8 fractional bits, scale 256, representable
+/// range [`Q88_SIGNED_MIN`]`..=`[`Q88_SIGNED_MAX`]
+/// (`[-128, 127.99609375]` → `8000..=7FFF`). Truncation toward zero.
+/// Values outside that range saturate to `i16::MIN` / `i16::MAX`; `NaN`
+/// encodes as `0`. The checked export path rejects overflow instead of
+/// saturating unless [`RangePolicy::Saturate`] is selected.
+///
+/// This is the encoder [`FixedPointEncode`], [`format_q88_hex`], and the
+/// checked `.mem` writer use. It is **not** [`encode_q88_signed`].
+///
+/// ```rust
+/// use silicon_bridge::{encode_q88_signed_full, format_q88_hex, q88_signed_to_f32};
+///
+/// assert_eq!(format_q88_hex(-1.0), "FF00");
+/// assert_eq!(format_q88_hex(-0.5), "FF80");
+/// assert_eq!(format_q88_hex(0.0), "0000");
+/// assert_eq!(format_q88_hex(0.5), "0080");
+/// assert_eq!(format_q88_hex(1.0), "0100");
+/// assert_eq!(format_q88_hex(-128.0), "8000");
+/// assert_eq!(format_q88_hex(127.99609375), "7FFF");
+/// assert_eq!(q88_signed_to_f32(encode_q88_signed_full(-128.0)), -128.0);
+/// ```
+pub fn encode_q88_signed_full(value: f32) -> i16 {
+    // ENCODE SITE (signed Q8.8, full i16 range) — parameter / `.mem` path.
+    // Float-to-int `as` truncates toward zero and saturates at the i16
+    // limits, so -128.0 → 0x8000 and 127.99609375 → 0x7FFF.
+    if value.is_nan() {
+        return 0;
+    }
+    (value * 256.0) as i16
+}
+
 /// Decode a **signed** Q8.8 (`i16`) word back to `f32`.
 ///
-/// Counterpart of [`encode_q88_signed`] for both `.mem` words and UART wire
-/// words, but wider than the encoder: every `i16` the FPGA can send or a
-/// `.mem` file can hold is valid (`-32768..=32767` → `-128.0..=127.99609375`).
+/// Counterpart of both [`encode_q88_signed_full`] (parameter words) and
+/// [`encode_q88_signed`] (UART words). Every `i16` is valid
+/// (`-32768..=32767` → `-128.0..=127.99609375`).
 pub fn q88_signed_to_f32(raw: i16) -> f32 {
     raw as f32 / 256.0
 }
 
-/// Format an `f32` as one `.mem` word: uppercase `{:04X}` hex of its signed
-/// Q8.8 two's-complement bit pattern.
+/// Format an `f32` as one **parameter** `.mem` word: uppercase `{:04X}` hex of
+/// its full-range signed Q8.8 two's-complement bit pattern.
+///
+/// Uses [`encode_q88_signed_full`], not the UART helper.
 ///
 /// ```rust
 /// use silicon_bridge::format_q88_hex;
 ///
 /// assert_eq!(format_q88_hex(1.0), "0100");
 /// assert_eq!(format_q88_hex(-1.0), "FF00"); // a Dale-inhibitory weight
+/// assert_eq!(format_q88_hex(-128.0), "8000");
+/// assert_eq!(format_q88_hex(127.99609375), "7FFF");
 /// ```
 pub fn format_q88_hex(value: f32) -> String {
-    format!("{:04X}", encode_q88_signed(value) as u16)
+    format!("{:04X}", encode_q88_signed_full(value) as u16)
 }
 
 /// Convert **unsigned-magnitude** Q8.8 back to `f32`.
 ///
 /// Counterpart of [`encode_q88_unsigned`], and like it, not the hardware
-/// convention. Decode `.mem` words and UART words with [`q88_signed_to_f32`];
-/// reading a signed word here turns every negative into a large positive
-/// (`0xFF00` → `255.0` instead of `-1.0`).
+/// signed-parameter convention. Decode `.mem` words with
+/// [`q88_signed_to_f32`]; reading a signed word here turns every negative
+/// into a large positive (`0xFF00` → `255.0` instead of `-1.0`). The same
+/// hex `FFFF` is unsigned `255.99609375` and signed `-1/256`.
 pub fn q88_to_f32(q88_value: u16) -> f32 {
     q88_value as f32 / 256.0
 }
@@ -1688,6 +1833,14 @@ mod tests {
         assert_eq!(round_tripped.metadata.version, EXPORT_FORMAT_VERSION);
         assert_eq!(round_tripped.metadata.num_neurons, 2);
         assert_eq!(round_tripped.metadata.num_channels, 2);
+        assert_eq!(round_tripped.metadata.encodings, BlockEncodings::default());
+        assert_eq!(
+            round_tripped
+                .metadata
+                .encodings
+                .for_block(ParameterBlock::Weights),
+            Q88Encoding::Signed
+        );
         assert!(!round_tripped.metadata.timestamp.is_empty());
         assert!((round_tripped.metadata.target_latency_us - 35.0).abs() < 1e-6);
         // (2 thresholds + 4 weights + 2 decay) * 2 bytes = 16 bytes
@@ -2037,17 +2190,22 @@ mod q88_convention_tests {
         }
     }
 
-    /// The exporter's encode site must be `encode_q88_signed`, not the
-    /// unsigned magnitude helper — that substitution is exactly the bug that
-    /// flattened inhibitory weights to zero.
+    /// The exporter's encode site must be `encode_q88_signed_full`, not the
+    /// UART helper or the unsigned magnitude helper. Reusing
+    /// `encode_q88_signed` would map `-128.0` to `8003` instead of `8000`.
     #[test]
-    fn trait_and_inherent_encoders_match_the_signed_free_function() {
+    fn trait_and_inherent_encoders_match_the_parameter_encoder() {
         let exporter = FpgaParameterExporter::new();
-        for value in [-127.0_f32, -5.0, -0.3, 0.0, 0.3, 1.0, 127.0, 300.0] {
-            let expected = encode_q88_signed(value);
+        for value in [-128.0_f32, -127.0, -5.0, -0.3, 0.0, 0.3, 1.0, 127.0, 300.0] {
+            let expected = encode_q88_signed_full(value);
             assert_eq!(FixedPointEncode::encode_q88(&exporter, value), expected);
             assert_eq!(exporter.to_q88(value), expected);
         }
+        assert_ne!(
+            encode_q88_signed(-128.0),
+            encode_q88_signed_full(-128.0),
+            "UART clamp must not be the parameter encoder"
+        );
     }
 
     #[test]
@@ -2057,6 +2215,8 @@ mod q88_convention_tests {
         assert_eq!(format_q88_hex(STIMULUS_Q88_MAX), "7FFD");
         assert_eq!(format_q88_hex(-1.0), "FF00");
         assert_eq!(format_q88_hex(STIMULUS_Q88_MIN), "8003");
+        assert_eq!(format_q88_hex(Q88_SIGNED_MIN), "8000");
+        assert_eq!(format_q88_hex(Q88_SIGNED_MAX), "7FFF");
     }
 
     #[test]
@@ -2268,7 +2428,7 @@ mod checked_export_tests {
         let params = exporter.try_export().expect("2×3 readout on N=3");
         let readout = params.output_weights.expect("readout present");
         assert_eq!(readout.len(), 6);
-        assert_eq!(readout[3], encode_q88_signed(-0.4));
+        assert_eq!(readout[3], encode_q88_signed_full(-0.4));
     }
 
     #[test]
@@ -2353,12 +2513,16 @@ mod checked_export_tests {
     #[test]
     fn signed_range_boundaries_are_accepted_and_the_next_step_is_not() {
         let mut at_max = dense(1, 1);
-        at_max.set_weights(vec![vec![STIMULUS_Q88_MAX]]);
-        assert!(at_max.try_export().is_ok());
+        at_max.set_weights(vec![vec![Q88_SIGNED_MAX]]);
+        let max_params = at_max.try_export().expect("signed max is representable");
+        assert_eq!(max_params.weights[0], i16::MAX);
+        assert_eq!(format!("{:04X}", max_params.weights[0] as u16), "7FFF");
 
         let mut at_min = dense(1, 1);
-        at_min.set_weights(vec![vec![STIMULUS_Q88_MIN]]);
-        assert!(at_min.try_export().is_ok());
+        at_min.set_weights(vec![vec![Q88_SIGNED_MIN]]);
+        let min_params = at_min.try_export().expect("signed min is representable");
+        assert_eq!(min_params.weights[0], i16::MIN);
+        assert_eq!(format!("{:04X}", min_params.weights[0] as u16), "8000");
 
         let mut over = dense(1, 1);
         over.set_weights(vec![vec![128.0]]);
@@ -2373,14 +2537,14 @@ mod checked_export_tests {
                 assert_eq!(location, loc(ParameterBlock::Weights, 0, Some(0)));
                 assert_eq!(value, 128.0);
                 assert_eq!(encoding, Q88Encoding::Signed);
-                assert_eq!(min, STIMULUS_Q88_MIN);
-                assert_eq!(max, STIMULUS_Q88_MAX);
+                assert_eq!(min, Q88_SIGNED_MIN);
+                assert_eq!(max, Q88_SIGNED_MAX);
             }
             other => panic!("expected OutOfRange, got {other:?}"),
         }
 
         let mut under = dense(1, 1);
-        under.set_weights(vec![vec![-128.0]]);
+        under.set_weights(vec![vec![-128.0 - 1.0 / 256.0]]);
         assert!(matches!(
             under.try_export(),
             Err(ParameterShapeError::OutOfRange {
@@ -2451,11 +2615,11 @@ mod checked_export_tests {
             .expect("Saturate allows out-of-range");
         assert_eq!(report.len(), 2);
         assert_eq!(report.events[0].original, -200.0);
-        assert_eq!(report.events[0].saturated_to, STIMULUS_Q88_MIN);
+        assert_eq!(report.events[0].saturated_to, Q88_SIGNED_MIN);
         assert_eq!(report.events[1].original, 200.0);
-        assert_eq!(report.events[1].saturated_to, STIMULUS_Q88_MAX);
-        assert_eq!(params.thresholds[0], encode_q88_signed(STIMULUS_Q88_MIN));
-        assert_eq!(params.weights[0], encode_q88_signed(STIMULUS_Q88_MAX));
+        assert_eq!(report.events[1].saturated_to, Q88_SIGNED_MAX);
+        assert_eq!(params.thresholds[0], encode_q88_signed_full(Q88_SIGNED_MIN));
+        assert_eq!(params.weights[0], encode_q88_signed_full(Q88_SIGNED_MAX));
     }
 
     #[test]
@@ -2598,8 +2762,8 @@ mod checked_export_tests {
             location: loc(ParameterBlock::Thresholds, 4, None),
             value: 200.0,
             encoding: Q88Encoding::Signed,
-            min: STIMULUS_Q88_MIN,
-            max: STIMULUS_Q88_MAX,
+            min: Q88_SIGNED_MIN,
+            max: Q88_SIGNED_MAX,
         };
         let message = range.to_string();
         assert!(message.contains("thresholds[4]"), "{message}");
@@ -2644,5 +2808,234 @@ mod checked_export_tests {
         let params: FpgaParameters = serde_json::from_str(&json).expect("json");
         assert!(params.output_weights.is_none());
         assert!(!json.contains("output_weights"));
+    }
+}
+
+#[cfg(test)]
+mod signed_parameter_encoding_tests {
+    use super::*;
+
+    fn dense(n: usize, m: usize) -> FpgaParameterExporter {
+        FpgaParameterExporter::from_params(vec![1.0; n], vec![vec![0.5; m]; n], vec![0.9; n])
+    }
+
+    fn read_mem_lines(path: impl AsRef<Path>) -> Vec<String> {
+        fs::read_to_string(path)
+            .expect("mem file should be readable")
+            .lines()
+            .map(str::to_string)
+            .collect()
+    }
+
+    #[test]
+    fn golden_signed_parameter_hex_mappings() {
+        for (value, word) in [
+            (-1.0_f32, "FF00"),
+            (-0.5, "FF80"),
+            (0.0, "0000"),
+            (0.5, "0080"),
+            (1.0, "0100"),
+            (-128.0, "8000"),
+            (127.99609375, "7FFF"),
+        ] {
+            assert_eq!(
+                format_q88_hex(value),
+                word,
+                "signed parameter word for {value}"
+            );
+            assert_eq!(
+                encode_q88_signed_full(value) as u16,
+                u16::from_str_radix(word, 16).unwrap(),
+                "raw pattern for {value}"
+            );
+        }
+    }
+
+    #[test]
+    fn unsigned_max_is_ffff_and_differs_from_signed_ffff() {
+        assert_eq!(Q88_UNSIGNED_MAX, 255.99609375);
+        assert_eq!(encode_q88_unsigned(Q88_UNSIGNED_MAX), 0xFFFF);
+        assert_eq!(
+            format!("{:04X}", encode_q88_unsigned(Q88_UNSIGNED_MAX)),
+            "FFFF"
+        );
+        assert_eq!(q88_to_f32(0xFFFF), Q88_UNSIGNED_MAX);
+
+        // Same 16-bit pattern, opposite interpretations.
+        assert_eq!(q88_signed_to_f32(0xFFFF_u16 as i16), -1.0 / 256.0);
+        assert_eq!(encode_q88_signed_full(-1.0 / 256.0) as u16, 0xFFFF);
+        assert_ne!(
+            q88_to_f32(0xFFFF),
+            q88_signed_to_f32(0xFFFF_u16 as i16),
+            "FFFF is unsigned 255.99609375 and signed -1/256"
+        );
+    }
+
+    #[test]
+    fn uart_helper_still_clamps_short_of_the_parameter_extrema() {
+        assert_eq!(format!("{:04X}", encode_q88_signed(-128.0) as u16), "8003");
+        assert_eq!(
+            format!("{:04X}", encode_q88_signed(Q88_SIGNED_MAX) as u16),
+            "7FFD"
+        );
+        assert_eq!(encode_q88_signed(-128.0), -32765);
+        assert_eq!(encode_q88_signed_full(-128.0), i16::MIN);
+        assert_eq!(encode_q88_signed_full(Q88_SIGNED_MAX), i16::MAX);
+    }
+
+    #[test]
+    fn truncation_reconstruction_error_is_less_than_one_quantum() {
+        const QUANTUM: f32 = 1.0 / 256.0;
+        let samples = [
+            Q88_SIGNED_MIN,
+            -64.123,
+            -1.0,
+            -0.999,
+            -0.5,
+            -QUANTUM / 2.0,
+            0.0,
+            QUANTUM / 3.0,
+            0.5,
+            1.0,
+            12.345,
+            127.0,
+            Q88_SIGNED_MAX,
+        ];
+        for value in samples {
+            let back = q88_signed_to_f32(encode_q88_signed_full(value));
+            let err = (back - value).abs();
+            assert!(
+                err < QUANTUM,
+                "reconstruction error {err} for {value} is not < 1/256 (got {back})"
+            );
+        }
+    }
+
+    #[test]
+    fn negative_hidden_and_readout_weights_survive_signed_export() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut exporter = dense(2, 2);
+        exporter.set_weights(vec![vec![0.5, -1.0], vec![-0.5, 1.0]]);
+        exporter.set_output_weights(vec![vec![-1.0, 0.5], vec![1.0, -0.5]]);
+
+        MemFileWriter::write_mem_files(&exporter, dir.path()).expect("signed hardware write");
+
+        let hidden = read_mem_lines(dir.path().join("parameters_weights.mem"));
+        let readout = read_mem_lines(dir.path().join("parameters_output_weights.mem"));
+        assert_eq!(hidden, ["0080", "FF00", "FF80", "0100"]);
+        assert_eq!(readout, ["FF00", "0080", "0100", "FF80"]);
+
+        let json = fs::read_to_string(dir.path().join("parameters.json")).expect("json");
+        let params: FpgaParameters = serde_json::from_str(&json).expect("json");
+        assert_eq!(params.weights, [128, -256, -128, 256]);
+        assert_eq!(
+            params.output_weights.as_deref(),
+            Some(&[-256, 128, 256, -128][..])
+        );
+        assert_eq!(q88_signed_to_f32(params.weights[1]), -1.0);
+        assert_eq!(
+            q88_signed_to_f32(params.output_weights.as_ref().unwrap()[0]),
+            -1.0
+        );
+        assert_eq!(params.metadata.encodings.weights, Q88Encoding::Signed);
+        assert_eq!(
+            params.metadata.encodings.output_weights,
+            Some(Q88Encoding::Signed)
+        );
+    }
+
+    #[test]
+    fn positive_legacy_fixtures_retain_their_words() {
+        let exporter = FpgaParameterExporter::from_params(
+            vec![1.0, 0.75],
+            vec![vec![0.5, 2.0], vec![0.25, 1.5]],
+            vec![0.5, 0.75],
+        );
+        let params = exporter.try_export().expect("legacy positive fixture");
+        assert_eq!(params.thresholds, [256, 192]);
+        assert_eq!(params.weights, [128, 512, 64, 384]);
+        assert_eq!(params.decay_rates, [128, 192]);
+    }
+
+    #[test]
+    fn per_block_encodings_are_recorded_in_the_manifest() {
+        let mut exporter = dense(1, 1);
+        exporter.set_encoding(ParameterBlock::Thresholds, Q88Encoding::Unsigned);
+        exporter.set_encoding(ParameterBlock::DecayRates, Q88Encoding::Unsigned);
+        exporter.set_encoding(ParameterBlock::Weights, Q88Encoding::Signed);
+        exporter.set_output_weights(vec![vec![-1.0]]);
+        exporter.set_encoding(ParameterBlock::Readout, Q88Encoding::Signed);
+
+        assert_eq!(
+            exporter.encoding(ParameterBlock::Thresholds),
+            Q88Encoding::Unsigned
+        );
+        assert_eq!(
+            exporter.encoding(ParameterBlock::Weights),
+            Q88Encoding::Signed
+        );
+
+        let params = exporter.try_export().expect("mixed in-memory encodings");
+        assert_eq!(params.metadata.encodings.thresholds, Q88Encoding::Unsigned);
+        assert_eq!(params.metadata.encodings.weights, Q88Encoding::Signed);
+        assert_eq!(params.metadata.encodings.decay_rates, Q88Encoding::Unsigned);
+        assert_eq!(
+            params.metadata.encodings.output_weights,
+            Some(Q88Encoding::Signed)
+        );
+        assert_eq!(params.output_weights.as_deref(), Some(&[-256][..]));
+    }
+
+    #[test]
+    fn unsigned_thresholds_and_decay_are_an_explicit_in_memory_mode() {
+        let mut exporter = dense(1, 1);
+        exporter.set_encoding(ParameterBlock::Thresholds, Q88Encoding::Unsigned);
+        exporter.set_encoding(ParameterBlock::DecayRates, Q88Encoding::Unsigned);
+        exporter.set_thresholds(vec![200.0]);
+        exporter.set_decay_rates(vec![Q88_UNSIGNED_MAX]);
+
+        let params = exporter.try_export().expect("unsigned in-memory blocks");
+        assert_eq!(params.thresholds[0] as u16, encode_q88_unsigned(200.0));
+        assert_eq!(params.decay_rates[0] as u16, 0xFFFF);
+        assert_eq!(params.metadata.encodings.thresholds, Q88Encoding::Unsigned);
+        assert_eq!(params.metadata.encodings.decay_rates, Q88Encoding::Unsigned);
+
+        let err = MemFileWriter::write_mem_files(&exporter, tempfile::tempdir().unwrap().path())
+            .expect_err("unsigned thresholds must not reach hardware .mem");
+        assert!(matches!(
+            err,
+            ExportError::UnsignedHardwareEncoding {
+                block: ParameterBlock::Thresholds,
+            }
+        ));
+    }
+
+    #[test]
+    fn older_json_without_encodings_defaults_to_signed() {
+        let legacy = r#"{
+            "thresholds": [256],
+            "weights": [128],
+            "decay_rates": [230],
+            "metadata": {
+                "version": "Spikenaut-v2",
+                "timestamp": "2026-01-01T00:00:00Z",
+                "num_neurons": 1,
+                "num_channels": 1,
+                "target_latency_us": 35.0,
+                "memory_usage_kb": 0.006
+            }
+        }"#;
+        let parsed: FpgaParameters = serde_json::from_str(legacy).expect("legacy json");
+        assert_eq!(parsed.metadata.encodings, BlockEncodings::default());
+        assert_eq!(parsed.metadata.encodings.output_weights, None);
+    }
+
+    #[test]
+    fn parameter_encoder_saturates_at_full_i16_range() {
+        assert_eq!(encode_q88_signed_full(128.0), i16::MAX);
+        assert_eq!(encode_q88_signed_full(-129.0), i16::MIN);
+        assert_eq!(encode_q88_signed_full(f32::INFINITY), i16::MAX);
+        assert_eq!(encode_q88_signed_full(f32::NEG_INFINITY), i16::MIN);
+        assert_eq!(encode_q88_signed_full(f32::NAN), 0);
     }
 }

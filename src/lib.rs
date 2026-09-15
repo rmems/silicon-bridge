@@ -14,48 +14,36 @@
 //!
 //! ## Q8.8 conventions
 //!
-//! Q8.8 always means “value × 256 packed into a 16-bit word”. Everything this
-//! crate hands to silicon-hdl — `.mem` parameter images *and* UART host
-//! stimuli — uses **one** convention: signed two's complement. `0xFF00` is
-//! `-1.0`, not `65280`.
+//! Q8.8 always means “value × 256 packed into a 16-bit word”, truncated toward
+//! zero. This crate keeps **three** interpretations of that word. Per-block
+//! signedness is selected with [`FpgaParameterExporter::set_encoding`] and
+//! recorded on [`FpgaMetadata::encodings`] — never inferred from a filename
+//! or from storing the word as `i16`.
 //!
-//! | Aspect | Parameter export (`.mem`) | Host stimuli (UART TX/RX) |
-//! |---|---|---|
-//! | Encode with | [`FixedPointEncode::encode_q88`] / [`encode_q88_signed`] | [`encode_q88_signed`] |
-//! | Decode with | [`q88_signed_to_f32`] | [`q88_signed_to_f32`] |
-//! | Raw type | `i16` (two's complement) | `i16` (two's complement) |
-//! | Width | 16 bits — 8 integer + 8 fractional | 16 bits — 8 integer + 8 fractional |
-//! | Scaling | `raw = value × 256`, truncated toward zero | `raw = value × 256`, truncated toward zero |
-//! | Encoder input clamp | [`STIMULUS_Q88_MIN`]`..=`[`STIMULUS_Q88_MAX`] (`-127.99..=127.99`) | same |
-//! | Encoder raw output | `-32765..=32765` (saturates inside the `i16` limits) | same |
-//! | Decoder accepts | any `i16`: `-32768..=32767` → `-128.0..=127.99609375` | same |
-//! | Serialized as | ASCII hex, one `{:04X}` word of the raw pattern per line (`$readmemh`) | raw binary, big-endian (MSB first) |
-//! | Consumed by | silicon-hdl `WeightRam` / `NeuronParamRam` | SiliconBridge v3.0 UART frame |
-//! | Use it for | weights, thresholds, decay rates | host stimuli, RX membrane potentials |
+//! | Aspect | Signed parameter (`.mem`) | Unsigned parameter | Legacy UART clamp |
+//! |---|---|---|---|
+//! | Encode with | [`encode_q88_signed_full`] / [`FixedPointEncode::encode_q88`] | [`encode_q88_unsigned`] | [`encode_q88_signed`] |
+//! | Decode with | [`q88_signed_to_f32`] | [`q88_to_f32`] | [`q88_signed_to_f32`] |
+//! | Range | [`Q88_SIGNED_MIN`]`..=`[`Q88_SIGNED_MAX`] (`-128..=127.99609375`) | `0..=`[`Q88_UNSIGNED_MAX`] (`0..=255.99609375`) | [`STIMULUS_Q88_MIN`]`..=`[`STIMULUS_Q88_MAX`] (`-127.99..=127.99`) |
+//! | Raw output | `i16::MIN..=i16::MAX` (`8000`..=`7FFF`) | `u16` `0000`..=`FFFF` | `-32765..=32765` (`8003`..=`7FFD`) |
+//! | Serialized as | ASCII hex (`{:04X}` of the 16-bit pattern) | same hex of the unsigned pattern | raw binary, big-endian |
+//! | Consumed by | silicon-hdl `WeightRam` / `NeuronParamRam` | in-memory unsigned consumers | SiliconBridge v3.0 UART frame |
+//! | Use it for | hidden + readout weights; hardware `.mem` | thresholds/decay when explicitly unsigned | host stimuli, RX membrane potentials |
 //!
-//! The two columns differ only in how the word reaches the FPGA — hex text in
-//! a file versus big-endian bytes on a wire. The encoder saturates at `±32765`
-//! while the decoder is wider, so an FPGA word of `0x8000` decodes to `-128.0`.
-//! Encoding truncates toward zero and maps `NaN` to raw `0`.
+//! silicon-hdl reads every `.mem` image as signed two's complement: `0xFF00`
+//! is `-1.0`, not `65280` (silicon-hdl GH#73).
+//! [`MemFileWriter::write_mem_files`] therefore refuses
+//! [`Q88Encoding::Unsigned`] (`ExportError::UnsignedHardwareEncoding`):
+//! unsigned words above 127.996 stored as `i16` are read as negatives
+//! (`200.0` → `C800` → `-56.0`). Thresholds and decay **may** be selected
+//! unsigned for existing in-memory consumers; hidden and readout weights
+//! default to signed so inhibitory values survive.
 //!
-//! ### Why signed, and the unsigned pair
-//!
-//! silicon-hdl reads every `.mem` image as signed: `LifNeuron` /
-//! `LifNeuronArray` and `OutputLayer` all `$signed`-compare at runtime, so a
-//! Dale-inhibitory weight subtracts from the membrane rather than adding a
-//! large positive (silicon-hdl `spikenaut-core-sv/mem/README.md`, “Signedness
-//! contract (GH#73)”). The clamp bounds above are mirrored bit-for-bit by
-//! silicon-hdl's `scripts/q88.py`; moving them desynchronises the two.
-//!
-//! [`encode_q88_unsigned`] and [`q88_to_f32`] remain public as an
-//! unsigned-magnitude pair over `0.0..=255.99609375`, but they are **not** the
-//! hardware convention. [`MemFileWriter::write_mem_files`] refuses
-//! [`Q88Encoding::Unsigned`] (`ExportError::UnsignedHardwareEncoding`) because
-//! unsigned words above 127.996 stored as `i16` are read as negatives by
-//! signed FPGA RAM (`200.0` → `C800` → `-56.0`). Encoding a parameter bank
-//! through [`encode_q88_unsigned`] also flattens every negative weight to
-//! `0x0000` — a well-formed word that loads cleanly and silently drops the
-//! inhibition.
+//! [`encode_q88_signed`] is the UART helper only. Its ±127.99 clamp is a wire
+//! protocol artifact: `-128.0` encodes as `8003` there and as `8000` on the
+//! parameter path. Encoding truncates toward zero and maps `NaN` to raw `0`
+//! on the saturating helpers; the checked export path rejects non-finite
+//! inputs and, under [`RangePolicy::Reject`], overflow.
 //!
 //! ## Provenance
 //!
@@ -115,13 +103,13 @@ mod fpga_metrics;
 mod fpga_bridge;
 
 // Re-export public API
-// Re-export public API
 pub use fpga_export::{
-    CheckedParameterExport, EXPORT_FORMAT_VERSION, ExportError, FixedPointEncode, FpgaMetadata,
-    FpgaParameterExporter, FpgaParameters, MemFileWriter, NonFiniteKind, ParameterBlock,
-    ParameterExport, ParameterLocation, ParameterShapeError, Q88_UNSIGNED_MAX, Q88Encoding,
-    RangePolicy, STIMULUS_Q88_MAX, STIMULUS_Q88_MIN, SaturationEvent, SaturationReport,
-    encode_q88_signed, encode_q88_unsigned, format_q88_hex, q88_signed_to_f32, q88_to_f32,
+    BlockEncodings, CheckedParameterExport, EXPORT_FORMAT_VERSION, ExportError, FixedPointEncode,
+    FpgaMetadata, FpgaParameterExporter, FpgaParameters, MemFileWriter, NonFiniteKind,
+    ParameterBlock, ParameterExport, ParameterLocation, ParameterShapeError, Q88_SIGNED_MAX,
+    Q88_SIGNED_MIN, Q88_UNSIGNED_MAX, Q88Encoding, RangePolicy, STIMULUS_Q88_MAX, STIMULUS_Q88_MIN,
+    SaturationEvent, SaturationReport, encode_q88_signed, encode_q88_signed_full,
+    encode_q88_unsigned, format_q88_hex, q88_signed_to_f32, q88_to_f32,
 };
 
 pub use fpga_metrics::FpgaMetrics;

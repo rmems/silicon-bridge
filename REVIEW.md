@@ -15,10 +15,13 @@ Code review guidelines for silicon-bridge.
 
 - [ ] Logic matches the stated intent
 - [ ] Edge cases handled (empty vecs, zero values, overflow)
-- [ ] Q8.8 conversions are correct and bounded (signed, both `.mem` and UART:
-      -127.99–127.99; the legacy unsigned-magnitude pair: 0.0–255.996)
-- [ ] Anything written for silicon-hdl — `.mem` images and UART frames alike —
-      encodes through `encode_q88_signed`, never `encode_q88_unsigned`
+- [ ] Q8.8 conversions are correct and bounded:
+      signed **parameter** `.mem` path: `-128..=127.99609375` via
+      `encode_q88_signed_full`; legacy **UART** helper: `-127.99..=127.99`
+      via `encode_q88_signed`; unsigned-magnitude pair: `0.0..=255.99609375`
+- [ ] Hardware `.mem` images encode through `encode_q88_signed_full`, never
+      `encode_q88_unsigned` and never the UART helper `encode_q88_signed`.
+      UART frames keep `encode_q88_signed`.
 - [ ] No off-by-one errors in array indexing
 
 ### API design
