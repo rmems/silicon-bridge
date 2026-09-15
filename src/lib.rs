@@ -85,6 +85,12 @@
 //! silicon-bridge = { version = "0.1", features = ["uart"] }
 //! ```
 //!
+//! Prefer [`FpgaBridge::open_with_config`] or [`FpgaBridge::builder`] with an
+//! explicit port, baud rate, and per-I/O timeout. [`FpgaBridge::new`] remains
+//! as a legacy probe helper and is not the recommended path. Opening a named
+//! port does not require `libudev`; Linux enumeration via
+//! [`list_serial_ports`] typically does.
+//!
 //! Frame encode/decode is [`encode_stimuli`] / [`decode_response`] and does
 //! not need this feature. Non-v3 [`DenseQ88Layout`]s require matching FPGA
 //! firmware.
@@ -128,4 +134,8 @@ pub use fpga_codec::{
 };
 
 #[cfg(feature = "uart")]
-pub use fpga_bridge::{ExchangeError, FpgaBridge, find_fpga_ports, is_fpga_port_name};
+pub use fpga_bridge::{
+    DEFAULT_BAUD_RATE, DEFAULT_IO_TIMEOUT, ExchangeError, FpgaBridge, FpgaBridgeBuilder,
+    SerialConfig, SerialConfigError, SerialConfigureOp, SerialError, find_fpga_ports,
+    is_fpga_port_name, list_serial_ports,
+};

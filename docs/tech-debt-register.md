@@ -182,10 +182,10 @@ override that could go unnoticed in review.
 
 `print_export_summary` (`src/fpga_export.rs:195`) issues twenty `println!`s and
 is called unconditionally from `MemFileWriter::write_mem_files`
-(`src/fpga_export.rs:301`). `FpgaBridge::new` prints on connect
-(`src/fpga_bridge.rs:46`). A library has no business owning its caller's
-stdout — any tool that emits JSON or pipes `.mem` output gets it interleaved
-with export chatter, with no way to turn it off.
+(`src/fpga_export.rs:301`). `FpgaBridge::new` no longer prints on connect
+(#51). A library has no business owning its caller's stdout — any tool that
+emits JSON or pipes `.mem` output gets it interleaved with export chatter,
+with no way to turn it off.
 
 **Fix scope** — return the summary as a `Display` type, or gate it behind an
 opt-in `FpgaParameterExporter::with_summary(bool)` defaulting to silent. Pre-1.0

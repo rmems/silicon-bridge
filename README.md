@@ -33,13 +33,16 @@ stimuli and reading back spike states at runtime.
   explicit in-memory unsigned mode.
 - `FpgaBridge` — blocking UART host protocol for host–FPGA spike exchange,
   backed by `serialport` (`uart` feature); no async runtime is involved.
-  `FpgaBridge::new()` enumerates ports with `serialport::available_ports`
-  and probes any that look like a USB-serial FPGA bridge — `ttyUSB`/`ttyACM`
-  on Linux, `cu.usb*`/`tty.usb*` on macOS, `COM*` on Windows — falling back
-  to the historical `/dev/ttyUSB0..2` probe list only when enumeration
-  returns nothing (`libudev` unavailable, for instance). It does not verify
-  the peer beyond accepting whichever candidate opens; see
-  `FpgaBridge::new`'s doc comment for why
+  Prefer `FpgaBridge::open_with_config` / `FpgaBridge::builder` with an
+  explicit port, baud rate, and finite nonzero per-I/O timeout. Platform
+  paths (`ttyUSB`/`ttyACM`, macOS `cu.*`, Windows `COM*`, custom
+  `/dev/serial/by-id/...`) are accepted as-is; the explicit API does not
+  filter them. `FpgaBridge::new()` is a **legacy** probe helper: it
+  enumerates USB-serial-looking names and falls back to `/dev/ttyUSB0..2`
+  when enumeration is empty or fails. Opening a port is transport-open
+  only — not FPGA identity. `list_serial_ports()` returns enumerator
+  errors instead of an empty list. On Linux, enumeration typically needs
+  `libudev`; opening a named path does not.
 - `FpgaMetrics` — Vivado report parser for CI/CD gating: **WNS** and **TNS**
   from timing summary reports, **LUT utilization** from `report_utilization`
   reports (missing TNS or LUT values degrade to `0.0`)
@@ -80,18 +83,28 @@ silicon-bridge = { version = "0.1", features = ["uart"] }
 ```
 
 ```rust
-use silicon_bridge::FpgaBridge;
+use std::time::Duration;
+use silicon_bridge::{FpgaBridge, SerialConfig};
 
-let mut bridge = FpgaBridge::new()?;
+let config = SerialConfig::new(115_200, Duration::from_millis(100))?;
+let mut bridge = FpgaBridge::open_with_config("/dev/ttyUSB0", config)?;
+// Windows: "COM4". macOS: "/dev/cu.usbserial-210319B".
 let stimuli = vec![0.1; 16];
 let (_potentials, spikes) = bridge.process_stimuli(&stimuli)?;
 ```
 
-`FpgaBridge` is synchronous. `FpgaBridge::new()` discovers USB-serial ports
-across Linux, macOS, and Windows and opens the first FPGA-looking one that
-accepts 115200 baud (falling back to the historical `/dev/ttyUSB0..2` probe
-list when port enumeration itself comes back empty). A port that opens is
-assumed to be the board — construction does not verify the peer.
+`FpgaBridge` is synchronous. The recommended path is an explicit port plus
+`SerialConfig` (baud rate and a finite nonzero per-I/O timeout). Defaults
+match SiliconBridge v3.0 firmware: 115200 baud, 100 ms. `FpgaBridge::new()`
+still exists as a legacy convenience that probes USB-serial-looking names
+(and `/dev/ttyUSB0..2` when enumeration is empty or fails); it is not the
+recommended public path. A port that opens is transport-open only —
+construction does not send stimulus frames or verify the peer.
+
+`list_serial_ports()` reports OS enumerator failures instead of swallowing
+them. `find_fpga_ports()` is a name heuristic on that list, not FPGA
+authentication. On Linux, enumeration typically requires `libudev`; macOS
+and Windows do not. Default-feature builds do not link `serialport`.
 
 Request/response bytes are encoded by `DenseQ88Layout` / `encode_stimuli` /
 `decode_response` (no `serialport` dependency). SiliconBridge v3.0 is the
@@ -101,11 +114,14 @@ layout is not enough. The checked path requires exactly `input_channels`
 finite stimuli. `process_stimuli` remains the legacy pad/truncate wrapper.
 
 `process_stimuli` writes the request frame and then `read_exact`s the reply.
-The 100 ms value is the `serialport` **per-read** timeout, not a hard
+The configured timeout is the `serialport` **per-I/O** timeout, not a hard
 wall-clock budget for the entire call: filling 36 bytes may take several
-reads, so the call can exceed 100 ms. Extra reads are not a retransmission.
-After a failed exchange the handle requires `recover()` before further
-stimuli. The unframed v3 reply cannot detect every stale same-length frame.
+reads, so the call can exceed the timeout. Extra reads are not a
+retransmission of the stimulus. A timeout after the write has already
+updated FPGA state; retrying applies the stimulus again. After a failed
+exchange the handle requires `recover()` before further stimuli. The
+unframed v3 reply cannot detect every stale same-length frame. `ping()`
+sends a real 16-channel stimulus of `0.1` — it is not passive discovery.
 Nothing in this API returns a `Future`, and no async executor is required.
 
 ## Q8.8 Fixed-Point Format
