@@ -1,3 +1,6 @@
 # Golden #53 fixtures are recorded as LF SHA-256. Windows checkout
 # must not convert them to CRLF or the content hash changes.
 tests/golden/** text eol=lf
+
+# libFuzzer seeds are raw frames / f32 bit patterns, not text.
+fuzz/corpus/** binary

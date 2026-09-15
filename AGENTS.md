@@ -82,9 +82,14 @@ Tests live inline in source files, plus the #53 golden-contract suite:
 | `src/lib.rs` | doctest | Quick Start example |
 | `tests/golden_export_contract.rs` | integration | Independent Rust↔HDL numeric and memory-layout fixtures (#53) |
 | `tests/golden_uart_contract.rs` | integration | Independent UART v3 / dense-profile golden bytes (#53 after #52) |
+| `tests/q88_properties.rs` | integration / proptest | Exhaustive signed/unsigned Q8.8 word round-trips, UART clamp, saturation, non-finite inputs (RM-1352) |
+| `tests/codec_properties.rs` | integration / proptest | Dense-layout encode→decode, truncation, garbage prefix/suffix, chunk-split decoder stability (RM-1352) |
+| `tests/fuzz_regressions.rs` | integration | Deterministic cases promoted from fuzz boundaries / artifacts (RM-1352) |
+| `fuzz/` | libFuzzer (opt-in run) | Pure codec targets; CI compiles only (`cargo fuzz build`). Seeds from `tests/golden/` |
 
 `tests/golden/` is the committed expected output (not encoder-generated).
 Ordinary `cargo test` does not run HDL simulation. Optional Icarus evidence:
-`bash tests/golden/hdl/run.sh`.
+`bash tests/golden/hdl/run.sh`. Long fuzz campaigns are opt-in
+(`cargo fuzz run <target>`); see `fuzz/README.md`.
 
 Run `cargo test` and ensure all tests pass before pushing. Add tests for any new code you write.
