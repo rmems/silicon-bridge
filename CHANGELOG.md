@@ -32,6 +32,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   request/response golden bytes for SiliconBridge v3 and simulated
   dense 8 / 32 / 8×10 profiles live in `tests/golden/uart/` (binary
   frames; not `.mem` hex).
+- Framework-agnostic consumer examples and a public-release readiness
+  guide (#54): `examples/generic_mem_export.rs` (4×6 checked export,
+  deterministic metadata, no Spikenaut identity),
+  `examples/spikenaut_profile_export.rs` (synthetic 16-neuron + signed
+  readout under the `Spikenaut-v2` layout tag), and
+  `examples/dense_codec.rs` (host codec only; no live UART).
+  `FpgaParameterExporter::set_format_version` /
+  `set_timestamp` / `use_wall_clock_timestamp` make JSON reproducible and
+  let generic bundles drop the historical layout name. `set_timestamp`
+  rejects non-RFC-3339 and non-UTC strings. README/rustdoc distinguish
+  unpublished git/path installs from a future crates.io version (registry
+  404 as of 2026-09-15); rewrite those install lines on the candidate
+  commit **before** `cargo publish` because the tarball is immutable.
+  See `docs/consumer.md` and `docs/release-readiness.md`.
+  `scripts/smoke-packaged-consumer.sh` builds an out-of-tree crate against
+  `cargo package` output; that is not registry proof. The package allow-list
+  ships `docs/consumer.md` and `docs/release-readiness.md` (not `docs/logo.png`)
+  so README links in the unpacked crate resolve.
 - Property tests and libFuzzer targets for Q8.8 and UART frame
   boundaries (Linear RM-1352): exhaustive `i16`/`u16` round-trips,
   proptest over non-finite and boundary-adjacent `f32`s, encode→decode

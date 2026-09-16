@@ -7,8 +7,7 @@
 
 <p align="center">
   <a href="https://github.com/rmems/silicon-bridge/actions/workflows/ci.yml"><img src="https://github.com/rmems/silicon-bridge/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://crates.io/crates/silicon-bridge"><img src="https://img.shields.io/crates/v/silicon-bridge" alt="crates.io"></a>
-  <a href="https://docs.rs/silicon-bridge"><img src="https://docs.rs/silicon-bridge/badge.svg" alt="docs.rs"></a>
+  <img src="https://img.shields.io/badge/crates.io-not%20published-lightgrey" alt="crates.io not published">
   <img src="https://img.shields.io/badge/license-MIT%2FApache--2.0-blue" alt="MIT/Apache-2.0">
 </p>
 
@@ -51,21 +50,61 @@ stimuli and reading back spike states at runtime.
 
 ## Installation
 
+`silicon-bridge` is **not published on crates.io** as of 2026-09-15
+(registry lookup `GET https://crates.io/api/v1/crates/silicon-bridge` returned
+404; docs.rs likewise). The former crates.io / docs.rs badges were not proof
+of publication. `[package].version` in this tree is `0.1.0` and
+`rust-version` is `1.98.1`. A real release is a [separately authorized
+publish](docs/release-readiness.md).
+
+### Unpublished / development (current)
+
 ```toml
-silicon-bridge = "0.1"
+# git (pin a rev for reproducible builds)
+silicon-bridge = { git = "https://github.com/rmems/silicon-bridge" }
+# silicon-bridge = { git = "https://github.com/rmems/silicon-bridge", rev = "<commit>" }
+
+# path, while hacking on a checkout — not a sibling-workspace requirement
+# silicon-bridge = { path = "../silicon-bridge" }
+```
+
+### After an authorized crates.io publish
+
+Only once `https://crates.io/crates/silicon-bridge` serves a version:
+
+```toml
+silicon-bridge = "x.y.z"  # the version that was actually published
+```
+
+Verify docs.rs **after** that publish. A `cargo package` / path smoke test is
+not a registry test.
+
+Optional UART I/O:
+
+```toml
+silicon-bridge = { git = "https://github.com/rmems/silicon-bridge", features = ["uart"] }
 ```
 
 ## Quick Start
 
-### Export Parameters
+Runnable copies live in [`examples/`](examples/README.md). They compile
+against the public crate API and run offline (no FPGA, no serial device).
+
+### Generic checked export (4 neurons × 6 inputs)
 
 ```rust
 use silicon_bridge::{CheckedParameterExport, ExportConfig, FpgaParameterExporter};
 
-let mut exporter = FpgaParameterExporter::new();
-exporter.set_thresholds(vec![0.6; 16]);
-exporter.set_weights(vec![vec![0.5; 16]; 16]);
-exporter.set_decay_rates(vec![0.9; 16]);
+let mut exporter = FpgaParameterExporter::from_params(
+    vec![1.0, 0.5, 1.5, 0.75],
+    vec![
+        vec![0.5, -1.0, 0.25, 1.0, -0.5, 0.0],
+        vec![-128.0, 127.99609375, 1.0 / 256.0, -1.0 / 256.0, 2.0, -2.0],
+        vec![1.0; 6],
+        vec![-0.5, 0.5, -0.5, 0.5, -0.5, 0.5],
+    ],
+    vec![0.5, 0.75, 0.25, 1.0],
+);
 
 let params = exporter.try_export().expect("rectangular, finite, in-range");
 // → params.thresholds, .weights, .decay_rates are Vec<i16> (signed Q8.8)
@@ -100,12 +139,12 @@ The checked writer returns an `ExportReport` and does not print. Same
 input, config, and metadata produce byte-identical `.mem` and JSON.
 Only dense **row-major** flattening is implemented; other layouts are
 rejected. ASCII hex word order is not UART byte order.
+>>>>>>> origin/main
 
 ### UART Spike Readback (requires the `uart` feature)
 
-```toml
-silicon-bridge = { version = "0.1", features = ["uart"] }
-```
+Not part of ordinary example or test runs. Codec encode/decode does **not**
+need this feature (`cargo run --example dense_codec`).
 
 ```rust
 use std::time::Duration;
@@ -186,6 +225,76 @@ at ±127.99 (`-128.0 → 8003`). That bound is mirrored by silicon-hdl's
 Exported `.mem` files are directly loadable by silicon-hdl `WeightRam.sv` and
 `NeuronParamRam.sv`
 ([rmems/silicon-hdl](https://github.com/rmems/silicon-hdl)).
+
+## HDL reader contract
+
+silicon-bridge quantizes and writes files. It does **not** interpret trained
+parameter meaning. An external HDL reader must implement:
+
+| Property | Value |
+|---|---|
+| Width | 16-bit words |
+| Fractional bits | 8 (scale 256), truncate toward zero |
+| Signedness | Per-block `metadata.encodings`; hardware `.mem` is signed two's complement |
+| Flattening | Row-major dense: `addr = neuron * num_channels + input` |
+| Filenames | `parameters.mem`, `parameters_weights.mem`, `parameters_decay.mem`, optional `parameters_output_weights.mem`, `parameters.json` |
+
+Readout is `K×N` as this crate writes it. silicon-hdl `OutputLayer` indexes
+`N×K`. #53 records both; they are not rewritten to match. Full table:
+[docs/consumer.md](docs/consumer.md).
+
+Checked export rejects empty/ragged/mismatched shapes, non-finite values, and
+(default) overflow. `RangePolicy::Saturate` is only applied by
+`try_export_with_report`. Legacy `ParameterExport::export` still saturates
+silently. UART `encode_q88_signed(-128.0)` is `8003`; parameter `.mem` is
+`8000`.
+
+## Feature / support matrix
+
+| Path | Features | Ordinary `cargo test` / examples | Board / live UART |
+|---|---|---|---|
+| Export-only | default | yes | no |
+| Pure codec (`encode_stimuli` / `decode_response`) | default | yes (`dense_codec` example) | no |
+| Optional synchronous UART | `uart` + native `serialport` | compile + unit tests on Linux CI (#24) | **explicit device only**; not in examples |
+
+Evidence classes: **OS compilation** (CI #24: Linux/macOS/Windows; Linux `uart`
+job with `libudev-dev`), **HDL simulation** (`tests/golden/hdl/run.sh`, Icarus,
+optional), **board testing** (not this crate's default examples or CI).
+
+Serial prerequisites: Linux needs `libudev` to **enumerate** ports; opening a
+named path does not. Always select the device yourself. `ping()` sends a real
+16-channel stimulus and is not passive discovery. Custom
+`DenseQ88Layout::dense` sizes need matching firmware.
+
+Compatibility profiles with #53 golden evidence: SiliconBridge **v3.0**
+(16/16, current firmware) and host-only dense 8 / 32 / 8×10 frames. Do not
+list other revisions without fixtures.
+
+## Migration
+
+- **Unsigned `.mem`:** re-export signed. `FFFF` is unsigned `255.996` and
+  signed `-1/256`.
+- **Signed parameters / readout:** defaults are signed; read
+  `metadata.encodings`. The `Spikenaut-v2` string is a layout id — override
+  with `set_format_version` for generic bundles.
+- **UART clamp:** keep `encode_q88_signed` on the wire; do not use it for
+  `.mem`.
+- **Timestamps / printing:** `set_timestamp` requires RFC 3339 UTC.
+  `write_mem_files` still prints a summary.
+- **Pre-1.0:** no stability promise. New public fields may appear; use
+  `..Default::default()` on struct literals.
+
+## Public-release readiness
+
+See [docs/release-readiness.md](docs/release-readiness.md). Checklist: verify
+registry state, choose the real version, **rewrite README and crate rustdoc
+installation to that version on the candidate commit** (the crates.io tarball
+is immutable), test Rust `1.98.1`, review license/`cargo package --list`, run
+default and UART checks, deny rustdoc warnings, `cargo publish --dry-run`.
+Verify docs.rs and a **registry** consumer only after publish. This ticket does
+not run `cargo publish`. Packaged-crate smoke:
+`bash scripts/smoke-packaged-consumer.sh` (not a crates.io proof). CI matrix
+remains [#24](https://github.com/rmems/silicon-bridge/issues/24).
 
 ## Vivado Timing Metrics
 
