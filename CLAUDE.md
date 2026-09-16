@@ -20,8 +20,10 @@ API, feature-gate hardware I/O, and keep Rust edition **2024**.
 | `cargo check` | Fast compile check |
 | `cargo test` | Unit tests and doctests |
 | `cargo fmt --check` | Formatting gate |
-| `cargo clippy --all-targets -- -D warnings` | Lint gate |
+| `cargo clippy --all-targets -- -D warnings` | Lint gate (default features) |
+| `cargo clippy --all-targets --all-features -- -D warnings` | Lint gate with UART (needs `libudev` on Linux) |
 | `cargo check --features uart` | UART feature compile (needs `serialport` / `libudev` on Linux) |
+| `cargo fuzz build --dev --sanitizer none` | Compile-only fuzz targets (opt-in campaign via `cargo fuzz run`) |
 | `cargo build --release` | Optimized library build |
 
 ## Do not
@@ -40,6 +42,8 @@ API, feature-gate hardware I/O, and keep Rust edition **2024**.
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test
+cargo clippy --all-targets --all-features -- -D warnings   # needs libudev on Linux
+cargo test --all-features                              # needs libudev on Linux
 cargo check --features uart   # needs serialport / libudev on Linux
 ```
 

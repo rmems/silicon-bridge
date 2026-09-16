@@ -11,8 +11,8 @@
 //! ```
 
 use silicon_bridge::{
-    CheckedParameterExport, FpgaParameterExporter, MemFileWriter, ParameterShapeError,
-    Q88_SIGNED_MAX, RangePolicy, encode_q88_signed, format_q88_hex, q88_signed_to_f32,
+    CheckedParameterExport, FpgaParameterExporter, ParameterShapeError, Q88_SIGNED_MAX,
+    RangePolicy, encode_q88_signed, format_q88_hex, q88_signed_to_f32,
 };
 use std::env;
 use std::error::Error;
@@ -109,7 +109,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     assert_eq!(format!("{:04X}", params.weights[1] as u16), "FF00");
 
     fs::create_dir_all(&output_dir)?;
-    MemFileWriter::write_mem_files(&exporter, &output_dir)?;
+    exporter.write_with_config(
+        &output_dir,
+        &silicon_bridge::ExportConfig::generic().allow_replace(),
+    )?;
 
     let json = fs::read_to_string(output_dir.join("parameters.json"))?;
     assert!(

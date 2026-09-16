@@ -5,8 +5,11 @@
 //!
 //! This crate provides:
 //! - **Q8.8 fixed-point parameter export** (`FixedPointEncode`, `ParameterExport`,
-//!   `CheckedParameterExport`, `MemFileWriter`) for [silicon-hdl](https://github.com/rmems/silicon-hdl)
-//!   `WeightRam` / `NeuronParamRam` via Vivado `$readmemh`
+//!   `CheckedParameterExport`, `MemFileWriter`, `ExportConfig`) for [silicon-hdl](https://github.com/rmems/silicon-hdl)
+//!   `WeightRam` / `NeuronParamRam` via Vivado `$readmemh`. Prefer
+//!   [`ExportConfig::generic`] when the caller must not inherit Spikenaut
+//!   branding; [`MemFileWriter::write_mem_files`] is the legacy `Spikenaut-v2`
+//!   compatibility writer.
 //! - **SiliconBridge UART codecs** (`DenseQ88Layout`, `encode_stimuli`,
 //!   `decode_response`) that do not depend on `serialport`
 //! - **FPGA spike readback** over UART using the SiliconBridge v3.0 protocol
@@ -88,6 +91,14 @@
 //! assert_eq!(params.weights[0], -256); // written to .mem as `FF00`
 //! assert_eq!(q88_signed_to_f32(params.weights[0]), -1.0);
 //! println!("Memory usage: {:.2} KB", params.metadata.memory_usage_kb);
+//! // Prefer `try_export` / `CheckedParameterExport` when the bundle must be a
+//! // valid FPGA image. Under the default `RangePolicy::Reject`, it rejects
+//! // empty, ragged, mismatched, non-finite, and out-of-range values instead
+//! // of flattening or saturating them. `RangePolicy::Saturate` is not applied
+//! // by `try_export` (it would drop the clamp list); use
+//! // `try_export_with_report` to clamp and inspect a `SaturationReport`.
+//! // Disk writes: `ExportConfig::generic` for a framework-agnostic bundle,
+//! // `write_mem_files` only when the historical Spikenaut-v2 layout is required.
 //! ```
 //!
 //! Prefer [`CheckedParameterExport::try_export`] when the bundle must be a
@@ -145,12 +156,17 @@ mod fpga_bridge;
 
 // Re-export public API
 pub use fpga_export::{
-    BlockEncodings, CheckedParameterExport, EXPORT_FORMAT_VERSION, ExportError, FixedPointEncode,
-    FpgaMetadata, FpgaParameterExporter, FpgaParameters, MemFileWriter, MetadataTimestampError,
-    NonFiniteKind, ParameterBlock, ParameterExport, ParameterLocation, ParameterShapeError,
-    Q88_SIGNED_MAX, Q88_SIGNED_MIN, Q88_UNSIGNED_MAX, Q88Encoding, RangePolicy, STIMULUS_Q88_MAX,
-    STIMULUS_Q88_MIN, SaturationEvent, SaturationReport, encode_q88_signed, encode_q88_signed_full,
-    encode_q88_unsigned, format_q88_hex, q88_signed_to_f32, q88_to_f32,
+    BlockEncodings, BlockShape, BundleShapes, CheckedParameterExport, EXPORT_FORMAT_VERSION,
+    ExportConfig, ExportError, ExportFileLayout, ExportProfile, ExportReport, FilenameError,
+    FixedPointEncode, FpgaMetadata, FpgaParameterExporter, FpgaParameters,
+    GENERIC_DENSE_PROFILE_ID, GENERIC_DENSE_SCHEMA_VERSION, MatrixFlattening, MemFileWriter,
+    MetadataTimestampError, NonFiniteKind, OverflowPolicy, OverwritePolicy, PRODUCER_CRATE,
+    ParameterBlock, ParameterExport, ParameterLocation, ParameterShapeError, Q88_SIGNED_MAX,
+    Q88_SIGNED_MIN, Q88_UNSIGNED_MAX, Q88Encoding, QFormat, RangePolicy, ReadoutShape,
+    RoundingMode, SPIKENAUT_LEGACY_TARGET_LATENCY_US, SPIKENAUT_SIGNED_OUTPUT_PROFILE_ID,
+    SPIKENAUT_SIGNED_OUTPUT_SCHEMA_VERSION, SPIKENAUT_V2_LEGACY_PROFILE_ID, STIMULUS_Q88_MAX,
+    STIMULUS_Q88_MIN, SaturationEvent, SaturationReport, TimestampPolicy, encode_q88_signed,
+    encode_q88_signed_full, encode_q88_unsigned, format_q88_hex, q88_signed_to_f32, q88_to_f32,
 };
 
 pub use fpga_metrics::FpgaMetrics;

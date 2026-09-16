@@ -3,8 +3,8 @@
 
 use silicon_bridge::{
     CheckedParameterExport, DenseQ88Layout, EXPORT_FORMAT_VERSION, FpgaParameterExporter,
-    MemFileWriter, ParameterShapeError, Q88_SIGNED_MAX, RangePolicy, encode_q88_signed,
-    encode_stimuli, format_q88_hex, q88_signed_to_f32,
+    ParameterShapeError, Q88_SIGNED_MAX, RangePolicy, encode_q88_signed, encode_stimuli,
+    format_q88_hex, q88_signed_to_f32,
 };
 use std::fs;
 
@@ -39,7 +39,12 @@ fn generic_export_has_no_spikenaut_metadata_and_keeps_negatives() {
     assert_eq!(format_q88_hex(-1.0), "FF00");
 
     let dir = tempfile::tempdir().expect("tempdir");
-    MemFileWriter::write_mem_files(&exporter, dir.path()).expect("write");
+    exporter
+        .write_with_config(
+            dir.path(),
+            &silicon_bridge::ExportConfig::generic().allow_replace(),
+        )
+        .expect("write");
     let json = fs::read_to_string(dir.path().join("parameters.json")).expect("json");
     assert!(
         !json.contains("Spikenaut"),

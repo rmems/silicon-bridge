@@ -31,6 +31,9 @@ jobs:
       - name: Check formatting
         run: cargo fmt --check
 
+      - name: Check fuzz-target formatting
+        run: cargo fmt --check --manifest-path fuzz/Cargo.toml
+
   # Default features (no `uart`) on every supported host OS.
   test:
     name: test (${{ matrix.os }})
@@ -83,6 +86,7 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # stable
         with:
+          components: clippy
           toolchain: stable
 
       - name: Install libudev
@@ -101,11 +105,14 @@ jobs:
             ${{ runner.os }}-cargo-uart-
             ${{ runner.os }}-cargo-
 
+      - name: Clippy (all features)
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
       - name: Check (uart feature)
         run: cargo check --features uart
 
-      - name: Test (uart feature)
-        run: cargo test --features uart
+      - name: Test (all features)
+        run: cargo test --all-features
 
       # AGENTS.md bans relative links to licence files in doc comments because
       # they break on docs.rs — a rule that exists precisely because nothing
@@ -115,3 +122,42 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --no-deps --features uart
+
+  # Compile libFuzzer targets only. Long campaigns stay opt-in via
+  # `cargo fuzz run <target>` (see fuzz/README.md). No serialport / FPGA.
+  fuzz:
+    name: fuzz-build (ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # stable
+        with:
+          toolchain: nightly
+
+      - name: Install C++ toolchain for libFuzzer
+        run: sudo apt-get update && sudo apt-get install -y g++
+
+      - name: Cache cargo registry
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-fuzz-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-fuzz-
+            ${{ runner.os }}-cargo-
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Build fuzz targets
+        env:
+          CC: gcc
+          CXX: g++
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: g++
+        run: cargo +nightly fuzz build --dev --sanitizer none

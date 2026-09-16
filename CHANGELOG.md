@@ -8,6 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Dense export profiles (#50): `ExportConfig` / `write_with_config` with a
+  neutral `generic-dense-q88` profile, an explicit
+  `spikenaut-v2-legacy` compatibility profile, and a distinct
+  `spikenaut-signed-output-v1` contract that requires a signed `K×N`
+  readout. Schema version, producer crate version, and profile / model
+  identity are separate metadata fields. The generic path omits timestamps
+  and `target_latency_us` unless the caller supplies them (declared
+  targets only, never measured latency), refuses overwrite without
+  `allow_replace`, and returns an `ExportReport` instead of printing.
+  Filenames are a small validated layout (unique relative basenames; no
+  absolute paths or `..` traversal). Only dense row-major flattening is
+  implemented. See [docs/export-profiles.md](docs/export-profiles.md).
 - Independent Rust↔HDL golden export contracts (#53): committed
   `tests/golden/` fixtures (signed/unsigned Q8.8 tables, a non-square 4×6
   layer, and a synthetic 16-neuron Spikenaut-shaped bundle with signed
@@ -38,6 +50,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `cargo package` output; that is not registry proof. The package allow-list
   ships `docs/consumer.md` and `docs/release-readiness.md` (not `docs/logo.png`)
   so README links in the unpacked crate resolve.
+- Property tests and libFuzzer targets for Q8.8 and UART frame
+  boundaries (Linear RM-1352): exhaustive `i16`/`u16` round-trips,
+  proptest over non-finite and boundary-adjacent `f32`s, encode→decode
+  round trips, truncation at every golden-frame byte, garbage
+  prefix/suffix, unused spike-mask bits, and chunk-split decoder
+  stability. `fuzz/` compiles in CI (`cargo fuzz build`); long campaigns
+  stay opt-in. Seed corpus is the committed golden fixtures. Targets do
+  not open a serial port.
 - Explicit UART serial configuration (#51): `SerialConfig` (nonzero baud,
   finite nonzero per-I/O timeout), `FpgaBridge::open_with_config`,
   `FpgaBridge::builder`, `FpgaBridge::from_port` /
@@ -148,6 +168,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- `MemFileWriter::write_mem_files` is the legacy Spikenaut-v2 path: it
+  still replaces existing files and records `version: "Spikenaut-v2"` plus
+  a declared 35 µs target, but returns `ExportReport` instead of `()` and
+  no longer prints a deployment summary. `FpgaMetadata::target_latency_us`
+  is `Option<f32>` so generic JSON can omit it. Empty `version` /
+  `timestamp` are skipped on serialize.
 - Post-transfer hygiene: live docs, CI badge, package `homepage`, and MIT
   copyright point at [`rmems/silicon-bridge`](https://github.com/rmems/silicon-bridge)
   after return from Limen-Neural (#27). Wiki is enabled under `rmems`; durable

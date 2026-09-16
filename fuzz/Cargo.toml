@@ -1,0 +1,48 @@
+[package]
+name = "silicon-bridge-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4.10"
+silicon-bridge = { path = ".." }
+
+[workspace]
+members = ["."]
+
+[lints.cargo]
+# cargo-fuzz target names conventionally match the source stem (`q88_codecs`).
+non_kebab_case_bins = "allow"
+
+[[bin]]
+name = "q88_codecs"
+path = "fuzz_targets/q88_codecs.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "encode_stimuli"
+path = "fuzz_targets/encode_stimuli.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "decode_response"
+path = "fuzz_targets/decode_response.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "chunked_frames"
+path = "fuzz_targets/chunked_frames.rs"
+test = false
+doc = false
+bench = false
