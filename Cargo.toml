@@ -47,6 +47,7 @@ uart = ["serialport"]
 [dev-dependencies]
 tempfile = "3.10"
 sha2 = "0.10"
+proptest = "1.7"
 
 [profile.release]
 opt-level = 3

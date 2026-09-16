@@ -20,6 +20,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   request/response golden bytes for SiliconBridge v3 and simulated
   dense 8 / 32 / 8×10 profiles live in `tests/golden/uart/` (binary
   frames; not `.mem` hex).
+- Property tests and libFuzzer targets for Q8.8 and UART frame
+  boundaries (Linear RM-1352): exhaustive `i16`/`u16` round-trips,
+  proptest over non-finite and boundary-adjacent `f32`s, encode→decode
+  round trips, truncation at every golden-frame byte, garbage
+  prefix/suffix, unused spike-mask bits, and chunk-split decoder
+  stability. `fuzz/` compiles in CI (`cargo fuzz build`); long campaigns
+  stay opt-in. Seed corpus is the committed golden fixtures. Targets do
+  not open a serial port.
 - Explicit UART serial configuration (#51): `SerialConfig` (nonzero baud,
   finite nonzero per-I/O timeout), `FpgaBridge::open_with_config`,
   `FpgaBridge::builder`, `FpgaBridge::from_port` /

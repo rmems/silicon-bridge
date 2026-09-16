@@ -230,7 +230,7 @@ org — this tree is the source of truth.
 
 ## CI
 
-GitHub Actions (`.github/workflows/ci.yml`) runs three job groups on every push
+GitHub Actions (`.github/workflows/ci.yml`) runs four job groups on every push
 to `main` and every pull request. No secrets are required.
 
 | Job | Runner | What it runs |
@@ -239,9 +239,11 @@ to `main` and every pull request. No secrets are required.
 | `test (ubuntu-latest)` | Linux | `cargo clippy --all-targets -- -D warnings`, `cargo build`, `cargo test` |
 | `test (macos-latest)` | macOS | same as above |
 | `test (windows-latest)` | Windows | same as above |
-| `uart (ubuntu-latest)` | Linux | installs `libudev-dev`, then `cargo check --features uart`, `cargo test --features uart`, and `cargo doc --no-deps --features uart` with `RUSTDOCFLAGS: -D warnings` |
+| `uart (ubuntu-latest)` | Linux | installs `libudev-dev`, then `cargo clippy --all-targets --all-features -- -D warnings`, `cargo check --features uart`, `cargo test --all-features`, and `cargo doc --no-deps --features uart` with `RUSTDOCFLAGS: -D warnings` |
+| `fuzz-build (ubuntu-latest)` | Linux | nightly + `cargo fuzz build --dev --sanitizer none` (compile only; no campaign, no serial I/O) |
 
 The `test` matrix uses default features and has `fail-fast: false`, so one OS
 failing does not cancel the others. The `uart` job is Linux-only because
 `serialport` needs `libudev` there; it runs unit tests only — no serial
-hardware is attached to CI runners.
+hardware is attached to CI runners. Fuzz campaigns stay opt-in; see
+`fuzz/README.md`.
