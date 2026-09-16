@@ -1,0 +1,19 @@
+tests/consumer_examples.rs
+  4cfbefb3ddab58bd 6-7,42-47
+src/lib.rs
+  c7c72cf60a07ed2a 161-169
+README.md
+  c7c72cf60a07ed2a 110
+  4cfbefb3ddab58bd 96,108-109,114-124,127-136,138-141
+src/fpga_export.rs
+  4cfbefb3ddab58bd 279-283,743-771,790-818,829-836,884-888,893,895
+  c7c72cf60a07ed2a 896-898
+examples/generic_mem_export.rs
+  4cfbefb3ddab58bd 14-15,112-115
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a860853b17670bb0c451a5b5e42b7502be6aa16e",
+  "prompts": {}
+}
