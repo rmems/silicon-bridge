@@ -8,15 +8,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-eval "$(
-  cargo metadata --format-version 1 --no-deps | python3 -c '
-import json, sys
-meta = json.load(sys.stdin)
-pkg = next(p for p in meta["packages"] if p["name"] == "silicon-bridge")
-print("TARGET_DIR=" + json.dumps(meta["target_directory"]))
-print("VERSION=" + json.dumps(pkg["version"]))
-'
-)"
+TARGET_DIR="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json, sys; meta = json.load(sys.stdin); print(meta["target_directory"])')"
+VERSION="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json, sys; meta = json.load(sys.stdin); pkg = next(p for p in meta["packages"] if p["name"] == "silicon-bridge"); print(pkg["version"])')"
 if [[ -z "${TARGET_DIR:-}" || -z "${VERSION:-}" ]]; then
   echo "could not read target_directory / version from cargo metadata" >&2
   exit 1
