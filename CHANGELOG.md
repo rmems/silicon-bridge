@@ -20,6 +20,9 @@ human `cargo publish` is still required after merge.
   `FpgaParameterExporter::write_generic` writes that profile. Spikenaut
   remains explicit opt-in (`legacy_spikenaut_v2`,
   `spikenaut_signed_output_v1`, `MemFileWriter::write_mem_files`).
+  `ExportConfig::generic_with_required_readout` is the recommended name
+  for a required signed `K×N` readout; `spikenaut_signed_output_v1` is
+  the compatibility alias (same on-disk profile id).
 - One-page “bring your own floats” guidance in the README and
   `docs/consumer.md` (thresholds / weights / decay / optional readout →
   checked `.mem`).
@@ -184,17 +187,23 @@ human `cargo publish` is still required after merge.
 
 ### Changed
 
-- **MSRV:** keep `rust-version = "1.98.1"`. Validated on
-  `rustc 1.98.1 (48a229cea 2026-09-01)` for this candidate. The dependency
-  graph still only needs 1.85.0 (edition 2024 / `getrandom` 0.4 via
-  `tempfile`); 1.98.1 is a policy floor that tracks the validated stable
-  toolchain, not the graph floor. Cargo refuses toolchains older than
-  1.98.1 even though 1.85.0..=1.98.0 can compile the graph.
+- **MSRV:** `rust-version = "1.88.0"`. Validated on
+  `rustc 1.88.0 (6b00bc388 2025-06-23)` and
+  `rustc 1.98.1 (48a229cea 2026-09-01)` for this candidate. Edition 2024
+  / `getrandom` 0.4 (via `tempfile`) need 1.85.0; this crate also uses
+  `if`/`let` chains (1.88.0). CI still uses GitHub Actions `stable`.
+  Cargo refuses toolchains older than 1.88.0.
 - Checked `try_export` defaults to the generic path (#78): empty layout
   tag (no `Spikenaut-v2`), omitted timestamp, omitted `target_latency_us`.
   `ParameterExport::export` and `write_mem_files` remain the explicit
   Spikenaut-v2 legacy wrappers (historical tag, wall-clock stamp, declared
-  35 µs).
+  35 µs). Rustdoc now steers new callers to `write_generic` /
+  `ExportConfig::generic` (no `#[deprecated]` attribute: in-tree legacy
+  tests and examples stay warning-clean under `-D warnings`).
+- UART docs frame SiliconBridge v3.0 / Basys3 / `dense_*` as **example
+  layouts with golden-byte evidence**, not “this crate only works with
+  Basys3”. Changing host channel counts still does not reconfigure an
+  FPGA.
 - `write_with_config` (and therefore `write_generic` / `write_mem_files`)
   stages the complete bundle under a `.silicon-bridge-staging-*`
   subdirectory of `output_dir`, then renames each planned file into
@@ -242,16 +251,11 @@ human `cargo publish` is still required after merge.
   The table originally described the `.mem` path as unsigned; #60 recorded a
   single signed convention; #49 splits signed parameter, unsigned parameter,
   and legacy UART clamp (see Changed, above).
-- Declared `rust-version = "1.98.1"`, not `"1.85"`, the dependency-derived
-  floor — edition 2024 and `getrandom` 0.4 (via the `tempfile` dev-dependency)
-  both only require 1.85.0. This is a deliberate policy choice to track the
-  toolchain validated at authorship rather than the minimum the graph needs, and
-  it narrows compatibility versus a bare 1.85 declaration: Cargo will refuse
-  to build this crate on any toolchain from 1.85.0 up to (but excluding)
-  1.98.1, even though every such toolchain can actually compile it. A
-  toolchain older than 1.85 still gets the pre-existing `edition = "2024"`
-  parse error instead, because Cargo rejects that while parsing the manifest,
-  before `rust-version` is consulted.
+- `[package].rust-version` is `1.88.0` for this 0.3.0 candidate (language
+  floor: edition 2024 plus `if`/`let` chains). The dependency graph would
+  compile on 1.85.0. Cargo refuses toolchains older than 1.88.0. Toolchains
+  older than 1.85 still fail while parsing `edition = "2024"` before
+  `rust-version` is consulted. CI uses GitHub Actions `stable`.
 - The published crate is now an `include` allow-list. `AGENTS.md`, `CLAUDE.md`,
   `REVIEW.md`, `.codacy.yml`, `.gitignore`, and `.github/` are no longer shipped
   to crates.io; the tarball drops from 19 files / 99.5 KiB to 12 / 81.5 KiB.

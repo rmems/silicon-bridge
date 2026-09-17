@@ -5,14 +5,14 @@
 //! open serial ports, depend on `serialport`, or require an async runtime.
 //! The optional `FpgaBridge` adapter (`uart` feature) is the I/O layer.
 //!
-//! ## Profiles
+//! ## Example layouts
 //!
-//! [`DenseQ88Layout::silicon_bridge_v3`] is the on-wire SiliconBridge v3.0
-//! frame used by current Basys3 firmware: TX `0xAA` plus 16 big-endian signed
-//! Q8.8 stimuli (UART ±127.99 clamp); RX 16 potentials, a 16-bit spike mask,
-//! and a 16-bit switch field (36 bytes). Changing host dimensions does **not**
-//! make existing FPGA firmware compatible — a non-legacy layout needs a
-//! matching firmware revision.
+//! [`DenseQ88Layout::silicon_bridge_v3`] is the SiliconBridge v3.0 **example
+//! layout** (16 in / 16 out, switch field) with committed golden bytes in
+//! `tests/golden/uart/`. Those fixtures were recorded against Basys3
+//! firmware; this crate does not only work with that board. Changing host
+//! dimensions does **not** reconfigure FPGA firmware — a non-v3 layout needs
+//! a matching firmware revision.
 //!
 //! [`DenseQ88Layout::dense`] is the same header, word interpretation, mask
 //! bit-order, and switch field, with caller-chosen input and output counts.
@@ -42,7 +42,7 @@ use std::fmt;
 /// Sync byte on every dense-Q8.8 request, including SiliconBridge v3.0.
 pub const DENSE_Q88_SYNC: u8 = 0xAA;
 
-/// Input and output count of the SiliconBridge v3.0 firmware profile.
+/// Input and output count of the SiliconBridge v3.0 example layout.
 pub const SILICON_BRIDGE_V3_CHANNELS: usize = 16;
 
 /// Inclusive upper bound on dense-profile channel / neuron counts.
@@ -74,9 +74,12 @@ pub struct DenseQ88Layout {
 }
 
 impl DenseQ88Layout {
-    /// SiliconBridge v3.0: 16 inputs, 16 outputs, switch field present.
+    /// SiliconBridge v3.0 example layout: 16 inputs, 16 outputs, switch field.
     ///
-    /// This is the software profile that matches current Basys3 firmware.
+    /// Golden-byte evidence lives in `tests/golden/uart/legacy_v3.json`
+    /// (recorded against Basys3 firmware). This is not a claim that the crate
+    /// only works with that board, and changing host channel counts does not
+    /// reconfigure an FPGA.
     pub const fn silicon_bridge_v3() -> Self {
         Self {
             input_channels: SILICON_BRIDGE_V3_CHANNELS,

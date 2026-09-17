@@ -56,10 +56,11 @@
 //!
 //! [`MemFileWriter::write_mem_files`] is the **explicit** legacy Spikenaut-v2
 //! compatibility writer: documented filenames, a wall-clock timestamp, and a
-//! declared 35 µs target (not a measurement). A corrected signed-output
-//! Spikenaut contract is [`ExportConfig::spikenaut_signed_output_v1`] — a
-//! distinct profile/schema, not a silent redefinition of `Spikenaut-v2`.
-//! See [`ExportConfig`].
+//! declared 35 µs target (not a measurement). Required-readout bundles use
+//! [`ExportConfig::generic_with_required_readout`]
+//! ([`ExportConfig::spikenaut_signed_output_v1`] is the Spikenaut-named
+//! alias). That contract is a distinct profile/schema, not a silent
+//! redefinition of `Spikenaut-v2`. See [`ExportConfig`].
 
 use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt;
@@ -212,6 +213,12 @@ pub trait FixedPointEncode {
 
 /// Export SNN parameters as an FPGA-facing Q8.8 parameter bundle.
 ///
+/// **New callers:** use [`CheckedParameterExport::try_export`] for an
+/// in-memory image and [`FpgaParameterExporter::write_generic`] /
+/// [`ExportConfig::generic`] for the default disk path. This trait is the
+/// documented **legacy** in-memory wrapper (flatten, saturate, stamp
+/// `Spikenaut-v2`). It does not write files.
+///
 /// The resulting [`FpgaParameters`] align with silicon-hdl RAM contents
 /// (`WeightRam`, `NeuronParamRam`).
 pub trait ParameterExport {
@@ -227,7 +234,9 @@ pub trait ParameterExport {
     /// [`FpgaParameterExporter::validate`] before producing an FPGA image, or
     /// write through [`FpgaParameterExporter::write_generic`] (default
     /// generic-dense-q88 path). [`MemFileWriter::write_mem_files`] is the
-    /// explicit Spikenaut-v2 compatibility writer.
+    /// explicit Spikenaut-v2 compatibility writer. This method is **not**
+    /// marked `#[deprecated]` so in-tree legacy tests and examples stay
+    /// warning-clean under `-D warnings`.
     fn export(&self) -> FpgaParameters;
 }
 
@@ -253,12 +262,22 @@ pub trait CheckedParameterExport {
 }
 
 /// Write Q8.8 parameter vectors as Vivado `$readmemh` `.mem` files.
+///
+/// **New callers:** [`FpgaParameterExporter::write_generic`] /
+/// [`ExportConfig::generic`]. This trait is the documented **legacy**
+/// Spikenaut-v2 disk writer.
 pub trait MemFileWriter {
     /// Filesystem / I/O failures, plus a parameter bundle that cannot be
     /// represented as a flat `.mem` file.
     type Error;
 
     /// Write the **legacy Spikenaut-v2** bundle under `output_dir`.
+    ///
+    /// Prefer [`FpgaParameterExporter::write_generic`] for new disk writes.
+    /// Call this method only when a consumer keys on `version: "Spikenaut-v2"`,
+    /// overwrite-in-place, a wall-clock timestamp, and the declared 35 µs
+    /// target. Not marked `#[deprecated]` so in-tree compatibility tests
+    /// stay warning-clean under `-D warnings`.
     ///
     /// Documented filenames are `parameters.mem`, `parameters_weights.mem`,
     /// `parameters_decay.mem`, optional `parameters_output_weights.mem`, and
@@ -1180,9 +1199,12 @@ impl FpgaParameterExporter {
         self.encode_q88(value)
     }
 
-    /// Export parameters to FPGA-compatible format.
+    /// Export parameters to an in-memory Q8.8 bundle.
     ///
-    /// Prefer [`ParameterExport::export`] when coding against the trait.
+    /// Prefer [`CheckedParameterExport::try_export`] for an FPGA image and
+    /// [`Self::write_generic`] for the default disk path. This inherent
+    /// wrapper is the documented **legacy** flatten-and-saturate path
+    /// (same as [`ParameterExport::export`]).
     pub fn export(&self) -> FpgaParameters {
         ParameterExport::export(self)
     }

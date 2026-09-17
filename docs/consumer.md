@@ -45,12 +45,13 @@ let report = exporter.write_generic("fpga_output")?; // generic-dense-q88
 `try_export` uses `RangePolicy::Reject` by default. Hardware `.mem` is signed
 two's complement Q8.8. The generic path writes no Spikenaut tag, no timestamp,
 and no `target_latency_us`. Existing files are refused unless you pass
-`ExportConfig::generic().allow_replace()`.
+`ExportConfig::generic().allow_replace()`. Prefer `write_generic` over
+`ParameterExport::export` / `MemFileWriter::write_mem_files`.
 
-Spikenaut is **opt-in**: `MemFileWriter::write_mem_files` /
-`ExportConfig::legacy_spikenaut_v2()`, or
-`ExportConfig::spikenaut_signed_output_v1()` when a signed readout is
-required.
+Required signed `K×N` readout: `ExportConfig::generic_with_required_readout()`
+(`spikenaut_signed_output_v1()` is the Spikenaut-named alias). Spikenaut-v2
+files are **opt-in**: `MemFileWriter::write_mem_files` /
+`ExportConfig::legacy_spikenaut_v2()`.
 
 ## Who owns what
 
@@ -137,14 +138,14 @@ Native serial prerequisites (only if you enable `uart` and open a port):
 
 ## UART firmware profiles
 
-Custom [`DenseQ88Layout`](../src/fpga_codec.rs) dimensions require **matching
+Listed **example layouts** with #53 golden-byte evidence. They are host
+codecs, not a claim that this crate only works with Basys3. Custom
+[`DenseQ88Layout`](../src/fpga_codec.rs) dimensions require **matching
 firmware**. Changing host channel counts does not reconfigure the FPGA.
 
-Listed only with #53 golden-byte evidence:
-
-| Profile | Evidence | Firmware claim |
+| Profile | Evidence | What it is |
 |---|---|---|
-| SiliconBridge v3.0 (16 in / 16 out, switch field) | `tests/golden/uart/legacy_v3.json` | Software profile that matches current Basys3 firmware |
+| SiliconBridge v3.0 (16 in / 16 out, switch field) | `tests/golden/uart/legacy_v3.json` | Example layout with golden bytes recorded against Basys3 firmware |
 | Dense 8 / 32 / 8×10 | `tests/golden/uart/dense_*.json` | Host codec only |
 
 ## Examples
@@ -159,7 +160,7 @@ against the public crate surface.
 | Legacy unsigned `.mem` | Re-export with signed `encode_q88_signed_full`. Old unsigned hex above `7FFF` is a different number under `$signed`. |
 | Signed parameter / readout | Hidden and readout default signed; set `set_encoding` per block. Read `metadata.encodings`. |
 | Legacy UART clipping | Keep `encode_q88_signed` on the wire. Do not reuse it for `.mem`. |
-| `Spikenaut-v2` tag | Layout identifier, not a model. The default checked path omits it. Use `ExportConfig::legacy_spikenaut_v2()` / `write_mem_files` when a consumer keys on that string. |
+| `Spikenaut-v2` tag | Layout identifier, not a model. The default checked path omits it. Use `ExportConfig::legacy_spikenaut_v2()` / `write_mem_files` when a consumer keys on that string. Prefer `write_generic`. Required readout: `ExportConfig::generic_with_required_readout()`. |
 | Timestamps / printing | `set_timestamp` requires RFC 3339 UTC. The checked path omits timestamps by default. `write_mem_files` records a wall-clock stamp and does not print. |
 | Pre-1.0 | Public types are `#[non_exhaustive]` where noted. Field additions (`tns_ns`, `encodings`) need `..Default::default()` in struct literals. No 1.0 stability promise. |
 

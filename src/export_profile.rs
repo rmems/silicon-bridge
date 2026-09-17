@@ -64,6 +64,9 @@ pub enum ExportProfile {
     /// Historical Spikenaut-v2 compatibility profile.
     LegacySpikenautV2,
     /// Corrected Spikenaut contract that requires a signed `K×N` readout.
+    /// Construct with [`ExportConfig::generic_with_required_readout`] (or
+    /// the Spikenaut-named [`ExportConfig::spikenaut_signed_output_v1`]).
+    /// **Must not** be serialized as `Spikenaut-v2`.
     SpikenautSignedOutputV1,
 }
 
@@ -227,9 +230,10 @@ impl ExportConfig {
     /// Neutral dense Q8.8 export: no Spikenaut tag, no timestamp, no declared
     /// latency, overwrite prohibited until [`Self::allow_replace`].
     ///
-    /// This is also [`Default`]: new public helpers start here. Spikenaut
-    /// deployments must call [`Self::legacy_spikenaut_v2`] or
-    /// [`Self::spikenaut_signed_output_v1`].
+    /// This is also [`Default`]: new public helpers start here. Call
+    /// [`Self::generic_with_required_readout`] when a signed `K×N` readout
+    /// is required. Spikenaut-v2 deployments use
+    /// [`Self::legacy_spikenaut_v2`].
     ///
     /// ```
     /// use silicon_bridge::{ExportConfig, FpgaParameterExporter};
@@ -275,11 +279,16 @@ impl ExportConfig {
         }
     }
 
-    /// Corrected signed-output Spikenaut contract. Requires a `K×N` readout.
-    /// Distinct schema/profile ids — does not emit `Spikenaut-v2`.
+    /// Neutral required-readout dense Q8.8 export.
     ///
-    /// Overwrite is prohibited by default (same as the generic path).
-    pub fn spikenaut_signed_output_v1() -> Self {
+    /// Same contract as [`Self::spikenaut_signed_output_v1`]: a signed `K×N`
+    /// readout is required, overwrite is prohibited until
+    /// [`Self::allow_replace`], and timestamps / declared latency are omitted
+    /// unless supplied. On-disk metadata still records
+    /// [`SPIKENAUT_SIGNED_OUTPUT_PROFILE_ID`] — this constructor does not
+    /// invent a second schema.
+    #[doc(alias = "spikenaut_signed_output_v1")]
+    pub fn generic_with_required_readout() -> Self {
         Self {
             profile: ExportProfile::SpikenautSignedOutputV1,
             files: ExportFileLayout::spikenaut_deployment(),
@@ -288,6 +297,16 @@ impl ExportConfig {
             declared_target_latency_us: None,
             model_id: String::new(),
         }
+    }
+
+    /// Spikenaut-named alias of [`Self::generic_with_required_readout`].
+    ///
+    /// Prefer the generic name for new callers. This name remains so existing
+    /// Spikenaut deployments keep compiling. Distinct schema/profile ids —
+    /// does not emit `Spikenaut-v2`.
+    #[doc(alias = "generic_with_required_readout")]
+    pub fn spikenaut_signed_output_v1() -> Self {
+        Self::generic_with_required_readout()
     }
 
     /// Profile this configuration will write.
@@ -762,10 +781,12 @@ impl FpgaParameterExporter {
     ///
     /// This is the default public disk path. Equivalent to
     /// `write_with_config(output_dir, &ExportConfig::generic())`. Staging and
-    /// overwrite semantics are those of [`Self::write_with_config`]. Spikenaut
-    /// deployments must call [`super::MemFileWriter::write_mem_files`] or
-    /// [`Self::write_with_config`] with [`ExportConfig::legacy_spikenaut_v2`]
-    /// / [`ExportConfig::spikenaut_signed_output_v1`].
+    /// overwrite semantics are those of [`Self::write_with_config`]. Prefer
+    /// this over [`super::ParameterExport::export`] and
+    /// [`super::MemFileWriter::write_mem_files`]. Required-readout bundles use
+    /// [`ExportConfig::generic_with_required_readout`]. Spikenaut-v2
+    /// deployments call [`super::MemFileWriter::write_mem_files`] or
+    /// [`ExportConfig::legacy_spikenaut_v2`].
     ///
     /// ```
     /// use silicon_bridge::FpgaParameterExporter;
@@ -909,6 +930,23 @@ mod tests {
     }
 
     #[test]
+    fn required_readout_alias_matches_spikenaut_named_constructor() {
+        assert_eq!(
+            ExportConfig::generic_with_required_readout(),
+            ExportConfig::spikenaut_signed_output_v1()
+        );
+        assert_eq!(
+            ExportConfig::generic_with_required_readout().profile(),
+            ExportProfile::SpikenautSignedOutputV1
+        );
+        assert!(
+            ExportConfig::generic_with_required_readout()
+                .profile()
+                .requires_readout()
+        );
+    }
+
+    #[test]
     fn generic_4x6_has_no_spikenaut_metadata() {
         let dir = tempfile::tempdir().unwrap();
         let report = dense_4x6()
@@ -1016,7 +1054,7 @@ mod tests {
         let err = dense_4x6()
             .write_with_config(
                 missing_dir.path(),
-                &ExportConfig::spikenaut_signed_output_v1(),
+                &ExportConfig::generic_with_required_readout(),
             )
             .expect_err("readout required");
         assert!(matches!(err, ExportError::MissingRequiredReadout));
@@ -1024,7 +1062,7 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         let report = signed_readout_4x6()
-            .write_with_config(dir.path(), &ExportConfig::spikenaut_signed_output_v1())
+            .write_with_config(dir.path(), &ExportConfig::generic_with_required_readout())
             .expect("signed-output write");
         assert_eq!(
             report.readout_shape,

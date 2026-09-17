@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo.png" width="220" alt="Spikenaut">
+  <img src="docs/logo.png" width="220" alt="silicon-bridge">
 </p>
 
 <h1 align="center">silicon-bridge</h1>
@@ -23,11 +23,11 @@ stimuli and reading back spike states at runtime.
 
 - **Export traits** for hardware alignment with [silicon-hdl](https://github.com/rmems/silicon-hdl):
   - `FixedPointEncode` — `f32` → signed Q8.8 (`i16`)
-  - `ParameterExport` — build the FPGA parameter bundle (infallible, legacy)
+  - `ParameterExport` — build the FPGA parameter bundle (infallible, **legacy**; prefer `try_export`)
   - `CheckedParameterExport` — same bundle, or a typed `ParameterShapeError`
   - `ExportConfig` / `write_generic` — default **generic-dense-q88** path
-  - `MemFileWriter` — explicit Spikenaut-v2 compatibility writer
-  - `write_with_config` — generic, legacy, and signed-output profiles
+  - `MemFileWriter` — explicit Spikenaut-v2 compatibility writer (prefer `write_generic`)
+  - `write_with_config` — generic, required-readout, and legacy profiles
 - `FpgaParameterExporter` — default implementation of those traits
 - `format_q88_hex` / `encode_q88_signed_full` / `q88_signed_to_f32` — signed
   parameter Q8.8 helpers (full `i16` range). `encode_q88_signed` remains the
@@ -61,8 +61,11 @@ Optional UART I/O:
 silicon-bridge = { version = "0.3.0", features = ["uart"] }
 ```
 
-`[package].version` is `0.3.0` and `rust-version` is `1.98.1`. Registry
-publication is a [separately authorized
+`[package].version` is `0.3.0`. `[package].rust-version` is **`1.88.0`**:
+that is the language floor this crate actually needs (edition 2024 plus
+`if`/`let` chains). The dependency graph would compile on **1.85.0**.
+CI uses GitHub Actions `stable`; this candidate was also checked on
+`rustc 1.98.1`. Registry publication is a [separately authorized
 `cargo publish`](docs/release-readiness.md) after this tree is merged. Git/path
 pins remain valid for local development:
 
@@ -128,8 +131,8 @@ Dense `.mem` export is profiled. See
 | Profile | API | Use when |
 |---|---|---|
 | **Generic** `generic-dense-q88` (**default**) | `write_generic` / `ExportConfig::generic()` / `ExportConfig::default()` | New callers. No Spikenaut metadata, no timestamp unless you supply one, no `target_latency_us` unless you declare a target (never a measurement). Refuses to overwrite files unless you call `allow_replace()`. |
-| **Legacy Spikenaut-v2** | `MemFileWriter::write_mem_files` / `ExportConfig::legacy_spikenaut_v2()` | Reproduce `parameters.mem`, `parameters_weights.mem`, `parameters_decay.mem`, optional `parameters_output_weights.mem`, and `parameters.json` with `version: "Spikenaut-v2"`. Replaces existing files (historical). Records a declared 35 µs target, not a measured latency. Names alone do not imply HDL compatibility. |
-| **Signed-output Spikenaut** `spikenaut-signed-output-v1` | `ExportConfig::spikenaut_signed_output_v1()` | Corrected contract that **requires** a signed `K×N` readout (or rejects). Distinct schema — it does **not** redefine `Spikenaut-v2`. |
+| **Required readout** | `ExportConfig::generic_with_required_readout()` | Dense bundle that **requires** a signed `K×N` readout (or rejects). On-disk profile id remains `spikenaut-signed-output-v1` (not a redefinition of `Spikenaut-v2`). `ExportConfig::spikenaut_signed_output_v1()` is the Spikenaut-named alias. |
+| **Legacy Spikenaut-v2** | `MemFileWriter::write_mem_files` / `ExportConfig::legacy_spikenaut_v2()` | Reproduce historical `version: "Spikenaut-v2"` files. Replaces existing files. Records a declared 35 µs target, not a measured latency. Names alone do not imply HDL compatibility. |
 
 The checked writer returns an `ExportReport` and does not print. Same
 input, config, and metadata produce byte-identical `.mem` and JSON.
@@ -154,11 +157,15 @@ let (_potentials, spikes) = bridge.process_stimuli(&stimuli)?;
 
 `FpgaBridge` is synchronous. The recommended path is an explicit port plus
 `SerialConfig` (baud rate and a finite nonzero per-I/O timeout). Defaults
-match SiliconBridge v3.0 firmware: 115200 baud, 100 ms. `FpgaBridge::new()`
-still exists as a legacy convenience that probes USB-serial-looking names
-(and `/dev/ttyUSB0..2` when enumeration is empty or fails); it is not the
-recommended public path. A port that opens is transport-open only —
-construction does not send stimulus frames or verify the peer.
+(115200 baud, 100 ms) match the SiliconBridge **v3.0 example layout**,
+which has golden-byte evidence against Basys3 firmware
+(`tests/golden/uart/`). `FpgaBridge::new()` still exists as a legacy
+convenience that probes USB-serial-looking names (and `/dev/ttyUSB0..2`
+when enumeration is empty or fails); it is not the recommended public path.
+A port that opens is transport-open only — construction does not send
+stimulus frames or verify the peer. This crate does not only work with
+Basys3: any caller-selected UART device can be opened; matching firmware
+is a separate concern.
 
 `list_serial_ports()` reports OS enumerator failures instead of swallowing
 them. `find_fpga_ports()` is a name heuristic on that list, not FPGA
@@ -166,11 +173,12 @@ authentication. On Linux, enumeration typically requires `libudev`; macOS
 and Windows do not. Default-feature builds do not link `serialport`.
 
 Request/response bytes are encoded by `DenseQ88Layout` / `encode_stimuli` /
-`decode_response` (no `serialport` dependency). SiliconBridge v3.0 is the
-16-channel profile that matches current firmware. Other dense sizes are
-host codecs only — they need matching FPGA firmware; changing the host
-layout is not enough. The checked path requires exactly `input_channels`
-finite stimuli. `process_stimuli` remains the legacy pad/truncate wrapper.
+`decode_response` (no `serialport` dependency). SiliconBridge v3.0 is an
+**example 16-channel layout** with committed golden bytes, not a claim that
+this crate only works with Basys3. Other dense sizes are host codecs only —
+they need matching FPGA firmware; changing the host layout is not enough.
+The checked path requires exactly `input_channels` finite stimuli.
+`process_stimuli` remains the legacy pad/truncate wrapper.
 
 `process_stimuli` writes the request frame and then `read_exact`s the reply.
 The configured timeout is the `serialport` **per-I/O** timeout, not a hard
@@ -261,8 +269,9 @@ named path does not. Always select the device yourself. `ping()` sends a real
 16-channel stimulus and is not passive discovery. Custom
 `DenseQ88Layout::dense` sizes need matching firmware.
 
-Compatibility profiles with #53 golden evidence: SiliconBridge **v3.0**
-(16/16, current firmware) and host-only dense 8 / 32 / 8×10 frames. Do not
+Compatibility **example layouts** with #53 golden-byte evidence: SiliconBridge
+**v3.0** (16/16, Basys3 firmware fixture) and host-only dense 8 / 32 / 8×10
+frames. Changing host channel counts does not reconfigure an FPGA. Do not
 list other revisions without fixtures.
 
 ## Migration
@@ -271,9 +280,11 @@ list other revisions without fixtures.
   signed `-1/256`.
 - **Signed parameters / readout:** defaults are signed; read
   `metadata.encodings`. The default public path is generic-dense-q88
-  (`write_generic`). The `Spikenaut-v2` string is a layout id used only by
-  the explicit legacy profile (`write_mem_files` /
+  (`write_generic`). Prefer `ExportConfig::generic_with_required_readout()`
+  when a signed `K×N` readout is required. The `Spikenaut-v2` string is a
+  layout id used only by the explicit legacy profile (`write_mem_files` /
   `ExportConfig::legacy_spikenaut_v2()`).
+  Prefer `try_export` / `write_generic` over `ParameterExport::export`.
 - **UART clamp:** keep `encode_q88_signed` on the wire; do not use it for
   `.mem`.
 - **Timestamps / printing:** `set_timestamp` requires RFC 3339 UTC. The
@@ -331,8 +342,10 @@ versus `neuromod`, `brainstem-daemon`, `limbic-critic`, and `silicon-hdl`.
 ## Extracted from Production
 
 Extracted from [Eagle-Lander](https://github.com/rmems/Eagle-Lander), a private
-neuromorphic GPU supervisor. The FPGA export pipeline was decoupled from the private
-training orchestrator so it works with any SNN framework.
+neuromorphic GPU supervisor. The FPGA export pipeline was decoupled from that
+training orchestrator so any SNN framework can supply `f32` thresholds,
+weights, and decay. Historical Basys3 / Spikenaut deployments remain
+**opt-in profiles**, not the default public path.
 
 ## Related Ecosystem
 

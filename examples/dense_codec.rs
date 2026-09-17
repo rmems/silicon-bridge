@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Pure UART codec demo: no `uart` feature, no serialport, no live stimuli.
 //!
-//! SiliconBridge v3.0 (16-channel) is the host profile that matches current
-//! firmware. Other [`DenseQ88Layout::dense`] sizes are host codecs only —
-//! they need matching FPGA firmware. This example never opens a port.
+//! SiliconBridge v3.0 (16-channel) is an **example layout** with golden-byte
+//! evidence (`tests/golden/uart/`). Other [`DenseQ88Layout::dense`] sizes are
+//! host codecs only — they need matching FPGA firmware. Changing host channel
+//! counts does not reconfigure a board. This example never opens a port.
 //!
 //! ```text
 //! cargo run --example dense_codec

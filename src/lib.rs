@@ -8,11 +8,14 @@
 //!   `CheckedParameterExport`, `MemFileWriter`, `ExportConfig`) for [silicon-hdl](https://github.com/rmems/silicon-hdl)
 //!   `WeightRam` / `NeuronParamRam` via Vivado `$readmemh`. The default public
 //!   path is [`ExportConfig::generic`] / [`FpgaParameterExporter::write_generic`]
-//!   (`generic-dense-q88`). [`MemFileWriter::write_mem_files`] is the explicit
-//!   `Spikenaut-v2` compatibility writer.
-//! - **SiliconBridge UART codecs** (`DenseQ88Layout`, `encode_stimuli`,
-//!   `decode_response`) that do not depend on `serialport`
-//! - **FPGA spike readback** over UART using the SiliconBridge v3.0 protocol
+//!   (`generic-dense-q88`). Prefer that over [`ParameterExport::export`] /
+//!   [`MemFileWriter::write_mem_files`] (legacy Spikenaut-v2). Required
+//!   readout: [`ExportConfig::generic_with_required_readout`].
+//! - **UART codecs** (`DenseQ88Layout`, `encode_stimuli`,
+//!   `decode_response`) that do not depend on `serialport`. SiliconBridge v3.0
+//!   is an example 16-channel layout with golden-byte evidence, not a Basys3-only crate.
+//! - **Optional UART I/O** (`uart` feature) for blocking spike exchange on a
+//!   caller-selected port
 //! - **Vivado report parsing** for CI/CD gating on WNS, TNS, and LUT utilization
 //!
 //! Licensed under either of MIT or Apache-2.0 at your option.
@@ -29,9 +32,11 @@
 //! silicon-bridge = { version = "0.3.0", features = ["uart"] }
 //! ```
 //!
-//! `rust-version` is `1.98.1`. See the crate README and
-//! `docs/release-readiness.md` for the authorized `cargo publish` checklist.
-//! This rustdoc does **not** claim crates.io or docs.rs are already live.
+//! `rust-version` is `1.88.0` (language floor). See the crate README and
+//! `docs/release-readiness.md` for the authorized `cargo publish` checklist
+//! and the distinction between that floor, the 1.85.0 dependency graph, and
+//! CI `stable`. This rustdoc does **not** claim crates.io or docs.rs are
+//! already live.
 //!
 //! Offline examples (`examples/generic_mem_export.rs`,
 //! `examples/spikenaut_profile_export.rs`, `examples/dense_codec.rs`) use only
@@ -72,9 +77,11 @@
 //!
 //! ## Provenance
 //!
-//! Extracted from Eagle-Lander, the author's own private neuromorphic GPU supervisor
-//! repository (closed-source). The FPGA export pipeline deployed trained SNN parameters
-//! to Basys3 hardware in production before being open-sourced as a standalone crate.
+//! Extracted from Eagle-Lander, the author's own private neuromorphic GPU
+//! supervisor (closed-source). The default public path is framework-agnostic
+//! dense Q8.8 export. Historical Basys3 / Spikenaut deployments are opt-in
+//! profiles with golden-byte evidence, not a claim that this crate only
+//! works with that board.
 //!
 //! ## Quick Start
 //!
@@ -126,8 +133,9 @@
 //! [`list_serial_ports`] typically does.
 //!
 //! Frame encode/decode is [`encode_stimuli`] / [`decode_response`] and does
-//! not need this feature. Non-v3 [`DenseQ88Layout`]s require matching FPGA
-//! firmware.
+//! not need this feature. [`DenseQ88Layout::silicon_bridge_v3`] is an example
+//! 16-channel layout with golden-byte evidence; other layouts need matching
+//! FPGA firmware. Changing host channel counts does not reconfigure a board.
 
 // `forbid(unsafe_code)` enforces an AGENTS.md *constraint* — "do not add
 // `unsafe` code without explicit safety justification" — mechanically. Nothing

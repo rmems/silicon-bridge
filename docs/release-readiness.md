@@ -32,10 +32,12 @@ is still required after merge.
 
 ## 2. Supported Rust version
 
-- `[package].rust-version` is `1.98.1` (policy: track the validated stable
-  toolchain, not the edition-2024 floor of 1.85.0). Validated against
-  `rustc 1.98.1 (48a229cea 2026-09-01)` for the 0.3.0 candidate.
-- Build and test on that toolchain (or newer stable).
+- `[package].rust-version` is `1.88.0` (language floor: edition 2024 plus
+  `if`/`let` chains). The dependency graph would compile on 1.85.0.
+  Validated against `rustc 1.88.0 (6b00bc388 2025-06-23)` and
+  `rustc 1.98.1 (48a229cea 2026-09-01)` for the 0.3.0 candidate. CI uses
+  GitHub Actions `stable`, not a dedicated 1.88 job.
+- Build and test on 1.88.0 or newer stable.
 - Record the toolchain in the release notes.
 
 ## 3. License and package contents
