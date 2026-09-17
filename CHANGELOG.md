@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Reference hardware** in README and `docs/consumer.md` (#83): Digilent
+  Basys 3 / Xilinx Artix-7 `XC7A35T-1CPG236C` (`xc7a35tcpg236-1`) as the
+  named companion path with silicon-hdl `spikenaut_soc_basys3_top`,
+  `basys3.xdc` / `basys3_soc.xdc`, and SiliconBridge v3.0 golden bytes
+  that match Basys 3 firmware (not “any board”). Default public export
+  remains board-agnostic Q8.8 `.mem`. silicon-hdl’s Artix-7 trainer XDC
+  is documented as **not** the claimed reference demo. Prior board
+  evidence is the silicon-hdl LED heartbeat smoke only; a silicon-bridge
+  UART host session is the 0.3.0 publish gate (#84).
+
+### Changed
+
+- crates.io badge and install copy no longer imply a live registry crate.
+  Git/path is the current install; `silicon-bridge = "0.3.0"` is shown
+  only as the post-publish line. `cargo publish` of 0.3.0 is held until
+  #84.
+
 ## [0.3.0] - 2026-09-17
 
 First crates.io-intended release. In-tree version and install snippets are

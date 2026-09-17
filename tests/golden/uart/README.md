@@ -15,4 +15,8 @@ Expected TX/RX hex is specified here from that wire definition, not by
 calling `encode_stimuli` / `decode_response` to generate the fixture.
 
 Non-v3 layouts are **host codec** coverage. They do not claim 8/32-neuron
-board support; matching FPGA firmware is required.
+board support; matching FPGA firmware is required. SiliconBridge v3.0
+golden bytes match current Basys 3 firmware; they are not a claim that any
+board speaks this frame. The named companion board is Digilent Basys 3
+(see the crate README **Reference hardware** section). Do not rename these
+fixture directories.

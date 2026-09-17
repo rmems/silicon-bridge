@@ -26,9 +26,17 @@ explicitly authorized that exact version.
 
 The first crates.io semver is **0.3.0** (UART milestone numbering; Toward-0.1.0
 / v0.2.0 are closed). Registry lookup returned 404 on 2026-09-17, so 0.3.0
-is unoccupied. This tree already rewrites install lines to
-`silicon-bridge = "0.3.0"`. An authorized human `cargo publish` of 0.3.0
-is still required after merge.
+is unoccupied. **Hold** `cargo publish` of 0.3.0 until GitHub
+[#84](https://github.com/rmems/silicon-bridge/issues/84) (silicon-bridge UART
+host session on Digilent Basys 3) plus explicit maintainer go-ahead. README
+and crate rustdoc therefore keep git/path install lines until that publish
+candidate rewrite. Do not treat a crates.io badge or an in-tree `0.3.0`
+string as a live registry crate.
+
+The reference FPGA named in README / `docs/consumer.md` is Digilent Basys 3
+(Artix-7 `XC7A35T-1CPG236C`, `xc7a35tcpg236-1`) with silicon-hdl
+`spikenaut_soc_basys3_top`. silicon-hdl LED heartbeat smoke (#68) is **not**
+that host proof.
 
 ## 2. Supported Rust version
 
@@ -72,6 +80,8 @@ CI matrix coverage is GitHub [#24](https://github.com/rmems/silicon-bridge/issue
 issue for this checklist.
 
 Do **not** flash an FPGA or send UART stimuli as part of this checklist.
+The Basys 3 UART host session that gates 0.3.0 publish lives in GitHub
+[#84](https://github.com/rmems/silicon-bridge/issues/84), not here.
 
 ## 5. Packaged-crate smoke test (not registry proof)
 
@@ -97,5 +107,5 @@ that rewrite belongs on the candidate commit in step 1.5 / item 5 above.
 ## 7. Out of scope here
 
 - NIR HDF5 I/O (GitHub [#15](https://github.com/rmems/silicon-bridge/issues/15))
-- Flashing silicon-hdl / Basys3
+- Flashing silicon-hdl / Basys 3 (owned by silicon-hdl + GitHub [#84](https://github.com/rmems/silicon-bridge/issues/84))
 - Changing the GitHub Actions matrix (#24 already owns it)

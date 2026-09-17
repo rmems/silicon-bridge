@@ -6,14 +6,22 @@ How to use `silicon-bridge` without Spikenaut, a sibling checkout, or the
 author's workstation. This is the packaged **public** API. Implementation
 modules under `src/` are not part of the contract.
 
-Install from crates.io once 0.3.0 is published:
+The crate is **not on crates.io or docs.rs**. `[package].version` is
+`0.3.0`, but an authorized `cargo publish` is **held** until the Basys 3
+host path is proven
+([#84](https://github.com/rmems/silicon-bridge/issues/84)). Until then,
+depend on git or a path. A README badge is not publication. See
+[release-readiness.md](release-readiness.md).
+
+```toml
+silicon-bridge = { git = "https://github.com/rmems/silicon-bridge" }
+```
+
+After crates.io actually serves a version (intended first release: 0.3.0):
 
 ```toml
 silicon-bridge = "0.3.0"
 ```
-
-Until an authorized human `cargo publish`, depend on git/path. A README badge
-is not publication. See [release-readiness.md](release-readiness.md).
 
 ## Bring your own floats
 
@@ -64,6 +72,33 @@ files are **opt-in**: `MemFileWriter::write_mem_files` /
 
 silicon-bridge does **not** interpret trained semantics, program a board, or
 prove software–FPGA trajectory parity.
+
+## Reference hardware
+
+The default public path is **board-agnostic** Q8.8 `.mem` (`write_generic`).
+The **proven companion path** is Digilent Basys 3 plus
+[`rmems/silicon-hdl`](https://github.com/rmems/silicon-hdl). That is one
+named reference, not a multi-board claim.
+
+| Field | Value |
+|---|---|
+| Board | **Digilent Basys 3** |
+| FPGA | **Xilinx Artix-7** `XC7A35T-1CPG236C` (`xc7a35tcpg236-1`) |
+| Companion RTL | `spikenaut_soc_basys3_top` (`Basys3_Top.sv`) |
+| Constraints | `constraints/basys3.xdc`, `basys3_soc.xdc` |
+| Host UART | SiliconBridge **v3.0** (16 in / 16 out) — example layout with golden bytes matching Basys 3 firmware, not “any board” |
+| Prior board smoke | silicon-hdl [#68](https://github.com/rmems/silicon-hdl/issues/68) / [`docs/phase-c-board-smoke.md`](https://github.com/rmems/silicon-hdl/blob/main/docs/phase-c-board-smoke.md) — LED heartbeat **PASS** only; **not** a silicon-bridge UART host session |
+
+silicon-hdl also ships `constraints/artix7_trainer.xdc`. That pinout is
+**not** the claimed reference demo (`build_soc.tcl` uses the Basys 3 XDCs
+only). A silicon-bridge UART host session on Basys 3 is the 0.3.0 publish
+gate ([#84](https://github.com/rmems/silicon-bridge/issues/84)); this
+guide does not flash a board.
+
+Companion contracts:
+[silicon-hdl README](https://github.com/rmems/silicon-hdl#readme),
+[`docs/interface-alignment.md`](https://github.com/rmems/silicon-hdl/blob/main/docs/interface-alignment.md),
+[`docs/host-soc-e2e.md`](https://github.com/rmems/silicon-hdl/blob/main/docs/host-soc-e2e.md).
 
 ## HDL reader contract
 
@@ -123,7 +158,7 @@ Distinguish three evidence classes:
 |---|---|---|
 | OS compilation | CI matrix (#24): Linux/macOS/Windows default features; Linux `uart` job | yes |
 | HDL simulation | `bash tests/golden/hdl/run.sh` (Icarus, optional) | **no** |
-| Board testing | Not part of this crate's examples or CI | **no** |
+| Board testing | Not part of this crate's examples or CI. silicon-hdl LED heartbeat smoke is not a UART host session | **no** |
 
 Native serial prerequisites (only if you enable `uart` and open a port):
 
@@ -138,14 +173,16 @@ Native serial prerequisites (only if you enable `uart` and open a port):
 
 ## UART firmware profiles
 
-Listed **example layouts** with #53 golden-byte evidence. They are host
-codecs, not a claim that this crate only works with Basys3. Custom
-[`DenseQ88Layout`](../src/fpga_codec.rs) dimensions require **matching
-firmware**. Changing host channel counts does not reconfigure the FPGA.
+Listed **example layouts** with #53 golden-byte evidence. SiliconBridge
+v3.0 matches current Basys 3 firmware; that is not a claim that any board
+speaks the frame, and it is not a claim that this crate only exports for
+Basys 3. Custom [`DenseQ88Layout`](../src/fpga_codec.rs) dimensions require
+**matching firmware**. Changing host channel counts does not reconfigure
+the FPGA.
 
 | Profile | Evidence | What it is |
 |---|---|---|
-| SiliconBridge v3.0 (16 in / 16 out, switch field) | `tests/golden/uart/legacy_v3.json` | Example layout with golden bytes recorded against Basys3 firmware |
+| SiliconBridge v3.0 (16 in / 16 out, switch field) | `tests/golden/uart/legacy_v3.json` | Example layout with golden bytes matching Basys 3 firmware |
 | Dense 8 / 32 / 8×10 | `tests/golden/uart/dense_*.json` | Host codec only |
 
 ## Examples
@@ -170,7 +207,9 @@ Publication is a **separately authorized** action. This guide and the
 examples do not run `cargo publish`, flash an FPGA, or implement NIR (see
 GitHub [#15](https://github.com/rmems/silicon-bridge/issues/15)).
 
-This tree is packaged as **0.3.0**. After a real `cargo publish`, confirm
-crates.io / docs.rs and repeat the packaged-crate smoke test against the
-**registry** version. A path/`cargo package` test does **not** prove
-crates.io publication.
+This tree is packaged as **0.3.0**, but crates.io / docs.rs are **not**
+live. `cargo publish` is held until [#84](https://github.com/rmems/silicon-bridge/issues/84)
+(Basys 3 UART host proof) plus explicit maintainer go-ahead. After a real
+publish, confirm the registry and repeat the packaged-crate smoke test
+against the **registry** version. A path/`cargo package` test does **not**
+prove crates.io publication.
