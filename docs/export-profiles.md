@@ -71,6 +71,14 @@ any configured target already exists. Pass `.allow_replace()` for
 explicit consent. Filename and overwrite checks run before any
 create/truncate.
 
+The shared writer stages the complete bundle in a
+`.silicon-bridge-staging-*` subdirectory of the output directory, then
+renames each planned file into place. A failure before promotion starts
+leaves destination files untouched. `OverwritePolicy::Prohibit` also
+removes files already promoted if a later rename fails.
+`OverwritePolicy::Replace` is still per-file, not a multi-file atomic
+swap (Windows may `unlink` the destination before rename).
+
 Unsafe names (absolute paths, `..` traversal, nested paths, collisions)
 are rejected before writing.
 

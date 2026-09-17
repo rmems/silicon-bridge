@@ -273,9 +273,10 @@ pub trait MemFileWriter {
     ///
     /// Implementations must validate the complete bundle **before** creating
     /// or truncating any output file. A validation failure leaves existing
-    /// files untouched. This does not claim multi-file atomicity if a later
-    /// filesystem write fails. The writer returns an [`ExportReport`] and
-    /// does **not** print to stdout.
+    /// files untouched. The shared writer stages the complete bundle in a
+    /// temporary subdirectory, then renames each file into place (see
+    /// [`FpgaParameterExporter::write_with_config`]). The writer returns an
+    /// [`ExportReport`] and does **not** print to stdout.
     fn write_mem_files(&self, output_dir: impl AsRef<Path>) -> Result<ExportReport, Self::Error>;
 }
 
