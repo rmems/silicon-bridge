@@ -139,7 +139,6 @@ The checked writer returns an `ExportReport` and does not print. Same
 input, config, and metadata produce byte-identical `.mem` and JSON.
 Only dense **row-major** flattening is implemented; other layouts are
 rejected. ASCII hex word order is not UART byte order.
->>>>>>> origin/main
 
 ### UART Spike Readback (requires the `uart` feature)
 
