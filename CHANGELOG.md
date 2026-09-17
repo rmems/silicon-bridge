@@ -6,8 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-17
+
+First crates.io-intended release. In-tree version and install snippets are
+`0.3.0` (UART milestone numbering; Toward-0.1.0 / v0.2.0 are closed). Registry
+lookup for `silicon-bridge` returned 404 at packaging time — an authorized
+human `cargo publish` is still required after merge.
+
 ### Added
 
+- Default public export path is **generic-dense-q88** (#78):
+  `ExportConfig::default()` equals `generic()`, and
+  `FpgaParameterExporter::write_generic` writes that profile. Spikenaut
+  remains explicit opt-in (`legacy_spikenaut_v2`,
+  `spikenaut_signed_output_v1`, `MemFileWriter::write_mem_files`).
+- One-page “bring your own floats” guidance in the README and
+  `docs/consumer.md` (thresholds / weights / decay / optional readout →
+  checked `.mem`).
 - Dense export profiles (#50): `ExportConfig` / `write_with_config` with a
   neutral `generic-dense-q88` profile, an explicit
   `spikenaut-v2-legacy` compatibility profile, and a distinct
@@ -43,8 +58,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   let generic bundles drop the historical layout name. `set_timestamp`
   rejects non-RFC-3339 and non-UTC strings. README/rustdoc distinguish
   unpublished git/path installs from a future crates.io version (registry
-  404 as of 2026-09-15); rewrite those install lines on the candidate
-  commit **before** `cargo publish` because the tarball is immutable.
+  404 as of 2026-09-15); those install lines are rewritten to
+  `silicon-bridge = "0.3.0"` on this candidate commit **before** `cargo publish`
+  because the tarball is immutable.
   See `docs/consumer.md` and `docs/release-readiness.md`.
   `scripts/smoke-packaged-consumer.sh` builds an out-of-tree crate against
   `cargo package` output; that is not registry proof. The package allow-list
@@ -113,7 +129,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `encode_q88_unsigned` — free-function unsigned-magnitude Q8.8 encoder (#23).
   It backed `FixedPointEncode::encode_q88`, `.mem` export, and `format_q88_hex`
   when it landed; all three moved to the signed encoder later in this same
-  unreleased cycle (see Fixed, below), so it ships 0.1.0 wired to nothing.
+  unreleased cycle (see Fixed, below), so it ships 0.3.0 wired to nothing.
 - `encode_q88_signed`, `q88_signed_to_f32`, `STIMULUS_Q88_MIN`, and
   `STIMULUS_Q88_MAX` — signed Q8.8 helpers (#23). Introduced for the UART TX/RX
   path. After #60 they also backed `.mem` export; #49 moved `.mem` to
@@ -168,6 +184,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **MSRV:** keep `rust-version = "1.98.1"`. Validated on
+  `rustc 1.98.1 (48a229cea 2026-09-01)` for this candidate. The dependency
+  graph still only needs 1.85.0 (edition 2024 / `getrandom` 0.4 via
+  `tempfile`); 1.98.1 is a policy floor that tracks the validated stable
+  toolchain, not the graph floor. Cargo refuses toolchains older than
+  1.98.1 even though 1.85.0..=1.98.0 can compile the graph.
+- Checked `try_export` defaults to the generic path (#78): empty layout
+  tag (no `Spikenaut-v2`), omitted timestamp, omitted `target_latency_us`.
+  `ParameterExport::export` and `write_mem_files` remain the explicit
+  Spikenaut-v2 legacy wrappers (historical tag, wall-clock stamp, declared
+  35 µs).
+- `docs/export-profiles.md` is now in the package `include` allow-list so
+  the README profile migration note resolves from an unpacked crate.
+  `AGENTS.md` / `CLAUDE.md` / `REVIEW.md` stay out of the tarball.
 - `MemFileWriter::write_mem_files` is the legacy Spikenaut-v2 path: it
   still replaces existing files and records `version: "Spikenaut-v2"` plus
   a declared 35 µs target, but returns `ExportReport` instead of `()` and

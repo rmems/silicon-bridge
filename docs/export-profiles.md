@@ -31,20 +31,21 @@ contract-test issue, not this writer.
 ## What to call
 
 ```rust
-use silicon_bridge::{ExportConfig, FpgaParameterExporter};
+use silicon_bridge::FpgaParameterExporter;
 
-let mut exporter = FpgaParameterExporter::from_params(
+let exporter = FpgaParameterExporter::from_params(
     vec![1.0, 0.5, 1.5, 0.75],
     vec![vec![0.5; 6]; 4],
     vec![0.9; 4],
 );
 
-// Framework-agnostic path: no Spikenaut tag, no invented timing, no stdout.
-let report = exporter.write_with_config("out", &ExportConfig::generic())?;
+// Default public path: no Spikenaut tag, no invented timing, no stdout.
+let report = exporter.write_generic("out")?;
+// equivalent: exporter.write_with_config("out", &ExportConfig::generic())?;
 ```
 
-- **New callers** who are not reproducing a Spikenaut deployment: 
-  `ExportConfig::generic()` + `write_with_config`.
+- **New callers** (default): `write_generic` /
+  `ExportConfig::generic()` / `ExportConfig::default()`.
 - **Existing Spikenaut-v2 tooling** that keys on `version: "Spikenaut-v2"`,
   the documented filenames, overwrite-in-place, and a declared 35 µs
   target: `MemFileWriter::write_mem_files` /
@@ -54,9 +55,11 @@ let report = exporter.write_with_config("out", &ExportConfig::generic())?;
   error (`ExportError::MissingRequiredReadout`). Do not treat this JSON
   as `Spikenaut-v2`.
 
-`ParameterExport::export` / `try_export` still stamp the historical
-in-memory bundle (`Spikenaut-v2`, wall-clock timestamp, declared 35 µs).
-They do not write files and they do not print.
+`ParameterExport::export` still stamps the historical in-memory bundle
+(`Spikenaut-v2`, wall-clock timestamp, declared 35 µs). It does not write
+files and it does not print. `try_export` is the default checked path: it
+omits the Spikenaut tag, timestamps, and declared latency unless the caller
+opts in.
 
 ## Overwrite
 

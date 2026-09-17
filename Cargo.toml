@@ -1,6 +1,6 @@
 [package]
 name = "silicon-bridge"
-version = "0.1.0"
+version = "0.3.0"
 authors = ["Raul Cardenas Montoya <montoyaraul34@gmail.com>"]
 edition = "2024"
 # Declared as current stable by policy, not as the dependency-derived floor:
@@ -20,15 +20,16 @@ categories = ["science", "hardware-support", "algorithms"]
 # Allow-list rather than `exclude = ["docs/"]`: an exclude list silently ships
 # anything added later, which is how AGENTS.md, CLAUDE.md, REVIEW.md, .codacy.yml
 # and .github/ ended up in the published tarball. `docs/logo.png` stays out
-# (2.4 MB). The two markdown files the README links are included so an
-# unpacked package still has the consumer/release guides. `examples/` ships so
-# a packaged-crate consumer can compile the public demos without a git
-# checkout.
+# (2.4 MB). Consumer, export-profile, and release-readiness markdown files the
+# README links are included so an unpacked package still has those guides.
+# `examples/` ships so a packaged-crate consumer can compile the public demos
+# without a git checkout.
 include = [
     "src/**/*.rs",
     "examples/**/*.rs",
     "examples/README.md",
     "docs/consumer.md",
+    "docs/export-profiles.md",
     "docs/release-readiness.md",
     "README.md",
     "CHANGELOG.md",

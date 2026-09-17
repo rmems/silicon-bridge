@@ -13,7 +13,8 @@ explicitly authorized that exact version.
 
 1. Fetch `https://crates.io/api/v1/crates/silicon-bridge`.
 2. **404** means nothing is published. Do not treat the README crates.io
-   badge, a `version = "0.1.0"` in `Cargo.toml`, or docs.rs links as proof.
+   badge, a `version` in `Cargo.toml`, or docs.rs links as proof of a live
+   registry crate until `cargo publish` has actually succeeded.
 3. If a version exists, pick the next semver and confirm it is not already
    yanked/occupied.
 4. Set `[package].version` to that number on the **exact candidate commit**.
@@ -23,15 +24,17 @@ explicitly authorized that exact version.
    crates.io tarballs and the docs.rs build for that version are immutable;
    a later git commit cannot correct them.
 
-As of 2026-09-15 the registry returned 404. The in-tree version `0.1.0` is
-the intended first release number only until someone actually publishes it.
-Git/path install instructions in this tree are correct **until** that
-candidate commit rewrites them.
+The first crates.io semver is **0.3.0** (UART milestone numbering; Toward-0.1.0
+/ v0.2.0 are closed). Registry lookup returned 404 on 2026-09-17, so 0.3.0
+is unoccupied. This tree already rewrites install lines to
+`silicon-bridge = "0.3.0"`. An authorized human `cargo publish` of 0.3.0
+is still required after merge.
 
 ## 2. Supported Rust version
 
-- `[package].rust-version` is currently `1.98.1` (policy: track the
-  validated stable toolchain, not the edition-2024 floor of 1.85.0).
+- `[package].rust-version` is `1.98.1` (policy: track the validated stable
+  toolchain, not the edition-2024 floor of 1.85.0). Validated against
+  `rustc 1.98.1 (48a229cea 2026-09-01)` for the 0.3.0 candidate.
 - Build and test on that toolchain (or newer stable).
 - Record the toolchain in the release notes.
 
