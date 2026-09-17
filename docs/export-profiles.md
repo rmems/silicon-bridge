@@ -75,9 +75,10 @@ create/truncate.
 
 The shared writer stages the complete bundle in a
 `.silicon-bridge-staging-*` subdirectory of the output directory, then
-renames each planned file into place. A failure before promotion starts
-leaves destination files untouched. `OverwritePolicy::Prohibit` also
-removes files already promoted if a later rename fails.
+promotes each planned file into place. `OverwritePolicy::Prohibit` uses
+an exclusive hard link / `create_new` so a dest that appears after the
+pre-check (including a dangling symlink) is refused rather than replaced.
+It also removes files already promoted if a later promote fails.
 `OverwritePolicy::Replace` is still per-file, not a multi-file atomic
 swap (Windows may `unlink` the destination before rename).
 

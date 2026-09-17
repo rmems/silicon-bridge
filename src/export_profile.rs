@@ -16,7 +16,7 @@ use super::{
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::fs;
-use std::io::ErrorKind;
+use std::io::{self, ErrorKind};
 use std::path::{Component, Path, PathBuf};
 
 /// Crate name recorded as the producer of a profiled export.
@@ -642,10 +642,13 @@ impl FpgaParameterExporter {
     /// run before any create/truncate.
     ///
     /// The complete bundle is written into a temporary subdirectory of
-    /// `output_dir`, then each planned file is renamed into place. A failure
+    /// `output_dir`, then each planned file is promoted into place. A failure
     /// during validation or staging leaves destination files untouched and
-    /// removes the staging directory. [`OverwritePolicy::Prohibit`] also
-    /// deletes any files already promoted if a later rename fails.
+    /// removes the staging directory. [`OverwritePolicy::Prohibit`] promotes
+    /// with an exclusive link/create so a dest that appears after the
+    /// pre-check — including a dangling symlink, which `Path::exists`
+    /// misses — is refused rather than replaced. It also deletes any files
+    /// already promoted if a later promote fails.
     /// [`OverwritePolicy::Replace`] cannot restore previous contents after
     /// the first successful rename: same-filesystem rename is per-file, not
     /// a multi-file swap (Windows may `unlink` the destination first).
@@ -684,7 +687,7 @@ impl FpgaParameterExporter {
         let planned = planned_paths(output_dir, &config.files, has_readout);
         if matches!(config.overwrite, OverwritePolicy::Prohibit) {
             for path in &planned {
-                if path.exists() {
+                if dest_occupied(path) {
                     return Err(ExportError::OverwriteRefused { path: path.clone() });
                 }
             }
@@ -706,7 +709,7 @@ impl FpgaParameterExporter {
         // truncate our targets.
         if matches!(config.overwrite, OverwritePolicy::Prohibit) {
             for path in &planned {
-                if path.exists() {
+                if dest_occupied(path) {
                     return Err(ExportError::OverwriteRefused { path: path.clone() });
                 }
             }
@@ -845,16 +848,81 @@ fn create_staging_dir(output_dir: &Path) -> Result<StagingDir, ExportError> {
     })
 }
 
+fn dest_occupied(path: &Path) -> bool {
+    path.symlink_metadata().is_ok()
+}
+
 fn promote_file(from: &Path, to: &Path, overwrite: OverwritePolicy) -> Result<(), ExportError> {
-    if matches!(overwrite, OverwritePolicy::Prohibit) && to.exists() {
-        return Err(ExportError::OverwriteRefused {
-            path: to.to_path_buf(),
-        });
+    match overwrite {
+        OverwritePolicy::Prohibit => promote_exclusive(from, to),
+        OverwritePolicy::Replace => promote_replace(from, to),
     }
+}
+
+/// Promote without replacing an existing dest, including a dangling symlink.
+///
+/// Unix `rename` would clobber a dest created after `exists()`, and
+/// `Path::exists` is false for a dangling symlink. A hard link (same
+/// directory, same filesystem) fails with `AlreadyExists` instead. If the
+/// filesystem rejects hard links, fall back to `create_new` + copy.
+fn promote_exclusive(from: &Path, to: &Path) -> Result<(), ExportError> {
+    match fs::hard_link(from, to) {
+        Ok(()) => {
+            let _ = fs::remove_file(from);
+            Ok(())
+        }
+        Err(source) if source.kind() == ErrorKind::AlreadyExists => {
+            Err(ExportError::OverwriteRefused {
+                path: to.to_path_buf(),
+            })
+        }
+        Err(_) => promote_exclusive_copy(from, to),
+    }
+}
+
+fn promote_exclusive_copy(from: &Path, to: &Path) -> Result<(), ExportError> {
+    let mut dest = match fs::OpenOptions::new().write(true).create_new(true).open(to) {
+        Ok(file) => file,
+        Err(source) if source.kind() == ErrorKind::AlreadyExists => {
+            return Err(ExportError::OverwriteRefused {
+                path: to.to_path_buf(),
+            });
+        }
+        Err(source) => {
+            return Err(ExportError::Io {
+                path: to.to_path_buf(),
+                source,
+            });
+        }
+    };
+    let copied = (|| -> Result<(), ExportError> {
+        let mut src = fs::File::open(from).map_err(|source| ExportError::Io {
+            path: from.to_path_buf(),
+            source,
+        })?;
+        io::copy(&mut src, &mut dest).map_err(|source| ExportError::Io {
+            path: to.to_path_buf(),
+            source,
+        })?;
+        dest.sync_all().map_err(|source| ExportError::Io {
+            path: to.to_path_buf(),
+            source,
+        })?;
+        Ok(())
+    })();
+    if copied.is_err() {
+        let _ = fs::remove_file(to);
+    } else {
+        let _ = fs::remove_file(from);
+    }
+    copied
+}
+
+fn promote_replace(from: &Path, to: &Path) -> Result<(), ExportError> {
     match fs::rename(from, to) {
         Ok(()) => Ok(()),
         Err(source) => {
-            if matches!(overwrite, OverwritePolicy::Replace) && to.exists() {
+            if dest_occupied(to) {
                 fs::remove_file(to).map_err(|source| ExportError::Io {
                     path: to.to_path_buf(),
                     source,
@@ -862,12 +930,6 @@ fn promote_file(from: &Path, to: &Path, overwrite: OverwritePolicy) -> Result<()
                 fs::rename(from, to).map_err(|source| ExportError::Io {
                     path: to.to_path_buf(),
                     source,
-                })
-            } else if matches!(overwrite, OverwritePolicy::Prohibit)
-                && source.kind() == ErrorKind::AlreadyExists
-            {
-                Err(ExportError::OverwriteRefused {
-                    path: to.to_path_buf(),
                 })
             } else {
                 Err(ExportError::Io {
@@ -1389,5 +1451,45 @@ mod tests {
             "Replace does not restore a directory target"
         );
         assert_eq!(fs::read(json_dir.join("nested")).unwrap(), b"KEEP");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn exclusive_promote_refuses_dangling_symlink() {
+        use std::os::unix::fs::symlink;
+        let dir = tempfile::tempdir().unwrap();
+        let from = dir.path().join("staged");
+        let to = dir.path().join("dest");
+        fs::write(&from, b"NEW").unwrap();
+        symlink("missing-target", &to).unwrap();
+        assert!(
+            !to.exists(),
+            "Path::exists must be false for a dangling symlink"
+        );
+        let err = promote_exclusive(&from, &to).expect_err("no clobber");
+        assert!(matches!(err, ExportError::OverwriteRefused { .. }));
+        assert!(
+            to.symlink_metadata().unwrap().file_type().is_symlink(),
+            "dangling symlink must remain"
+        );
+        assert_eq!(fs::read(&from).unwrap(), b"NEW");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn prohibit_refuses_dangling_symlink_without_writing_siblings() {
+        use std::os::unix::fs::symlink;
+        let dir = tempfile::tempdir().unwrap();
+        let json = dir.path().join("parameters.json");
+        symlink("missing-target", &json).unwrap();
+
+        let err = dense_4x6()
+            .write_with_config(dir.path(), &ExportConfig::generic())
+            .expect_err("overwrite prohibited");
+        assert!(matches!(err, ExportError::OverwriteRefused { .. }));
+        assert!(json.symlink_metadata().unwrap().file_type().is_symlink());
+        assert!(!dir.path().join("parameters.mem").exists());
+        assert!(!dir.path().join("parameters_weights.mem").exists());
+        assert!(leftover_staging(dir.path()).is_empty());
     }
 }

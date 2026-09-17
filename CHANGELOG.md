@@ -206,12 +206,14 @@ human `cargo publish` is still required after merge.
   FPGA.
 - `write_with_config` (and therefore `write_generic` / `write_mem_files`)
   stages the complete bundle under a `.silicon-bridge-staging-*`
-  subdirectory of `output_dir`, then renames each planned file into
-  place. A failure before promotion leaves destination files untouched
-  and removes the staging directory. `OverwritePolicy::Prohibit` also
-  deletes files already promoted if a later rename fails.
-  `OverwritePolicy::Replace` is still a per-file rename, not a multi-file
-  atomic swap (Windows may `unlink` the destination first).
+  subdirectory of `output_dir`, then promotes each planned file into
+  place. `OverwritePolicy::Prohibit` uses an exclusive hard link /
+  `create_new` so a dest that appears after the pre-check — including a
+  dangling symlink, which `Path::exists` misses — is refused rather than
+  replaced by Unix `rename`. It also deletes files already promoted if a
+  later promote fails. `OverwritePolicy::Replace` is still a per-file
+  rename, not a multi-file atomic swap (Windows may `unlink` the
+  destination first).
 - `docs/export-profiles.md` is now in the package `include` allow-list so
   the README profile migration note resolves from an unpacked crate.
   `AGENTS.md` / `CLAUDE.md` / `REVIEW.md` stay out of the tarball.
