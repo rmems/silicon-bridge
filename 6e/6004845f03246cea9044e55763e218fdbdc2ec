@@ -1,62 +1,12 @@
-docs/consumer.md
-  s_648ab77f1a632d::t_da7c91de438844 9,12,82-88,170,180
-docs/export-profiles.md
-  s_648ab77f1a632d::t_b67b5e3878a8db 20,29-31,57-62,105-108
-CHANGELOG.md
-  s_648ab77f1a632d::t_5a294b175ac9f1 9-29
-docs/release-readiness.md
-  s_648ab77f1a632d::t_f260bcc03f7eec 27-30,37
-tests/golden_export_contract.rs
-  s_648ab77f1a632d::t_6075d8428feffc 19-21,470-474,482-486,499-502,505-520,522-537,541-544
-  s_648ab77f1a632d::t_b1892de3f91bea 110-137,446-469,475-481,487-498,503-504,521,538-540
-  s_648ab77f1a632d::t_04f91bce19e46a 17-18,545-573
-build.rs
-  s_648ab77f1a632d::t_bd0580bda4af05 1,3-18
-  s_648ab77f1a632d::t_273ba0d6265e62 2
 tests/golden_uart_contract.rs
-  s_648ab77f1a632d::t_ec086f2d964e62 11-12,125-131
-docs/host-hdl-contract.md
-  s_648ab77f1a632d::t_f86dc5610d8854 1-140
-src/lib.rs
-  s_648ab77f1a632d::t_ab7ca4395715e6 164-171
-  s_648ab77f1a632d::t_a998ec07e31c30 14-15,28,34,128
-  s_648ab77f1a632d::t_6075d8428feffc 172-177
-src/fpga_export.rs
-  s_648ab77f1a632d::t_3ca4b798e56d23 63-65
-  s_648ab77f1a632d::t_40734a4bb016e2 805-813,861-875,893-894
-  s_648ab77f1a632d::t_c541a6077a3820 77-79,1037-1039
-  s_648ab77f1a632d::t_6075d8428feffc 80-83,85
-Cargo.toml
-  s_648ab77f1a632d::t_7d427119dbaf0a 3,28
-  s_648ab77f1a632d::t_4caa1f111b297c 9
-  s_648ab77f1a632d::t_6826481064dcf2 34
-src/export_profile.rs
-  s_648ab77f1a632d::t_e8d7644343647a 542-549,553
-  s_648ab77f1a632d::t_5a9be37d7e624e 16,18,50-59,61-73,78-163,187-189,199,210,216
-  s_648ab77f1a632d::t_29c5c220d8ed63 1075-1076,1078-1081,1085
-  s_648ab77f1a632d::t_6075d8428feffc 17,60
-  s_648ab77f1a632d::t_788282fb640a60 344,381,398,419,437-456,467-472,499,540-541,550-552,554-581
-  s_648ab77f1a632d::t_d698c2940092e3 815-817,828-831,837-874
-  s_648ab77f1a632d::t_e271a8dc658351 2-3,172-173
-  s_648ab77f1a632d::t_cca1f20c5170ec 835-836
-  s_648ab77f1a632d::t_f0c8845ffa59df 905,924-927,932,985-991,999,1065-1066,1073-1074,1077,1082-1084,1086-1105
-README.md
-  s_648ab77f1a632d::t_7df486987c9713 10,55,61,64,135
-  s_648ab77f1a632d::t_fe3fcda0a8e779 300-301
+  ca6760890673d87f 11-12,125-133
+tests/golden_export_contract.rs
+  866c1c01afbb078f 574-575
+  6e1170336ec1f753 17-21
 ---
 {
   "schema_version": "authorship/3.0.0",
   "git_ai_version": "1.5.2",
   "base_commit_sha": "6e6004845f03246cea9044e55763e218fdbdc2ec",
-  "prompts": {},
-  "sessions": {
-    "s_648ab77f1a632d": {
-      "agent_id": {
-        "tool": "codex",
-        "id": "01a0ad92-0aba-75a1-b901-c699e17cbef1",
-        "model": "gpt-5.5"
-      },
-      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
-    }
-  }
+  "prompts": {}
 }
