@@ -20,7 +20,7 @@ use std::fs;
 use std::path::PathBuf;
 
 fn generic_4x6() -> FpgaParameterExporter {
-    let mut exporter = FpgaParameterExporter::from_params(
+    FpgaParameterExporter::from_params(
         vec![1.0, 0.5, 1.5, 0.75],
         vec![
             vec![0.5, -1.0, 0.25, 1.0, -0.5, 0.0],
@@ -29,14 +29,7 @@ fn generic_4x6() -> FpgaParameterExporter {
             vec![-0.5, 0.5, -0.5, 0.5, -0.5, 0.5],
         ],
         vec![0.5, 0.75, 0.25, 1.0],
-    );
-    // Layout tag only. Same 16-bit Q8.8 words as the default writer; this is
-    // not a second on-disk format and is not Spikenaut-specific.
-    exporter.set_format_version("generic-dense-q88");
-    exporter
-        .set_timestamp("1970-01-01T00:00:00Z")
-        .expect("rfc3339 utc");
-    exporter
+    )
 }
 
 fn demonstrate_errors() {
@@ -96,12 +89,16 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let exporter = generic_4x6();
     let params = CheckedParameterExport::try_export(&exporter)?;
-    assert_eq!(params.metadata.version, "generic-dense-q88");
+    assert!(
+        params.metadata.version.is_empty(),
+        "generic export must not carry mandatory Spikenaut identity"
+    );
     assert!(
         !params.metadata.version.contains("Spikenaut"),
         "generic export must not carry mandatory Spikenaut identity"
     );
-    assert_eq!(params.metadata.timestamp, "1970-01-01T00:00:00Z");
+    assert!(params.metadata.timestamp.is_empty());
+    assert!(params.metadata.target_latency_us.is_none());
     assert_eq!(params.metadata.num_neurons, 4);
     assert_eq!(params.metadata.num_channels, 6);
     assert_eq!(params.output_weights, None);
@@ -109,6 +106,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     assert_eq!(format!("{:04X}", params.weights[1] as u16), "FF00");
 
     fs::create_dir_all(&output_dir)?;
+    // `write_generic` is the default public path and refuses overwrite.
+    // allow_replace so this example can be re-run against a reused temp dir.
     exporter.write_with_config(
         &output_dir,
         &silicon_bridge::ExportConfig::generic().allow_replace(),

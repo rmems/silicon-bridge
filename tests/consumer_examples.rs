@@ -9,7 +9,7 @@ use silicon_bridge::{
 use std::fs;
 
 fn generic_4x6() -> FpgaParameterExporter {
-    let mut exporter = FpgaParameterExporter::from_params(
+    FpgaParameterExporter::from_params(
         vec![1.0, 0.5, 1.5, 0.75],
         vec![
             vec![0.5, -1.0, 0.25, 1.0, -0.5, 0.0],
@@ -18,33 +18,23 @@ fn generic_4x6() -> FpgaParameterExporter {
             vec![-0.5, 0.5, -0.5, 0.5, -0.5, 0.5],
         ],
         vec![0.5, 0.75, 0.25, 1.0],
-    );
-    exporter.set_format_version("generic-dense-q88");
-    exporter
-        .set_timestamp("1970-01-01T00:00:00Z")
-        .expect("rfc3339 utc");
-    exporter
+    )
 }
 
 #[test]
 fn generic_export_has_no_spikenaut_metadata_and_keeps_negatives() {
     let exporter = generic_4x6();
     let params = CheckedParameterExport::try_export(&exporter).expect("checked");
-    assert_eq!(params.metadata.version, "generic-dense-q88");
+    assert!(params.metadata.version.is_empty());
     assert!(!params.metadata.version.contains("Spikenaut"));
-    assert_eq!(params.metadata.timestamp, "1970-01-01T00:00:00Z");
+    assert!(params.metadata.timestamp.is_empty());
     assert_eq!(params.output_weights, None);
     assert_eq!(params.weights[1], -256);
     assert_eq!(format!("{:04X}", params.weights[1] as u16), "FF00");
     assert_eq!(format_q88_hex(-1.0), "FF00");
 
     let dir = tempfile::tempdir().expect("tempdir");
-    exporter
-        .write_with_config(
-            dir.path(),
-            &silicon_bridge::ExportConfig::generic().allow_replace(),
-        )
-        .expect("write");
+    exporter.write_generic(dir.path()).expect("write");
     let json = fs::read_to_string(dir.path().join("parameters.json")).expect("json");
     assert!(
         !json.contains("Spikenaut"),

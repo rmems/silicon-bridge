@@ -57,7 +57,7 @@ use silicon_bridge::{
 };
 
 fn main() {
-    let mut exporter = FpgaParameterExporter::from_params(
+    let exporter = FpgaParameterExporter::from_params(
         vec![1.0, 0.5, 1.5, 0.75],
         vec![
             vec![0.5, -1.0, 0.25, 1.0, -0.5, 0.0],
@@ -67,12 +67,8 @@ fn main() {
         ],
         vec![0.5, 0.75, 0.25, 1.0],
     );
-    exporter.set_format_version("generic-dense-q88");
-    exporter
-        .set_timestamp("1970-01-01T00:00:00Z")
-        .expect("rfc3339 utc");
     let params = CheckedParameterExport::try_export(&exporter).expect("checked");
-    assert_eq!(params.metadata.version, "generic-dense-q88");
+    assert!(params.metadata.version.is_empty());
     assert!(!params.metadata.version.contains("Spikenaut"));
     assert_eq!(format_q88_hex(-1.0), "FF00");
     assert_eq!(params.weights[1], -256);

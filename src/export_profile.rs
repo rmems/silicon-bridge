@@ -225,6 +225,10 @@ impl ExportConfig {
     /// Neutral dense Q8.8 export: no Spikenaut tag, no timestamp, no declared
     /// latency, overwrite prohibited until [`Self::allow_replace`].
     ///
+    /// This is also [`Default`]: new public helpers start here. Spikenaut
+    /// deployments must call [`Self::legacy_spikenaut_v2`] or
+    /// [`Self::spikenaut_signed_output_v1`].
+    ///
     /// ```
     /// use silicon_bridge::{ExportConfig, FpgaParameterExporter};
     ///
@@ -360,6 +364,13 @@ impl ExportConfig {
     pub fn with_model_id(mut self, model_id: impl Into<String>) -> Self {
         self.model_id = model_id.into();
         self
+    }
+}
+
+impl Default for ExportConfig {
+    /// [`Self::generic`]: framework-agnostic dense Q8.8.
+    fn default() -> Self {
+        Self::generic()
     }
 }
 
@@ -716,6 +727,32 @@ impl FpgaParameterExporter {
             readout_shape: params.metadata.readout_shape,
         })
     }
+
+    /// Write a [`ExportConfig::generic`] dense Q8.8 bundle.
+    ///
+    /// This is the default public disk path. Equivalent to
+    /// `write_with_config(output_dir, &ExportConfig::generic())`. Spikenaut
+    /// deployments must call [`super::MemFileWriter::write_mem_files`] or
+    /// [`Self::write_with_config`] with [`ExportConfig::legacy_spikenaut_v2`]
+    /// / [`ExportConfig::spikenaut_signed_output_v1`].
+    ///
+    /// ```
+    /// use silicon_bridge::FpgaParameterExporter;
+    ///
+    /// let exporter = FpgaParameterExporter::from_params(
+    ///     vec![1.0, 0.5, 1.5, 0.75],
+    ///     vec![vec![0.5; 6]; 4],
+    ///     vec![0.9; 4],
+    /// );
+    /// let dir = tempfile::tempdir().unwrap();
+    /// let report = exporter.write_generic(dir.path()).unwrap();
+    /// assert_eq!(report.profile, silicon_bridge::ExportProfile::GenericDenseQ88);
+    /// let json = std::fs::read_to_string(dir.path().join("parameters.json")).unwrap();
+    /// assert!(!json.contains("Spikenaut"));
+    /// ```
+    pub fn write_generic(&self, output_dir: impl AsRef<Path>) -> Result<ExportReport, ExportError> {
+        self.write_with_config(output_dir, &ExportConfig::generic())
+    }
 }
 
 fn planned_paths(output_dir: &Path, files: &ExportFileLayout, has_readout: bool) -> Vec<PathBuf> {
@@ -765,6 +802,15 @@ mod tests {
 
     fn read_bytes(dir: &Path, name: &str) -> Vec<u8> {
         fs::read(dir.join(name)).unwrap_or_else(|err| panic!("read {name}: {err}"))
+    }
+
+    #[test]
+    fn export_config_default_is_generic() {
+        assert_eq!(ExportConfig::default(), ExportConfig::generic());
+        assert_eq!(
+            ExportConfig::default().profile(),
+            ExportProfile::GenericDenseQ88
+        );
     }
 
     #[test]
