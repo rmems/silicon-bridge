@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="https://github.com/rmems/silicon-bridge/actions/workflows/ci.yml"><img src="https://github.com/rmems/silicon-bridge/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/crates/v/silicon-bridge.svg" alt="crates.io 0.3.1">
+  <img src="https://img.shields.io/badge/crates.io-not%20published-lightgrey" alt="crates.io not published">
   <img src="https://img.shields.io/badge/license-MIT%2FApache--2.0-blue" alt="MIT/Apache-2.0">
 </p>
 
@@ -49,30 +49,74 @@ stimuli and reading back spike states at runtime.
   from timing summary reports, **LUT utilization** from `report_utilization`
   reports (missing TNS or LUT values degrade to `0.0`)
 
+## Reference hardware
+
+The default public path is **board-agnostic** Q8.8 `.mem` export: any
+`$readmemh` consumer can load the files. The **named reference companion
+path** is the Digilent Basys 3 board plus
+[`rmems/silicon-hdl`](https://github.com/rmems/silicon-hdl)
+(`spikenaut_soc_basys3_top`). That is one named reference, not a
+multi-board claim.
+
+| Field | Value |
+|---|---|
+| Board | **Digilent Basys 3** |
+| FPGA | **Xilinx Artix-7** `XC7A35T-1CPG236C` (`xc7a35tcpg236-1`) |
+| Companion RTL | [`rmems/silicon-hdl`](https://github.com/rmems/silicon-hdl) — `spikenaut_soc_basys3_top` (`Basys3_Top.sv`) |
+| Constraints | `constraints/basys3.xdc`, `basys3_soc.xdc` |
+| Host UART | SiliconBridge **v3.0** (16 in / 16 out) — example layout with [golden bytes](https://github.com/rmems/silicon-bridge/tree/main/tests/golden/uart) matching Basys 3 firmware, not “any board” |
+| Prior board smoke | silicon-hdl [#68](https://github.com/rmems/silicon-hdl/issues/68) / [`docs/phase-c-board-smoke.md`](https://github.com/rmems/silicon-hdl/blob/main/docs/phase-c-board-smoke.md) — LED heartbeat **PASS** only; **not** a silicon-bridge UART host session |
+
+silicon-hdl also ships `constraints/artix7_trainer.xdc` for a generic
+Artix-7 trainer pinout. That file is **not** the claimed reference demo;
+`scripts/build_soc.tcl` reads `basys3.xdc` + `basys3_soc.xdc` only.
+
+A silicon-bridge UART host session on this board is release evidence for the
+0.3.1 publish path ([#84](https://github.com/rmems/silicon-bridge/issues/84)).
+This crate’s examples and CI do not flash an FPGA. Lab JTAG serials belong
+in smoke logs, not here.
+
+Companion contracts live in silicon-hdl:
+[README](https://github.com/rmems/silicon-hdl#readme),
+[`docs/interface-alignment.md`](https://github.com/rmems/silicon-hdl/blob/main/docs/interface-alignment.md),
+[`docs/host-soc-e2e.md`](https://github.com/rmems/silicon-hdl/blob/main/docs/host-soc-e2e.md).
+
 ## Installation
 
+`silicon-bridge` is **not published on crates.io**. A version badge or an
+in-tree version string is not a live registry crate. `[package].version`
+is `0.3.1`; an authorized `cargo publish` is a separate maintainer action.
+Until then, depend on git or a path:
+
 ```toml
-silicon-bridge = "0.3.1"
+silicon-bridge = { git = "https://github.com/rmems/silicon-bridge" }
+# silicon-bridge = { git = "https://github.com/rmems/silicon-bridge", rev = "<commit>" }
+# silicon-bridge = { path = "../silicon-bridge" }
 ```
 
 Optional UART I/O:
 
 ```toml
-silicon-bridge = { version = "0.3.1", features = ["uart"] }
+silicon-bridge = { git = "https://github.com/rmems/silicon-bridge", features = ["uart"] }
 ```
 
-`[package].version` is `0.3.1`. `[package].rust-version` is **`1.88.0`**:
-that is the language floor this crate actually needs (edition 2024 plus
-`if`/`let` chains). The dependency graph would compile on **1.85.0**.
-CI uses GitHub Actions `stable`; this candidate was also checked on
-`rustc 1.98.1`. Registry publication is a [separately authorized
-`cargo publish`](docs/release-readiness.md) after this tree is merged. Git/path
-pins remain valid for local development:
+`[package].rust-version` is **`1.88.0`**: that is the language floor this
+crate actually needs (edition 2024 plus `if`/`let` chains). The dependency
+graph would compile on **1.85.0**. CI uses GitHub Actions `stable`; this
+candidate was also checked on `rustc 1.98.1`. See
+[docs/release-readiness.md](docs/release-readiness.md).
+
+### After an authorized crates.io publish
+
+Only once `https://crates.io/crates/silicon-bridge` serves a version
+(current candidate: **0.3.1**):
 
 ```toml
-# silicon-bridge = { git = "https://github.com/rmems/silicon-bridge", rev = "<commit>" }
-# silicon-bridge = { path = "../silicon-bridge" }
+silicon-bridge = "0.3.1"
 ```
+
+Verify docs.rs **after** that publish. A `cargo package` / path smoke test
+is not a registry test.
 
 ## Quick Start
 
@@ -158,15 +202,16 @@ let (_potentials, spikes) = bridge.process_stimuli(&stimuli)?;
 
 `FpgaBridge` is synchronous. The recommended path is an explicit port plus
 `SerialConfig` (baud rate and a finite nonzero per-I/O timeout). Defaults
-(115200 baud, 100 ms) match the SiliconBridge **v3.0 example layout**,
-which has golden-byte evidence against Basys3 firmware
-(`tests/golden/uart/`). `FpgaBridge::new()` still exists as a legacy
-convenience that probes USB-serial-looking names (and `/dev/ttyUSB0..2`
-when enumeration is empty or fails); it is not the recommended public path.
-A port that opens is transport-open only — construction does not send
-stimulus frames or verify the peer. This crate does not only work with
-Basys3: any caller-selected UART device can be opened; matching firmware
-is a separate concern.
+(115200 baud, 100 ms) match SiliconBridge **v3.0**, the 16-channel example
+layout whose [golden bytes](https://github.com/rmems/silicon-bridge/tree/main/tests/golden/uart) match current Basys 3
+firmware — not a claim that any board speaks this frame. See
+[Reference hardware](#reference-hardware). `FpgaBridge::new()` still exists
+as a legacy convenience that probes USB-serial-looking names (and
+`/dev/ttyUSB0..2` when enumeration is empty or fails); it is not the
+recommended public path. A port that opens is transport-open only —
+construction does not send stimulus frames or verify the peer. The host API
+will open any caller-selected serial device; matching firmware is a
+separate concern.
 
 `list_serial_ports()` reports OS enumerator failures instead of swallowing
 them. `find_fpga_ports()` is a name heuristic on that list, not FPGA
@@ -174,10 +219,10 @@ authentication. On Linux, enumeration typically requires `libudev`; macOS
 and Windows do not. Default-feature builds do not link `serialport`.
 
 Request/response bytes are encoded by `DenseQ88Layout` / `encode_stimuli` /
-`decode_response` (no `serialport` dependency). SiliconBridge v3.0 is an
-**example 16-channel layout** with committed golden bytes, not a claim that
-this crate only works with Basys3. Other dense sizes are host codecs only —
-they need matching FPGA firmware; changing the host layout is not enough.
+`decode_response` (no `serialport` dependency). SiliconBridge v3.0 is the
+**16-channel example layout** with committed golden bytes for Basys 3
+firmware. Other dense sizes are host codecs only — they need matching FPGA
+firmware; changing the host layout is not enough.
 The checked path requires exactly `input_channels` finite stimuli.
 `process_stimuli` remains the legacy pad/truncate wrapper.
 
@@ -263,7 +308,9 @@ silently. UART `encode_q88_signed(-128.0)` is `8003`; parameter `.mem` is
 
 Evidence classes: **OS compilation** (CI #24: Linux/macOS/Windows; Linux `uart`
 job with `libudev-dev`), **HDL simulation** (`tests/golden/hdl/run.sh`, Icarus,
-optional), **board testing** (not this crate's default examples or CI).
+optional), **board testing** (not this crate's default examples or CI). The
+only captured physical Basys 3 evidence so far is silicon-hdl’s LED heartbeat
+smoke, not a silicon-bridge UART host session (that is [#84](https://github.com/rmems/silicon-bridge/issues/84)).
 
 Serial prerequisites: Linux needs `libudev` to **enumerate** ports; opening a
 named path does not. Always select the device yourself. `ping()` sends a real
@@ -271,7 +318,7 @@ named path does not. Always select the device yourself. `ping()` sends a real
 `DenseQ88Layout::dense` sizes need matching firmware.
 
 Compatibility **example layouts** with #53 golden-byte evidence: SiliconBridge
-**v3.0** (16/16, Basys3 firmware fixture) and host-only dense 8 / 32 / 8×10
+**v3.0** (16/16, matching Basys 3 firmware) and host-only dense 8 / 32 / 8×10
 frames. Changing host channel counts does not reconfigure an FPGA. Do not
 list other revisions without fixtures.
 
@@ -297,11 +344,13 @@ list other revisions without fixtures.
 ## Public-release readiness
 
 See [docs/release-readiness.md](docs/release-readiness.md). This tree is the
-**0.3.1** publish candidate: install lines already say
-`silicon-bridge = "0.3.1"`. An authorized human `cargo publish` of 0.3.1 is
-required after merge before crates.io / docs.rs are live. Packaged-crate
-smoke (`bash scripts/smoke-packaged-consumer.sh`) is not registry proof. CI
-matrix remains [#24](https://github.com/rmems/silicon-bridge/issues/24).
+**0.3.1** package candidate (`[package].version` is `0.3.1`). An authorized
+human `cargo publish` is still required before crates.io / docs.rs are live.
+Do not treat the README badge or future crates.io install snippets as a live
+registry crate.
+Packaged-crate smoke (`bash scripts/smoke-packaged-consumer.sh`) is not
+registry proof. CI matrix remains
+[#24](https://github.com/rmems/silicon-bridge/issues/24).
 
 ## Vivado Timing Metrics
 
@@ -345,14 +394,16 @@ versus `neuromod`, `brainstem-daemon`, `limbic-critic`, and `silicon-hdl`.
 Extracted from [Eagle-Lander](https://github.com/rmems/Eagle-Lander), a private
 neuromorphic GPU supervisor. The FPGA export pipeline was decoupled from that
 training orchestrator so any SNN framework can supply `f32` thresholds,
-weights, and decay. Historical Basys3 / Spikenaut deployments remain
-**opt-in profiles**, not the default public path.
+weights, and decay. The default public path is board-agnostic Q8.8 `.mem`.
+The named reference companion board is Digilent Basys 3 (see
+[Reference hardware](#reference-hardware)); Spikenaut export layouts remain
+**opt-in profiles**.
 
 ## Related Ecosystem
 
 | Library | Purpose |
 |---------|---------|
-| [silicon-hdl](https://github.com/rmems/silicon-hdl) | SystemVerilog core, bridge, and SoC for Basys3 / Artix-7 |
+| [silicon-hdl](https://github.com/rmems/silicon-hdl) | Reference RTL: Digilent Basys 3 / Artix-7 XC7A35T SoC (`spikenaut_soc_basys3_top`) |
 | [SynapticDistill.jl](https://github.com/rmems/SynapticDistill.jl) | Julia training + distillation (Q8.8 export path) |
 | [neuromod](https://github.com/Limen-Neural/neuromod) | SNN dynamics / core runtime traits (still hosted under Limen-Neural) |
 
