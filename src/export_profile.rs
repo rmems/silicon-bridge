@@ -717,7 +717,7 @@ impl FpgaParameterExporter {
             Self::write_mem_file(staging.path.join(name), readout, staged_overwrite)?;
         }
         Self::write_json_file(
-            &staging.path.join(&config.files.metadata),
+            staging.path.join(&config.files.metadata),
             &metadata_json,
             staged_overwrite,
         )?;
