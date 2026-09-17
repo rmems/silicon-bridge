@@ -52,8 +52,8 @@ stimuli and reading back spike states at runtime.
 ## Reference hardware
 
 The default public path is **board-agnostic** Q8.8 `.mem` export: any
-`$readmemh` consumer can load the files. The **proven companion path** is
-the Digilent Basys 3 board plus
+`$readmemh` consumer can load the files. The **named reference companion
+path** is the Digilent Basys 3 board plus
 [`rmems/silicon-hdl`](https://github.com/rmems/silicon-hdl)
 (`spikenaut_soc_basys3_top`). That is one named reference, not a
 multi-board claim.
@@ -64,7 +64,7 @@ multi-board claim.
 | FPGA | **Xilinx Artix-7** `XC7A35T-1CPG236C` (`xc7a35tcpg236-1`) |
 | Companion RTL | [`rmems/silicon-hdl`](https://github.com/rmems/silicon-hdl) — `spikenaut_soc_basys3_top` (`Basys3_Top.sv`) |
 | Constraints | `constraints/basys3.xdc`, `basys3_soc.xdc` |
-| Host UART | SiliconBridge **v3.0** (16 in / 16 out) — example layout with [golden bytes](tests/golden/uart/) matching Basys 3 firmware, not “any board” |
+| Host UART | SiliconBridge **v3.0** (16 in / 16 out) — example layout with [golden bytes](https://github.com/rmems/silicon-bridge/tree/main/tests/golden/uart) matching Basys 3 firmware, not “any board” |
 | Prior board smoke | silicon-hdl [#68](https://github.com/rmems/silicon-hdl/issues/68) / [`docs/phase-c-board-smoke.md`](https://github.com/rmems/silicon-hdl/blob/main/docs/phase-c-board-smoke.md) — LED heartbeat **PASS** only; **not** a silicon-bridge UART host session |
 
 silicon-hdl also ships `constraints/artix7_trainer.xdc` for a generic
@@ -204,7 +204,7 @@ let (_potentials, spikes) = bridge.process_stimuli(&stimuli)?;
 `FpgaBridge` is synchronous. The recommended path is an explicit port plus
 `SerialConfig` (baud rate and a finite nonzero per-I/O timeout). Defaults
 (115200 baud, 100 ms) match SiliconBridge **v3.0**, the 16-channel example
-layout whose [golden bytes](tests/golden/uart/) match current Basys 3
+layout whose [golden bytes](https://github.com/rmems/silicon-bridge/tree/main/tests/golden/uart) match current Basys 3
 firmware — not a claim that any board speaks this frame. See
 [Reference hardware](#reference-hardware). `FpgaBridge::new()` still exists
 as a legacy convenience that probes USB-serial-looking names (and
@@ -396,7 +396,7 @@ Extracted from [Eagle-Lander](https://github.com/rmems/Eagle-Lander), a private
 neuromorphic GPU supervisor. The FPGA export pipeline was decoupled from that
 training orchestrator so any SNN framework can supply `f32` thresholds,
 weights, and decay. The default public path is board-agnostic Q8.8 `.mem`.
-The proven companion board is Digilent Basys 3 (see
+The named reference companion board is Digilent Basys 3 (see
 [Reference hardware](#reference-hardware)); Spikenaut export layouts remain
 **opt-in profiles**.
 

@@ -52,7 +52,7 @@
 //! ## Reference hardware
 //!
 //! The default public path is board-agnostic Q8.8 `.mem` export
-//! (`write_generic`). The **proven companion path** is Digilent Basys 3
+//! (`write_generic`). The **named reference companion path** is Digilent Basys 3
 //! (Xilinx Artix-7 `XC7A35T-1CPG236C`, Vivado part `xc7a35tcpg236-1`) plus
 //! [silicon-hdl](https://github.com/rmems/silicon-hdl)
 //! `spikenaut_soc_basys3_top` (`Basys3_Top.sv`), with
@@ -102,7 +102,7 @@
 //!
 //! Extracted from Eagle-Lander, the author's own private neuromorphic GPU
 //! supervisor (closed-source). The default public path is framework-agnostic
-//! dense Q8.8 export. The proven companion board is Digilent Basys 3 plus
+//! dense Q8.8 export. The named reference companion board is Digilent Basys 3 plus
 //! silicon-hdl; Spikenaut export layouts remain opt-in profiles.
 //!
 //! ## Quick Start

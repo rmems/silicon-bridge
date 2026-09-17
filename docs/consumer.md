@@ -76,7 +76,7 @@ prove software–FPGA trajectory parity.
 ## Reference hardware
 
 The default public path is **board-agnostic** Q8.8 `.mem` (`write_generic`).
-The **proven companion path** is Digilent Basys 3 plus
+The **named reference companion path** is Digilent Basys 3 plus
 [`rmems/silicon-hdl`](https://github.com/rmems/silicon-hdl). That is one
 named reference, not a multi-board claim.
 

@@ -6,34 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-17
+
+First crates.io-intended release. In-tree `[package].version` is `0.3.0`
+(UART milestone numbering; Toward-0.1.0 / v0.2.0 are closed). Install
+snippets currently use git/path because the crate is unpublished;
+`silicon-bridge = "0.3.0"` is documented only as the post-publish line.
+Registry lookup for `silicon-bridge` returned 404 at packaging time.
+`cargo publish` of 0.3.0 is held until the Basys 3 UART host session
+(#84) plus explicit maintainer go-ahead.
+
 ### Added
 
 - **Reference hardware** in README and `docs/consumer.md` (#83): Digilent
   Basys 3 / Xilinx Artix-7 `XC7A35T-1CPG236C` (`xc7a35tcpg236-1`) as the
-  named companion path with silicon-hdl `spikenaut_soc_basys3_top`,
+  named reference companion path with silicon-hdl `spikenaut_soc_basys3_top`,
   `basys3.xdc` / `basys3_soc.xdc`, and SiliconBridge v3.0 golden bytes
   that match Basys 3 firmware (not “any board”). Default public export
   remains board-agnostic Q8.8 `.mem`. silicon-hdl’s Artix-7 trainer XDC
   is documented as **not** the claimed reference demo. Prior board
   evidence is the silicon-hdl LED heartbeat smoke only; a silicon-bridge
   UART host session is the 0.3.0 publish gate (#84).
-
-### Changed
-
-- crates.io badge and install copy no longer imply a live registry crate.
-  Git/path is the current install; `silicon-bridge = "0.3.0"` is shown
-  only as the post-publish line. `cargo publish` of 0.3.0 is held until
-  #84.
-
-## [0.3.0] - 2026-09-17
-
-First crates.io-intended release. In-tree version and install snippets are
-`0.3.0` (UART milestone numbering; Toward-0.1.0 / v0.2.0 are closed). Registry
-lookup for `silicon-bridge` returned 404 at packaging time — an authorized
-human `cargo publish` is still required after merge.
-
-### Added
-
 - Default public export path is **generic-dense-q88** (#78):
   `ExportConfig::default()` equals `generic()`, and
   `FpgaParameterExporter::write_generic` writes that profile. Spikenaut
@@ -80,9 +73,10 @@ human `cargo publish` is still required after merge.
   let generic bundles drop the historical layout name. `set_timestamp`
   rejects non-RFC-3339 and non-UTC strings. README/rustdoc distinguish
   unpublished git/path installs from a future crates.io version (registry
-  404 as of 2026-09-15); those install lines are rewritten to
-  `silicon-bridge = "0.3.0"` on this candidate commit **before** `cargo publish`
-  because the tarball is immutable.
+  404 as of 2026-09-15). Current install snippets keep git/path until
+  #84; `silicon-bridge = "0.3.0"` is the post-publish line only (see
+  Changed). The crates.io tarball is immutable, so that rewrite belongs
+  on the authorized publish commit.
   See `docs/consumer.md` and `docs/release-readiness.md`.
   `scripts/smoke-packaged-consumer.sh` builds an out-of-tree crate against
   `cargo package` output; that is not registry proof. The package allow-list
@@ -206,6 +200,10 @@ human `cargo publish` is still required after merge.
 
 ### Changed
 
+- crates.io badge and install copy no longer imply a live registry crate.
+  Git/path is the current install; `silicon-bridge = "0.3.0"` is shown
+  only as the post-publish line. `cargo publish` of 0.3.0 is held until
+  #84.
 - **MSRV:** `rust-version = "1.88.0"`. Validated on
   `rustc 1.88.0 (6b00bc388 2025-06-23)` and
   `rustc 1.98.1 (48a229cea 2026-09-01)` for this candidate. Edition 2024
