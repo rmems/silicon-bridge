@@ -60,7 +60,9 @@
 //! [`ExportConfig::generic_with_required_readout`]
 //! ([`ExportConfig::spikenaut_signed_output_v1`] is the Spikenaut-named
 //! alias). That contract is a distinct profile/schema, not a silent
-//! redefinition of `Spikenaut-v2`. See [`ExportConfig`].
+//! redefinition of `Spikenaut-v2`. [`ExportConfig::silicon_hdl_v3`] is the
+//! pinned reference HDL profile that also emits an `N×K` readout image for
+//! silicon-hdl `OutputLayer`. See [`ExportConfig`].
 
 use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt;
@@ -72,10 +74,15 @@ use std::path::{Path, PathBuf};
 mod export_profile;
 
 pub use export_profile::{
-    BlockShape, BundleShapes, ExportConfig, ExportFileLayout, ExportProfile, ExportReport,
-    GENERIC_DENSE_PROFILE_ID, GENERIC_DENSE_SCHEMA_VERSION, OverwritePolicy, PRODUCER_CRATE,
-    ReadoutShape, SPIKENAUT_LEGACY_TARGET_LATENCY_US, SPIKENAUT_SIGNED_OUTPUT_PROFILE_ID,
+    BlockShape, BundleShapes, CompatibilityDimensions, CompatibilityFiles, CompatibilityMetadata,
+    ExportConfig, ExportFileLayout, ExportProfile, ExportReport, GENERIC_DENSE_PROFILE_ID,
+    GENERIC_DENSE_SCHEMA_VERSION, OverwritePolicy, PRODUCER_CRATE, ReadoutShape,
+    SILICON_HDL_V3_CONTRACT_ID, SILICON_HDL_V3_HIDDEN_NEURONS, SILICON_HDL_V3_INPUT_CHANNELS,
+    SILICON_HDL_V3_OUTPUT_CLASSES, SILICON_HDL_V3_PROFILE_ID, SILICON_HDL_V3_READOUT_FILENAME,
+    SILICON_HDL_V3_SCHEMA_VERSION, SILICON_HDL_V3_SUPPORTED_REVISION,
+    SPIKENAUT_LEGACY_TARGET_LATENCY_US, SPIKENAUT_SIGNED_OUTPUT_PROFILE_ID,
     SPIKENAUT_SIGNED_OUTPUT_SCHEMA_VERSION, SPIKENAUT_V2_LEGACY_PROFILE_ID, TimestampPolicy,
+    UartContractMetadata,
 };
 
 /// Metadata / layout tag for the Q8.8 `.mem` bundle shared with silicon-hdl.
@@ -795,6 +802,15 @@ pub enum ExportError {
     MissingReadoutFilename,
     /// [`ExportConfig::with_declared_target_latency_us`] was given NaN or inf.
     NonFiniteDeclaredLatency,
+    /// A pinned compatibility profile was selected for unsupported dimensions.
+    UnsupportedCompatibilityShape {
+        /// Profile that rejected the shape.
+        profile: &'static str,
+        /// Dimensions supported by that profile.
+        expected: CompatibilityDimensions,
+        /// Dimensions supplied by the export.
+        actual: CompatibilityDimensions,
+    },
 }
 
 impl fmt::Display for ExportError {
@@ -842,6 +858,21 @@ impl fmt::Display for ExportError {
                 f,
                 "declared target_latency_us must be finite (not NaN or inf)"
             ),
+            Self::UnsupportedCompatibilityShape {
+                profile,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "profile {profile} supports {} inputs, {} hidden neurons, and {} outputs; \
+                 got {} inputs, {} hidden neurons, and {} outputs",
+                expected.input_channels,
+                expected.hidden_neurons,
+                expected.output_classes,
+                actual.input_channels,
+                actual.hidden_neurons,
+                actual.output_classes
+            ),
         }
     }
 }
@@ -859,7 +890,8 @@ impl std::error::Error for ExportError {
             | Self::UnsupportedFlattening { .. }
             | Self::MissingRequiredReadout
             | Self::MissingReadoutFilename
-            | Self::NonFiniteDeclaredLatency => None,
+            | Self::NonFiniteDeclaredLatency
+            | Self::UnsupportedCompatibilityShape { .. } => None,
         }
     }
 }
@@ -1002,6 +1034,9 @@ pub struct FpgaMetadata {
     /// Per-block dimensions, signedness, and bit widths.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blocks: Option<BundleShapes>,
+    /// Optional machine-readable profile compatibility contract.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compatibility: Option<CompatibilityMetadata>,
 }
 
 impl<'de> Deserialize<'de> for FpgaParameters {

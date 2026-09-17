@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Dense-parameter export profiles: generic Q8.8, legacy Spikenaut-v2, and a
-//! distinct signed-output Spikenaut contract.
+//! Dense-parameter export profiles: generic Q8.8, pinned silicon-hdl v3,
+//! legacy Spikenaut-v2, and a distinct signed-output Spikenaut contract.
 //!
 //! This is a small configuration layer on top of [`super::CheckedParameterExport`]
 //! and [`super::Q88Encoding`]. It is not a plugin or tensor-serialization
@@ -12,6 +12,9 @@ use super::{
     CheckedParameterExport, EXPORT_FORMAT_VERSION, ExportError, FilenameError, FpgaMetadata,
     FpgaParameterExporter, FpgaParameters, OverflowPolicy, Q88Encoding, QFormat, RangePolicy,
     RoundingMode,
+};
+use crate::fpga_codec::{
+    DENSE_Q88_SYNC, SILICON_BRIDGE_V3_CHANNELS, SILICON_BRIDGE_V3_RX_LEN, SILICON_BRIDGE_V3_TX_LEN,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -44,9 +47,120 @@ pub const SPIKENAUT_SIGNED_OUTPUT_PROFILE_ID: &str = "spikenaut-signed-output-v1
 /// Schema version for [`ExportProfile::SpikenautSignedOutputV1`].
 pub const SPIKENAUT_SIGNED_OUTPUT_SCHEMA_VERSION: &str = "spikenaut-signed-output-v1";
 
+/// Profile identity for the pinned silicon-hdl v3 reference contract.
+pub const SILICON_HDL_V3_PROFILE_ID: &str = "silicon-hdl-v3-compatible";
+
+/// Metadata schema for the pinned silicon-hdl v3 compatibility profile.
+pub const SILICON_HDL_V3_SCHEMA_VERSION: &str = "silicon-hdl-v3-profile-v1";
+
+/// Explicit host/HDL contract id recorded by [`ExportConfig::silicon_hdl_v3`].
+pub const SILICON_HDL_V3_CONTRACT_ID: &str = "silicon-bridge-silicon-hdl-v3-contract-v1";
+
+/// Pinned silicon-hdl revision used by the reference compatibility profile.
+pub const SILICON_HDL_V3_SUPPORTED_REVISION: &str = "d45163f38ac1cd88f8a3918e3793a08ace85e132";
+
+/// Hidden-neuron count supported by the pinned silicon-hdl v3 profile.
+pub const SILICON_HDL_V3_HIDDEN_NEURONS: usize = 16;
+
+/// Input-channel count supported by the pinned silicon-hdl v3 profile.
+pub const SILICON_HDL_V3_INPUT_CHANNELS: usize = 16;
+
+/// Output-class count supported by the pinned silicon-hdl v3 profile.
+pub const SILICON_HDL_V3_OUTPUT_CLASSES: usize = 3;
+
+/// HDL-native readout image emitted by [`ExportConfig::silicon_hdl_v3`].
+pub const SILICON_HDL_V3_READOUT_FILENAME: &str = "hdl_readout_neuron_major.mem";
+
 /// Historical per-tick design target recorded by the legacy Spikenaut-v2
 /// writer, in microseconds. A declared target, never a measured latency.
 pub const SPIKENAUT_LEGACY_TARGET_LATENCY_US: f32 = 35.0;
+
+/// Fixed dimensions supported by a pinned compatibility profile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompatibilityDimensions {
+    /// UART input channel count `M`.
+    pub input_channels: usize,
+    /// Hidden-neuron count `N`.
+    pub hidden_neurons: usize,
+    /// Output class / readout row count `K`.
+    pub output_classes: usize,
+}
+
+impl CompatibilityDimensions {
+    /// Dimensions of the pinned silicon-hdl v3 reference profile.
+    pub const SILICON_HDL_V3: Self = Self {
+        input_channels: SILICON_HDL_V3_INPUT_CHANNELS,
+        hidden_neurons: SILICON_HDL_V3_HIDDEN_NEURONS,
+        output_classes: SILICON_HDL_V3_OUTPUT_CLASSES,
+    };
+}
+
+/// File basenames that form a compatibility-profile bundle.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompatibilityFiles {
+    /// Threshold `$readmemh` image.
+    pub thresholds: String,
+    /// Hidden-weight `$readmemh` image.
+    pub hidden_weights: String,
+    /// Decay-rate `$readmemh` image.
+    pub decay: String,
+    /// Generic class-major `K×N` readout image.
+    pub generic_readout_kxn: String,
+    /// HDL-native neuron-major `N×K` readout image.
+    pub hdl_readout_nxk: String,
+    /// JSON manifest.
+    pub manifest: String,
+}
+
+/// SiliconBridge v3.0 UART framing pinned by the profile.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UartContractMetadata {
+    /// Protocol label.
+    pub protocol: String,
+    /// Stimulus input channels.
+    pub input_channels: usize,
+    /// Request frame size in bytes.
+    pub request_bytes: usize,
+    /// Response frame size in bytes.
+    pub response_bytes: usize,
+    /// Sync byte at the start of every request frame.
+    pub sync_byte: String,
+    /// Word byte order inside request/response frames.
+    pub word_byte_order: String,
+}
+
+/// Machine-readable compatibility contract recorded in `parameters.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompatibilityMetadata {
+    /// Stable contract identifier.
+    pub contract_id: String,
+    /// Versioned metadata schema for this contract record.
+    pub contract_version: String,
+    /// Profile identity that selected the contract.
+    pub profile: String,
+    /// Producing crate semantic version.
+    pub silicon_bridge_version: String,
+    /// Producing checkout revision when available at build time.
+    pub silicon_bridge_revision: String,
+    /// Pinned silicon-hdl revision supported by this profile.
+    pub silicon_hdl_revision: String,
+    /// Only dimensions supported by this pinned profile.
+    pub supported_dimensions: CompatibilityDimensions,
+    /// Generic hidden-weight layout.
+    pub hidden_weights_layout: String,
+    /// Readout layout preserved in the generic export file and JSON vector.
+    pub readout_source_layout: String,
+    /// Readout layout emitted for silicon-hdl `OutputLayer`.
+    pub readout_hdl_layout: String,
+    /// Exported file names and the expected `$readmemh` targets.
+    pub files: CompatibilityFiles,
+    /// Reset assumption for replaying the contract.
+    pub reset_assumption: String,
+    /// Logical timestep assumption for the host/HDL exchange.
+    pub timestep_assumption: String,
+    /// UART frame contract that must remain unchanged for this profile.
+    pub uart: UartContractMetadata,
+}
 
 /// Named dense-parameter export contract.
 ///
@@ -55,6 +169,8 @@ pub const SPIKENAUT_LEGACY_TARGET_LATENCY_US: f32 = 35.0;
 /// filenames, overwrite behaviour, and declared 35 µs target.
 /// [`ExportProfile::SpikenautSignedOutputV1`] is the corrected signed-readout
 /// contract and **must not** be serialized as `Spikenaut-v2`.
+/// [`ExportProfile::SiliconHdlV3`] pins the reference silicon-hdl contract and
+/// emits an additional HDL-native readout image.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum ExportProfile {
@@ -68,6 +184,9 @@ pub enum ExportProfile {
     /// the Spikenaut-named [`ExportConfig::spikenaut_signed_output_v1`]).
     /// **Must not** be serialized as `Spikenaut-v2`.
     SpikenautSignedOutputV1,
+    /// Pinned silicon-hdl v3 reference profile. Writes the generic `K×N`
+    /// readout and an additional HDL-native `N×K` readout image.
+    SiliconHdlV3,
 }
 
 impl ExportProfile {
@@ -77,6 +196,7 @@ impl ExportProfile {
             Self::GenericDenseQ88 => GENERIC_DENSE_PROFILE_ID,
             Self::LegacySpikenautV2 => SPIKENAUT_V2_LEGACY_PROFILE_ID,
             Self::SpikenautSignedOutputV1 => SPIKENAUT_SIGNED_OUTPUT_PROFILE_ID,
+            Self::SiliconHdlV3 => SILICON_HDL_V3_PROFILE_ID,
         }
     }
 
@@ -87,12 +207,13 @@ impl ExportProfile {
             // Historical tag is the schema for the compatibility profile.
             Self::LegacySpikenautV2 => EXPORT_FORMAT_VERSION,
             Self::SpikenautSignedOutputV1 => SPIKENAUT_SIGNED_OUTPUT_SCHEMA_VERSION,
+            Self::SiliconHdlV3 => SILICON_HDL_V3_SCHEMA_VERSION,
         }
     }
 
     /// Whether this profile requires a readout / output-weight matrix.
     pub fn requires_readout(self) -> bool {
-        matches!(self, Self::SpikenautSignedOutputV1)
+        matches!(self, Self::SpikenautSignedOutputV1 | Self::SiliconHdlV3)
     }
 }
 
@@ -220,6 +341,7 @@ impl ExportFileLayout {
 pub struct ExportConfig {
     profile: ExportProfile,
     files: ExportFileLayout,
+    hdl_readout_file: Option<String>,
     overwrite: OverwritePolicy,
     timestamp: TimestampPolicy,
     declared_target_latency_us: Option<f32>,
@@ -256,6 +378,7 @@ impl ExportConfig {
         Self {
             profile: ExportProfile::GenericDenseQ88,
             files: ExportFileLayout::generic_default(),
+            hdl_readout_file: None,
             overwrite: OverwritePolicy::Prohibit,
             timestamp: TimestampPolicy::Omit,
             declared_target_latency_us: None,
@@ -272,6 +395,7 @@ impl ExportConfig {
         Self {
             profile: ExportProfile::LegacySpikenautV2,
             files: ExportFileLayout::spikenaut_deployment(),
+            hdl_readout_file: None,
             overwrite: OverwritePolicy::Replace,
             timestamp: TimestampPolicy::Now,
             declared_target_latency_us: Some(SPIKENAUT_LEGACY_TARGET_LATENCY_US),
@@ -292,6 +416,7 @@ impl ExportConfig {
         Self {
             profile: ExportProfile::SpikenautSignedOutputV1,
             files: ExportFileLayout::spikenaut_deployment(),
+            hdl_readout_file: None,
             overwrite: OverwritePolicy::Prohibit,
             timestamp: TimestampPolicy::Omit,
             declared_target_latency_us: None,
@@ -309,6 +434,26 @@ impl ExportConfig {
         Self::generic_with_required_readout()
     }
 
+    /// Pinned silicon-hdl v3 compatibility profile.
+    ///
+    /// This profile keeps the generic `parameters_output_weights.mem` readout
+    /// as class-major `K×N` and also emits
+    /// [`SILICON_HDL_V3_READOUT_FILENAME`] as neuron-major `N×K` for the
+    /// reference silicon-hdl `OutputLayer`. It supports only the pinned
+    /// 16-input, 16-hidden, 3-output contract recorded by
+    /// [`SILICON_HDL_V3_CONTRACT_ID`].
+    pub fn silicon_hdl_v3() -> Self {
+        Self {
+            profile: ExportProfile::SiliconHdlV3,
+            files: ExportFileLayout::spikenaut_deployment(),
+            hdl_readout_file: Some(SILICON_HDL_V3_READOUT_FILENAME.to_string()),
+            overwrite: OverwritePolicy::Prohibit,
+            timestamp: TimestampPolicy::Omit,
+            declared_target_latency_us: None,
+            model_id: String::new(),
+        }
+    }
+
     /// Profile this configuration will write.
     pub fn profile(&self) -> ExportProfile {
         self.profile
@@ -317,6 +462,12 @@ impl ExportConfig {
     /// File layout this configuration will write.
     pub fn files(&self) -> &ExportFileLayout {
         &self.files
+    }
+
+    /// Optional HDL-native readout file emitted in addition to the generic
+    /// `K×N` readout file.
+    pub fn hdl_readout_file(&self) -> Option<&str> {
+        self.hdl_readout_file.as_deref()
     }
 
     /// Overwrite policy.
@@ -345,7 +496,7 @@ impl ExportConfig {
 
     /// Replace the file layout after validating uniqueness and basenames.
     pub fn with_files(mut self, files: ExportFileLayout) -> Result<Self, ExportError> {
-        files.validate()?;
+        self.validate_file_names_for_layout(&files, true)?;
         self.files = files;
         Ok(self)
     }
@@ -385,6 +536,49 @@ impl ExportConfig {
     pub fn with_model_id(mut self, model_id: impl Into<String>) -> Self {
         self.model_id = model_id.into();
         self
+    }
+
+    fn names_for(&self, has_readout: bool) -> Vec<&str> {
+        let mut names = vec![
+            self.files.thresholds.as_str(),
+            self.files.weights.as_str(),
+            self.files.decay.as_str(),
+        ];
+        if has_readout && let Some(name) = self.files.output_weights.as_deref() {
+            names.push(name);
+        }
+        if has_readout && let Some(name) = self.hdl_readout_file.as_deref() {
+            names.push(name);
+        }
+        names.push(self.files.metadata.as_str());
+        names
+    }
+
+    fn validate_file_names(&self, has_readout: bool) -> Result<(), ExportError> {
+        self.validate_file_names_for_layout(&self.files, has_readout)
+    }
+
+    fn validate_file_names_for_layout(
+        &self,
+        files: &ExportFileLayout,
+        has_readout: bool,
+    ) -> Result<(), ExportError> {
+        files.validate_for(has_readout)?;
+        let mut seen = BTreeSet::new();
+        let mut seen_folded = BTreeSet::new();
+        let mut names = files.names_for(has_readout);
+        if has_readout && let Some(name) = self.hdl_readout_file.as_deref() {
+            names.push(name);
+        }
+        for name in names {
+            validate_basename(name)?;
+            if !seen.insert(name) || !seen_folded.insert(name.to_ascii_lowercase()) {
+                return Err(ExportError::DuplicateFilename {
+                    name: name.to_string(),
+                });
+            }
+        }
+        Ok(())
     }
 }
 
@@ -618,7 +812,9 @@ pub(super) fn stamp_profile_metadata(
                 .declared_target_latency_us
                 .or(Some(SPIKENAUT_LEGACY_TARGET_LATENCY_US));
         }
-        ExportProfile::GenericDenseQ88 | ExportProfile::SpikenautSignedOutputV1 => {
+        ExportProfile::GenericDenseQ88
+        | ExportProfile::SpikenautSignedOutputV1
+        | ExportProfile::SiliconHdlV3 => {
             metadata.target_latency_us = config.declared_target_latency_us;
         }
     }
@@ -629,7 +825,53 @@ pub(super) fn stamp_profile_metadata(
         TimestampPolicy::Now => chrono::Utc::now().to_rfc3339(),
     };
 
+    if config.profile == ExportProfile::SiliconHdlV3 {
+        metadata.compatibility = Some(silicon_hdl_v3_metadata(config));
+    }
+
     params.metadata = metadata;
+}
+
+fn silicon_hdl_v3_metadata(config: &ExportConfig) -> CompatibilityMetadata {
+    CompatibilityMetadata {
+        contract_id: SILICON_HDL_V3_CONTRACT_ID.to_string(),
+        contract_version: SILICON_HDL_V3_SCHEMA_VERSION.to_string(),
+        profile: SILICON_HDL_V3_PROFILE_ID.to_string(),
+        silicon_bridge_version: env!("CARGO_PKG_VERSION").to_string(),
+        silicon_bridge_revision: env!("SILICON_BRIDGE_GIT_REV").to_string(),
+        silicon_hdl_revision: SILICON_HDL_V3_SUPPORTED_REVISION.to_string(),
+        supported_dimensions: CompatibilityDimensions::SILICON_HDL_V3,
+        hidden_weights_layout: "row_major_nxm".to_string(),
+        readout_source_layout: "class_major_kxn".to_string(),
+        readout_hdl_layout: "neuron_major_nxk".to_string(),
+        files: CompatibilityFiles {
+            thresholds: config.files.thresholds.clone(),
+            hidden_weights: config.files.weights.clone(),
+            decay: config.files.decay.clone(),
+            generic_readout_kxn: config
+                .files
+                .output_weights
+                .clone()
+                .unwrap_or_else(|| "parameters_output_weights.mem".to_string()),
+            hdl_readout_nxk: config
+                .hdl_readout_file
+                .clone()
+                .unwrap_or_else(|| SILICON_HDL_V3_READOUT_FILENAME.to_string()),
+            manifest: config.files.metadata.clone(),
+        },
+        reset_assumption: "reset asserted before loading/replay; no retained state across fixtures"
+            .to_string(),
+        timestep_assumption: "one synchronous logical timestep per SiliconBridge v3.0 exchange"
+            .to_string(),
+        uart: UartContractMetadata {
+            protocol: "SiliconBridge v3.0".to_string(),
+            input_channels: SILICON_BRIDGE_V3_CHANNELS,
+            request_bytes: SILICON_BRIDGE_V3_TX_LEN,
+            response_bytes: SILICON_BRIDGE_V3_RX_LEN,
+            sync_byte: format!("0x{DENSE_Q88_SYNC:02X}"),
+            word_byte_order: "big_endian_16_bit_words".to_string(),
+        },
+    }
 }
 
 impl FpgaParameterExporter {
@@ -660,7 +902,7 @@ impl FpgaParameterExporter {
         output_dir: impl AsRef<Path>,
         config: &ExportConfig,
     ) -> Result<ExportReport, ExportError> {
-        config.files.validate()?;
+        config.validate_file_names(true)?;
         if config
             .declared_target_latency_us
             .is_some_and(|us| !us.is_finite())
@@ -679,12 +921,15 @@ impl FpgaParameterExporter {
 
         let mut params = CheckedParameterExport::try_export(self)?;
         let has_readout = params.output_weights.is_some();
-        config.files.validate_for(has_readout)?;
+        config.validate_file_names(has_readout)?;
+        if config.profile == ExportProfile::SiliconHdlV3 {
+            validate_silicon_hdl_v3_shape(&params)?;
+        }
 
         stamp_profile_metadata(&mut params, config, self.range_policy);
 
         let output_dir = output_dir.as_ref();
-        let planned = planned_paths(output_dir, &config.files, has_readout);
+        let planned = planned_paths(output_dir, config, has_readout);
         if matches!(config.overwrite, OverwritePolicy::Prohibit) {
             for path in &planned {
                 if dest_occupied(path) {
@@ -737,6 +982,13 @@ impl FpgaParameterExporter {
                 return Err(ExportError::MissingReadoutFilename);
             };
             Self::write_mem_file(staging.path.join(name), readout, staged_overwrite)?;
+            if let Some(hdl_name) = config.hdl_readout_file.as_deref() {
+                let Some(shape) = params.metadata.readout_shape else {
+                    return Err(ExportError::MissingRequiredReadout);
+                };
+                let hdl_readout = transpose_readout_kxn_to_nxk(readout, shape);
+                Self::write_mem_file(staging.path.join(hdl_name), &hdl_readout, staged_overwrite)?;
+            }
         }
         Self::write_json_file(
             staging.path.join(&config.files.metadata),
@@ -744,7 +996,7 @@ impl FpgaParameterExporter {
             staged_overwrite,
         )?;
 
-        let names = config.files.names_for(has_readout);
+        let names = config.names_for(has_readout);
         let mut promoted = Vec::new();
         for name in &names {
             let from = staging.path.join(name);
@@ -810,12 +1062,47 @@ impl FpgaParameterExporter {
     }
 }
 
-fn planned_paths(output_dir: &Path, files: &ExportFileLayout, has_readout: bool) -> Vec<PathBuf> {
-    files
+fn planned_paths(output_dir: &Path, config: &ExportConfig, has_readout: bool) -> Vec<PathBuf> {
+    config
         .names_for(has_readout)
         .into_iter()
         .map(|name| output_dir.join(name))
         .collect()
+}
+
+fn validate_silicon_hdl_v3_shape(params: &FpgaParameters) -> Result<(), ExportError> {
+    let readout = params
+        .output_weights
+        .as_ref()
+        .ok_or(ExportError::MissingRequiredReadout)?;
+    let output_classes = readout
+        .len()
+        .checked_div(params.metadata.num_neurons)
+        .unwrap_or(0);
+    let actual = CompatibilityDimensions {
+        input_channels: params.metadata.num_channels,
+        hidden_neurons: params.metadata.num_neurons,
+        output_classes,
+    };
+    if actual == CompatibilityDimensions::SILICON_HDL_V3 {
+        Ok(())
+    } else {
+        Err(ExportError::UnsupportedCompatibilityShape {
+            profile: SILICON_HDL_V3_PROFILE_ID,
+            expected: CompatibilityDimensions::SILICON_HDL_V3,
+            actual,
+        })
+    }
+}
+
+fn transpose_readout_kxn_to_nxk(readout: &[i16], shape: ReadoutShape) -> Vec<i16> {
+    let mut out = Vec::with_capacity(readout.len());
+    for neuron in 0..shape.cols {
+        for class in 0..shape.rows {
+            out.push(readout[class * shape.cols + neuron]);
+        }
+    }
+    out
 }
 
 const STAGING_PREFIX: &str = ".silicon-bridge-staging-";

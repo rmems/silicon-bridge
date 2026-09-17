@@ -24,18 +24,17 @@ explicitly authorized that exact version.
    crates.io tarballs and the docs.rs build for that version are immutable;
    a later git commit cannot correct them.
 
-The first crates.io semver is **0.3.0** (UART milestone numbering; Toward-0.1.0
-/ v0.2.0 are closed). Registry lookup returned 404 on 2026-09-17, so 0.3.0
-is unoccupied. This tree already rewrites install lines to
-`silicon-bridge = "0.3.0"`. An authorized human `cargo publish` of 0.3.0
-is still required after merge.
+The current crates.io-intended semver is **0.3.1**. Registry state must still
+be checked immediately before publication. This tree rewrites install lines to
+`silicon-bridge = "0.3.1"`. An authorized human `cargo publish` of 0.3.1 is
+still required after merge.
 
 ## 2. Supported Rust version
 
 - `[package].rust-version` is `1.88.0` (language floor: edition 2024 plus
   `if`/`let` chains). The dependency graph would compile on 1.85.0.
   Validated against `rustc 1.88.0 (6b00bc388 2025-06-23)` and
-  `rustc 1.98.1 (48a229cea 2026-09-01)` for the 0.3.0 candidate. CI uses
+  `rustc 1.98.1 (48a229cea 2026-09-01)` for the 0.3.1 candidate. CI uses
   GitHub Actions `stable`, not a dedicated 1.88 job.
 - Build and test on 1.88.0 or newer stable.
 - Record the toolchain in the release notes.

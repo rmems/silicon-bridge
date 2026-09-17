@@ -11,6 +11,8 @@
 //!   (`generic-dense-q88`). Prefer that over [`ParameterExport::export`] /
 //!   [`MemFileWriter::write_mem_files`] (legacy Spikenaut-v2). Required
 //!   readout: [`ExportConfig::generic_with_required_readout`].
+//!   Pinned silicon-hdl reference export:
+//!   [`ExportConfig::silicon_hdl_v3`].
 //! - **UART codecs** (`DenseQ88Layout`, `encode_stimuli`,
 //!   `decode_response`) that do not depend on `serialport`. SiliconBridge v3.0
 //!   is an example 16-channel layout with golden-byte evidence, not a Basys3-only crate.
@@ -23,13 +25,13 @@
 //! ## Installation
 //!
 //! ```toml
-//! silicon-bridge = "0.3.0"
+//! silicon-bridge = "0.3.1"
 //! ```
 //!
 //! Optional UART I/O:
 //!
 //! ```toml
-//! silicon-bridge = { version = "0.3.0", features = ["uart"] }
+//! silicon-bridge = { version = "0.3.1", features = ["uart"] }
 //! ```
 //!
 //! `rust-version` is `1.88.0` (language floor). See the crate README and
@@ -123,7 +125,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! silicon-bridge = { version = "0.3.0", features = ["uart"] }
+//! silicon-bridge = { version = "0.3.1", features = ["uart"] }
 //! ```
 //!
 //! Prefer [`FpgaBridge::open_with_config`] or [`FpgaBridge::builder`] with an
@@ -159,16 +161,20 @@ mod fpga_bridge;
 
 // Re-export public API
 pub use fpga_export::{
-    BlockEncodings, BlockShape, BundleShapes, CheckedParameterExport, EXPORT_FORMAT_VERSION,
-    ExportConfig, ExportError, ExportFileLayout, ExportProfile, ExportReport, FilenameError,
-    FixedPointEncode, FpgaMetadata, FpgaParameterExporter, FpgaParameters,
-    GENERIC_DENSE_PROFILE_ID, GENERIC_DENSE_SCHEMA_VERSION, MatrixFlattening, MemFileWriter,
-    MetadataTimestampError, NonFiniteKind, OverflowPolicy, OverwritePolicy, PRODUCER_CRATE,
-    ParameterBlock, ParameterExport, ParameterLocation, ParameterShapeError, Q88_SIGNED_MAX,
-    Q88_SIGNED_MIN, Q88_UNSIGNED_MAX, Q88Encoding, QFormat, RangePolicy, ReadoutShape,
-    RoundingMode, SPIKENAUT_LEGACY_TARGET_LATENCY_US, SPIKENAUT_SIGNED_OUTPUT_PROFILE_ID,
-    SPIKENAUT_SIGNED_OUTPUT_SCHEMA_VERSION, SPIKENAUT_V2_LEGACY_PROFILE_ID, STIMULUS_Q88_MAX,
-    STIMULUS_Q88_MIN, SaturationEvent, SaturationReport, TimestampPolicy, encode_q88_signed,
+    BlockEncodings, BlockShape, BundleShapes, CheckedParameterExport, CompatibilityDimensions,
+    CompatibilityFiles, CompatibilityMetadata, EXPORT_FORMAT_VERSION, ExportConfig, ExportError,
+    ExportFileLayout, ExportProfile, ExportReport, FilenameError, FixedPointEncode, FpgaMetadata,
+    FpgaParameterExporter, FpgaParameters, GENERIC_DENSE_PROFILE_ID, GENERIC_DENSE_SCHEMA_VERSION,
+    MatrixFlattening, MemFileWriter, MetadataTimestampError, NonFiniteKind, OverflowPolicy,
+    OverwritePolicy, PRODUCER_CRATE, ParameterBlock, ParameterExport, ParameterLocation,
+    ParameterShapeError, Q88_SIGNED_MAX, Q88_SIGNED_MIN, Q88_UNSIGNED_MAX, Q88Encoding, QFormat,
+    RangePolicy, ReadoutShape, RoundingMode, SILICON_HDL_V3_CONTRACT_ID,
+    SILICON_HDL_V3_HIDDEN_NEURONS, SILICON_HDL_V3_INPUT_CHANNELS, SILICON_HDL_V3_OUTPUT_CLASSES,
+    SILICON_HDL_V3_PROFILE_ID, SILICON_HDL_V3_READOUT_FILENAME, SILICON_HDL_V3_SCHEMA_VERSION,
+    SILICON_HDL_V3_SUPPORTED_REVISION, SPIKENAUT_LEGACY_TARGET_LATENCY_US,
+    SPIKENAUT_SIGNED_OUTPUT_PROFILE_ID, SPIKENAUT_SIGNED_OUTPUT_SCHEMA_VERSION,
+    SPIKENAUT_V2_LEGACY_PROFILE_ID, STIMULUS_Q88_MAX, STIMULUS_Q88_MIN, SaturationEvent,
+    SaturationReport, TimestampPolicy, UartContractMetadata, encode_q88_signed,
     encode_q88_signed_full, encode_q88_unsigned, format_q88_hex, q88_signed_to_f32, q88_to_f32,
 };
 

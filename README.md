@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="https://github.com/rmems/silicon-bridge/actions/workflows/ci.yml"><img src="https://github.com/rmems/silicon-bridge/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/crates/v/silicon-bridge.svg" alt="crates.io 0.3.0">
+  <img src="https://img.shields.io/crates/v/silicon-bridge.svg" alt="crates.io 0.3.1">
   <img src="https://img.shields.io/badge/license-MIT%2FApache--2.0-blue" alt="MIT/Apache-2.0">
 </p>
 
@@ -52,16 +52,16 @@ stimuli and reading back spike states at runtime.
 ## Installation
 
 ```toml
-silicon-bridge = "0.3.0"
+silicon-bridge = "0.3.1"
 ```
 
 Optional UART I/O:
 
 ```toml
-silicon-bridge = { version = "0.3.0", features = ["uart"] }
+silicon-bridge = { version = "0.3.1", features = ["uart"] }
 ```
 
-`[package].version` is `0.3.0`. `[package].rust-version` is **`1.88.0`**:
+`[package].version` is `0.3.1`. `[package].rust-version` is **`1.88.0`**:
 that is the language floor this crate actually needs (edition 2024 plus
 `if`/`let` chains). The dependency graph would compile on **1.85.0**.
 CI uses GitHub Actions `stable`; this candidate was also checked on
@@ -132,6 +132,7 @@ Dense `.mem` export is profiled. See
 |---|---|---|
 | **Generic** `generic-dense-q88` (**default**) | `write_generic` / `ExportConfig::generic()` / `ExportConfig::default()` | New callers. No Spikenaut metadata, no timestamp unless you supply one, no `target_latency_us` unless you declare a target (never a measurement). Refuses to overwrite files unless you call `allow_replace()`. |
 | **Required readout** | `ExportConfig::generic_with_required_readout()` | Dense bundle that **requires** a signed `K×N` readout (or rejects). On-disk profile id remains `spikenaut-signed-output-v1` (not a redefinition of `Spikenaut-v2`). `ExportConfig::spikenaut_signed_output_v1()` is the Spikenaut-named alias. |
+| **silicon-hdl v3** | `ExportConfig::silicon_hdl_v3()` | Pinned reference profile for 16 input channels, 16 hidden neurons, and 3 output classes. Preserves `parameters_output_weights.mem` as generic `K×N` and also writes `hdl_readout_neuron_major.mem` as HDL-native `N×K`. See [docs/host-hdl-contract.md](docs/host-hdl-contract.md). |
 | **Legacy Spikenaut-v2** | `MemFileWriter::write_mem_files` / `ExportConfig::legacy_spikenaut_v2()` | Reproduce historical `version: "Spikenaut-v2"` files. Replaces existing files. Records a declared 35 µs target, not a measured latency. Names alone do not imply HDL compatibility. |
 
 The checked writer returns an `ExportReport` and does not print. Same
@@ -296,8 +297,8 @@ list other revisions without fixtures.
 ## Public-release readiness
 
 See [docs/release-readiness.md](docs/release-readiness.md). This tree is the
-**0.3.0** publish candidate: install lines already say
-`silicon-bridge = "0.3.0"`. An authorized human `cargo publish` of 0.3.0 is
+**0.3.1** publish candidate: install lines already say
+`silicon-bridge = "0.3.1"`. An authorized human `cargo publish` of 0.3.1 is
 required after merge before crates.io / docs.rs are live. Packaged-crate
 smoke (`bash scripts/smoke-packaged-consumer.sh`) is not registry proof. CI
 matrix remains [#24](https://github.com/rmems/silicon-bridge/issues/24).

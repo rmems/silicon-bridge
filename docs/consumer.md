@@ -6,10 +6,10 @@ How to use `silicon-bridge` without Spikenaut, a sibling checkout, or the
 author's workstation. This is the packaged **public** API. Implementation
 modules under `src/` are not part of the contract.
 
-Install from crates.io once 0.3.0 is published:
+Install from crates.io once 0.3.1 is published:
 
 ```toml
-silicon-bridge = "0.3.0"
+silicon-bridge = "0.3.1"
 ```
 
 Until an authorized human `cargo publish`, depend on git/path. A README badge
@@ -78,6 +78,13 @@ only the host crate is not enough.
 | Flattening | Dense row-major. Hidden weights: `addr = neuron * num_channels + input`. |
 | Filenames | `parameters.mem` (thresholds), `parameters_weights.mem` (hidden `N×M`), `parameters_decay.mem` (decay), optional `parameters_output_weights.mem` (readout `K×N`), `parameters.json` |
 | Readout | Exporter writes `K×N` (class row, hidden column). silicon-hdl `OutputLayer` indexes `N×K` (`neuron * K + class`). Both files are recorded under `tests/golden/spikenaut_16/` (#53); they are not the same byte stream. |
+
+For the pinned silicon-hdl v3 reference contract, use
+`ExportConfig::silicon_hdl_v3()`. It supports exactly 16 input channels, 16
+hidden neurons, and 3 output classes; it preserves
+`parameters_output_weights.mem` as the generic class-major `K×N` readout and
+also emits `hdl_readout_neuron_major.mem` as the HDL-native neuron-major
+`N×K` image. See [host-hdl-contract.md](host-hdl-contract.md).
 
 Golden signed mappings: `-1 → FF00`, `-0.5 → FF80`, `0 → 0000`, `0.5 → 0080`,
 `1 → 0100`, `-128 → 8000`, `127.99609375 → 7FFF`.
@@ -160,7 +167,7 @@ against the public crate surface.
 | Legacy unsigned `.mem` | Re-export with signed `encode_q88_signed_full`. Old unsigned hex above `7FFF` is a different number under `$signed`. |
 | Signed parameter / readout | Hidden and readout default signed; set `set_encoding` per block. Read `metadata.encodings`. |
 | Legacy UART clipping | Keep `encode_q88_signed` on the wire. Do not reuse it for `.mem`. |
-| `Spikenaut-v2` tag | Layout identifier, not a model. The default checked path omits it. Use `ExportConfig::legacy_spikenaut_v2()` / `write_mem_files` when a consumer keys on that string. Prefer `write_generic`. Required readout: `ExportConfig::generic_with_required_readout()`. |
+| `Spikenaut-v2` tag | Layout identifier, not a model. The default checked path omits it. Use `ExportConfig::legacy_spikenaut_v2()` / `write_mem_files` when a consumer keys on that string. Prefer `write_generic`. Required readout: `ExportConfig::generic_with_required_readout()`. Pinned silicon-hdl reference export: `ExportConfig::silicon_hdl_v3()`. |
 | Timestamps / printing | `set_timestamp` requires RFC 3339 UTC. The checked path omits timestamps by default. `write_mem_files` records a wall-clock stamp and does not print. |
 | Pre-1.0 | Public types are `#[non_exhaustive]` where noted. Field additions (`tns_ns`, `encodings`) need `..Default::default()` in struct literals. No 1.0 stability promise. |
 
@@ -170,7 +177,7 @@ Publication is a **separately authorized** action. This guide and the
 examples do not run `cargo publish`, flash an FPGA, or implement NIR (see
 GitHub [#15](https://github.com/rmems/silicon-bridge/issues/15)).
 
-This tree is packaged as **0.3.0**. After a real `cargo publish`, confirm
+This tree is packaged as **0.3.1**. After a real `cargo publish`, confirm
 crates.io / docs.rs and repeat the packaged-crate smoke test against the
 **registry** version. A path/`cargo package` test does **not** prove
 crates.io publication.

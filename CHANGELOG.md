@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-17
+
+### Added
+
+- Pinned silicon-hdl v3 compatibility export profile (#81):
+  `ExportConfig::silicon_hdl_v3()` records
+  `silicon-bridge-silicon-hdl-v3-contract-v1`, supports exactly 16 input
+  channels, 16 hidden neurons, and 3 output classes, and writes
+  `hdl_readout_neuron_major.mem` as the HDL-native `N×K` readout image while
+  preserving the generic `parameters_output_weights.mem` `K×N` contract.
+- Versioned Host/HDL contract documentation in
+  `docs/host-hdl-contract.md`, including Q8.8 signedness, truncation,
+  overflow rejection, filenames, reset/timestep assumptions, the pinned
+  silicon-hdl revision, and SiliconBridge v3.0 UART frame sizes.
+
+### Changed
+
+- The crate version and installation snippets now target `0.3.1`. Publication
+  remains a separately authorized action; this change does not tag, publish,
+  or create a GitHub Release.
+
 ## [0.3.0] - 2026-09-17
 
 First crates.io-intended release. In-tree version and install snippets are

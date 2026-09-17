@@ -14,9 +14,11 @@
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use silicon_bridge::{
-    BlockEncodings, EXPORT_FORMAT_VERSION, FpgaParameterExporter, MemFileWriter, Q88_SIGNED_MAX,
-    Q88_SIGNED_MIN, Q88_UNSIGNED_MAX, Q88Encoding, encode_q88_signed_full, encode_q88_unsigned,
-    format_q88_hex, q88_signed_to_f32, q88_to_f32,
+    BlockEncodings, CompatibilityDimensions, EXPORT_FORMAT_VERSION, ExportConfig, ExportError,
+    FpgaParameterExporter, MemFileWriter, Q88_SIGNED_MAX, Q88_SIGNED_MIN, Q88_UNSIGNED_MAX,
+    Q88Encoding, SILICON_HDL_V3_CONTRACT_ID, SILICON_HDL_V3_PROFILE_ID,
+    SILICON_HDL_V3_SCHEMA_VERSION, SILICON_HDL_V3_SUPPORTED_REVISION, encode_q88_signed_full,
+    encode_q88_unsigned, format_q88_hex, q88_signed_to_f32, q88_to_f32,
 };
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -99,6 +101,34 @@ fn spikenaut_16_exporter() -> FpgaParameterExporter {
     readout[0][0] = -1.0;
     readout[1][1] = 0.5;
     readout[2][15] = 1.0;
+
+    let mut exporter = FpgaParameterExporter::from_params(thresholds, weights, vec![0.5; 16]);
+    exporter.set_output_weights(readout);
+    exporter
+}
+
+fn asymmetric_silicon_hdl_exporter() -> FpgaParameterExporter {
+    let mut thresholds = vec![1.0; 16];
+    thresholds[3] = 0.5;
+    thresholds[12] = 1.5;
+
+    let mut weights = vec![vec![0.0; 16]; 16];
+    for (i, row) in weights.iter_mut().enumerate() {
+        row[i] = 0.25;
+    }
+    weights[0][1] = -1.0;
+    weights[15][0] = -128.0;
+
+    let mut readout = vec![vec![0.0; 16]; 3];
+    readout[0][0] = 1.0;
+    readout[0][1] = -0.5;
+    readout[0][15] = 0.25;
+    readout[1][0] = -1.0;
+    readout[1][2] = 0.75;
+    readout[1][15] = -2.0;
+    readout[2][1] = 1.0 / 256.0;
+    readout[2][2] = -1.0 / 256.0;
+    readout[2][15] = Q88_SIGNED_MAX;
 
     let mut exporter = FpgaParameterExporter::from_params(thresholds, weights, vec![0.5; 16]);
     exporter.set_output_weights(readout);
@@ -411,6 +441,136 @@ fn readout_exporter_kx_n_is_not_hdl_neuron_major() {
     assert_eq!(kxn[dense_addr(1, 16, 1)], "0080");
     assert_eq!(nxk[dense_addr(1, 3, 1)], "0080");
     assert_ne!(kxn[dense_addr(1, 3, 1)], "0080");
+}
+
+#[test]
+fn silicon_hdl_profile_emits_explicit_neuron_major_readout_and_contract_metadata() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let report = asymmetric_silicon_hdl_exporter()
+        .write_with_config(dir.path(), &ExportConfig::silicon_hdl_v3())
+        .expect("silicon-hdl profile write");
+
+    assert_eq!(report.profile.id(), SILICON_HDL_V3_PROFILE_ID);
+    assert_eq!(
+        report.written,
+        [
+            "parameters.mem",
+            "parameters_weights.mem",
+            "parameters_decay.mem",
+            "parameters_output_weights.mem",
+            "hdl_readout_neuron_major.mem",
+            "parameters.json",
+        ]
+    );
+
+    let generic_kxn = read_mem_lines(dir.path().join("parameters_output_weights.mem"));
+    assert_eq!(
+        generic_kxn,
+        [
+            "0100", "FF80", "0000", "0000", "0000", "0000", "0000", "0000", "0000", "0000", "0000",
+            "0000", "0000", "0000", "0000", "0040", "FF00", "0000", "00C0", "0000", "0000", "0000",
+            "0000", "0000", "0000", "0000", "0000", "0000", "0000", "0000", "0000", "FE00", "0000",
+            "0001", "FFFF", "0000", "0000", "0000", "0000", "0000", "0000", "0000", "0000", "0000",
+            "0000", "0000", "0000", "7FFF",
+        ]
+    );
+
+    let hdl_nxk = read_mem_lines(dir.path().join("hdl_readout_neuron_major.mem"));
+    assert_eq!(
+        hdl_nxk,
+        [
+            "0100", "FF00", "0000", "FF80", "0000", "0001", "0000", "00C0", "FFFF", "0000", "0000",
+            "0000", "0000", "0000", "0000", "0000", "0000", "0000", "0000", "0000", "0000", "0000",
+            "0000", "0000", "0000", "0000", "0000", "0000", "0000", "0000", "0000", "0000", "0000",
+            "0000", "0000", "0000", "0000", "0000", "0000", "0000", "0000", "0000", "0000", "0000",
+            "0000", "0040", "FE00", "7FFF",
+        ],
+        "OutputLayer must receive neuron-major N×K, not generic class-major K×N"
+    );
+    assert_ne!(generic_kxn, hdl_nxk);
+
+    let json: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(dir.path().join("parameters.json")).unwrap())
+            .unwrap();
+    let meta = &json["metadata"];
+    assert_eq!(meta["profile"], SILICON_HDL_V3_PROFILE_ID);
+    assert_eq!(meta["schema_version"], SILICON_HDL_V3_SCHEMA_VERSION);
+    assert_eq!(
+        meta["compatibility"]["contract_id"],
+        SILICON_HDL_V3_CONTRACT_ID
+    );
+    assert_eq!(
+        meta["compatibility"]["silicon_hdl_revision"],
+        SILICON_HDL_V3_SUPPORTED_REVISION
+    );
+    assert_eq!(
+        meta["compatibility"]["supported_dimensions"]["input_channels"],
+        16
+    );
+    assert_eq!(
+        meta["compatibility"]["supported_dimensions"]["hidden_neurons"],
+        16
+    );
+    assert_eq!(
+        meta["compatibility"]["supported_dimensions"]["output_classes"],
+        3
+    );
+    assert_eq!(
+        meta["compatibility"]["readout_source_layout"],
+        "class_major_kxn"
+    );
+    assert_eq!(
+        meta["compatibility"]["readout_hdl_layout"],
+        "neuron_major_nxk"
+    );
+    assert_eq!(
+        meta["compatibility"]["files"]["generic_readout_kxn"],
+        "parameters_output_weights.mem"
+    );
+    assert_eq!(
+        meta["compatibility"]["files"]["hdl_readout_nxk"],
+        "hdl_readout_neuron_major.mem"
+    );
+    assert_eq!(
+        meta["compatibility"]["uart"]["protocol"],
+        "SiliconBridge v3.0"
+    );
+    assert_eq!(meta["compatibility"]["uart"]["request_bytes"], 33);
+    assert_eq!(meta["compatibility"]["uart"]["response_bytes"], 36);
+    assert_eq!(meta["compatibility"]["uart"]["input_channels"], 16);
+    assert_eq!(
+        meta["compatibility"]["uart"]["word_byte_order"],
+        "big_endian_16_bit_words"
+    );
+}
+
+#[test]
+fn silicon_hdl_profile_rejects_shapes_outside_the_pinned_reference_contract() {
+    let mut exporter = generic_4x6_exporter();
+    exporter.set_output_weights(vec![vec![1.0, -1.0, 0.5, -0.5]]);
+    let dir = tempfile::tempdir().expect("tempdir");
+
+    let err = exporter
+        .write_with_config(dir.path(), &ExportConfig::silicon_hdl_v3())
+        .expect_err("4×6 generic shape is not the pinned silicon-hdl profile");
+
+    assert!(matches!(
+        err,
+        ExportError::UnsupportedCompatibilityShape {
+            profile: SILICON_HDL_V3_PROFILE_ID,
+            expected: CompatibilityDimensions {
+                input_channels: 16,
+                hidden_neurons: 16,
+                output_classes: 3,
+            },
+            actual: CompatibilityDimensions {
+                input_channels: 6,
+                hidden_neurons: 4,
+                output_classes: 1,
+            },
+        }
+    ));
+    assert!(fs::read_dir(dir.path()).unwrap().next().is_none());
 }
 
 #[test]
