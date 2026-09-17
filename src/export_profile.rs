@@ -495,7 +495,15 @@ impl ExportConfig {
     }
 
     /// Replace the file layout after validating uniqueness and basenames.
+    ///
+    /// Pinned compatibility profiles may reject this because their filenames
+    /// are part of the external HDL contract.
     pub fn with_files(mut self, files: ExportFileLayout) -> Result<Self, ExportError> {
+        if self.profile == ExportProfile::SiliconHdlV3 {
+            return Err(ExportError::ImmutableFileLayout {
+                profile: self.profile.id(),
+            });
+        }
         self.validate_file_names_for_layout(&files, true)?;
         self.files = files;
         Ok(self)
@@ -1538,6 +1546,35 @@ mod tests {
         assert!(matches!(err, ExportError::DuplicateFilename { .. }));
 
         assert_eq!(fs::read(&marker).unwrap(), b"KEEP");
+    }
+
+    #[test]
+    fn silicon_hdl_profile_rejects_file_layout_overrides() {
+        let custom = ExportFileLayout {
+            thresholds: "custom_thresholds.mem".into(),
+            weights: "custom_weights.mem".into(),
+            decay: "custom_decay.mem".into(),
+            metadata: "custom_metadata.json".into(),
+            output_weights: Some("custom_readout.mem".into()),
+        };
+
+        let err = ExportConfig::silicon_hdl_v3()
+            .with_files(custom)
+            .expect_err("silicon-hdl v3 filenames are contract fields");
+
+        assert!(matches!(
+            err,
+            ExportError::ImmutableFileLayout {
+                profile: SILICON_HDL_V3_PROFILE_ID
+            }
+        ));
+
+        let config = ExportConfig::silicon_hdl_v3();
+        assert_eq!(config.files(), &ExportFileLayout::spikenaut_deployment());
+        assert_eq!(
+            config.hdl_readout_file(),
+            Some(SILICON_HDL_V3_READOUT_FILENAME)
+        );
     }
 
     #[test]

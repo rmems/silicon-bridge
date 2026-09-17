@@ -785,6 +785,11 @@ pub enum ExportError {
         /// Repeated basename.
         name: String,
     },
+    /// A pinned compatibility profile refused caller-supplied filenames.
+    ImmutableFileLayout {
+        /// Profile whose filenames are part of its compatibility contract.
+        profile: &'static str,
+    },
     /// The generic / signed-output path refused to replace an existing file.
     OverwriteRefused {
         /// Path that already exists.
@@ -835,6 +840,10 @@ impl fmt::Display for ExportError {
             Self::DuplicateFilename { name } => {
                 write!(f, "output filename {name:?} is used by more than one block")
             }
+            Self::ImmutableFileLayout { profile } => write!(
+                f,
+                "profile {profile} has a fixed file layout; choose a generic profile to customize filenames"
+            ),
             Self::OverwriteRefused { path } => write!(
                 f,
                 "refusing to replace existing file {} without ExportConfig::allow_replace",
@@ -886,6 +895,7 @@ impl std::error::Error for ExportError {
             Self::UnsignedHardwareEncoding { .. }
             | Self::UnsafeFilename { .. }
             | Self::DuplicateFilename { .. }
+            | Self::ImmutableFileLayout { .. }
             | Self::OverwriteRefused { .. }
             | Self::UnsupportedFlattening { .. }
             | Self::MissingRequiredReadout
