@@ -48,14 +48,19 @@
 //!
 //! ## Export profiles
 //!
-//! [`MemFileWriter::write_mem_files`] is the **legacy Spikenaut-v2**
+//! The default public disk path is **generic-dense-q88**:
+//! [`FpgaParameterExporter::write_generic`] or
+//! [`FpgaParameterExporter::write_with_config`] with [`ExportConfig::generic`]
+//! (also [`ExportConfig::default`]). That path writes no Spikenaut tag, no
+//! timestamp unless supplied, and no `target_latency_us` unless declared.
+//!
+//! [`MemFileWriter::write_mem_files`] is the **explicit** legacy Spikenaut-v2
 //! compatibility writer: documented filenames, a wall-clock timestamp, and a
-//! declared 35 µs target (not a measurement). Callers who must not inherit
-//! Spikenaut branding should use [`ExportConfig::generic`] with
-//! [`FpgaParameterExporter::write_with_config`]. A corrected signed-output
-//! Spikenaut contract is [`ExportConfig::spikenaut_signed_output_v1`] — a
-//! distinct profile/schema, not a silent redefinition of `Spikenaut-v2`.
-//! See [`ExportConfig`].
+//! declared 35 µs target (not a measurement). Required-readout bundles use
+//! [`ExportConfig::generic_with_required_readout`]
+//! ([`ExportConfig::spikenaut_signed_output_v1`] is the Spikenaut-named
+//! alias). That contract is a distinct profile/schema, not a silent
+//! redefinition of `Spikenaut-v2`. See [`ExportConfig`].
 
 use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt;
@@ -208,6 +213,12 @@ pub trait FixedPointEncode {
 
 /// Export SNN parameters as an FPGA-facing Q8.8 parameter bundle.
 ///
+/// **New callers:** use [`CheckedParameterExport::try_export`] for an
+/// in-memory image and [`FpgaParameterExporter::write_generic`] /
+/// [`ExportConfig::generic`] for the default disk path. This trait is the
+/// documented **legacy** in-memory wrapper (flatten, saturate, stamp
+/// `Spikenaut-v2`). It does not write files.
+///
 /// The resulting [`FpgaParameters`] align with silicon-hdl RAM contents
 /// (`WeightRam`, `NeuronParamRam`).
 pub trait ParameterExport {
@@ -221,8 +232,11 @@ pub trait ParameterExport {
     ///
     /// Prefer [`CheckedParameterExport::try_export`] or
     /// [`FpgaParameterExporter::validate`] before producing an FPGA image, or
-    /// write through [`MemFileWriter::write_mem_files`], which uses the
-    /// checked path.
+    /// write through [`FpgaParameterExporter::write_generic`] (default
+    /// generic-dense-q88 path). [`MemFileWriter::write_mem_files`] is the
+    /// explicit Spikenaut-v2 compatibility writer. This method is **not**
+    /// marked `#[deprecated]` so in-tree legacy tests and examples stay
+    /// warning-clean under `-D warnings`.
     fn export(&self) -> FpgaParameters;
 }
 
@@ -248,6 +262,10 @@ pub trait CheckedParameterExport {
 }
 
 /// Write Q8.8 parameter vectors as Vivado `$readmemh` `.mem` files.
+///
+/// **New callers:** [`FpgaParameterExporter::write_generic`] /
+/// [`ExportConfig::generic`]. This trait is the documented **legacy**
+/// Spikenaut-v2 disk writer.
 pub trait MemFileWriter {
     /// Filesystem / I/O failures, plus a parameter bundle that cannot be
     /// represented as a flat `.mem` file.
@@ -255,32 +273,39 @@ pub trait MemFileWriter {
 
     /// Write the **legacy Spikenaut-v2** bundle under `output_dir`.
     ///
+    /// Prefer [`FpgaParameterExporter::write_generic`] for new disk writes.
+    /// Call this method only when a consumer keys on `version: "Spikenaut-v2"`,
+    /// overwrite-in-place, a wall-clock timestamp, and the declared 35 µs
+    /// target. Not marked `#[deprecated]` so in-tree compatibility tests
+    /// stay warning-clean under `-D warnings`.
+    ///
     /// Documented filenames are `parameters.mem`, `parameters_weights.mem`,
     /// `parameters_decay.mem`, optional `parameters_output_weights.mem`, and
     /// `parameters.json`. Those names do not by themselves imply HDL
     /// compatibility.
     ///
     /// **Overwrite:** this compatibility path **replaces** existing files in
-    /// `output_dir` (historical behaviour). The generic profile
-    /// ([`FpgaParameterExporter::write_with_config`] with
+    /// `output_dir` (historical behaviour). The default generic profile
+    /// ([`FpgaParameterExporter::write_generic`] /
     /// [`ExportConfig::generic`]) refuses replacement unless
     /// [`ExportConfig::allow_replace`] is set.
     ///
     /// Implementations must validate the complete bundle **before** creating
     /// or truncating any output file. A validation failure leaves existing
-    /// files untouched. This does not claim multi-file atomicity if a later
-    /// filesystem write fails. The writer returns an [`ExportReport`] and
-    /// does **not** print to stdout.
+    /// files untouched. The shared writer stages the complete bundle in a
+    /// temporary subdirectory, then renames each file into place (see
+    /// [`FpgaParameterExporter::write_with_config`]). The writer returns an
+    /// [`ExportReport`] and does **not** print to stdout.
     fn write_mem_files(&self, output_dir: impl AsRef<Path>) -> Result<ExportReport, Self::Error>;
 }
 
 /// Default FPGA parameter exporter for dense Q8.8 `.mem` images.
 ///
-/// Exports learned SNN parameters in Q8.8 fixed-point format. The checked
-/// writer ([`MemFileWriter::write_mem_files`]) is the legacy Spikenaut-v2
-/// compatibility path. Prefer [`Self::write_with_config`] with
-/// [`ExportConfig::generic`] when the caller must not inherit Spikenaut
-/// branding, timestamps, or a declared latency target.
+/// Exports learned SNN parameters in Q8.8 fixed-point format. The default
+/// public disk path is [`Self::write_generic`] (`generic-dense-q88`).
+/// [`MemFileWriter::write_mem_files`] is the explicit Spikenaut-v2
+/// compatibility writer (historical tag, wall-clock timestamp, declared
+/// 35 µs target, overwrite-in-place).
 pub struct FpgaParameterExporter {
     thresholds: Vec<f32>,
     weights: Vec<Vec<f32>>,
@@ -291,10 +316,11 @@ pub struct FpgaParameterExporter {
     decay_encoding: Q88Encoding,
     readout_encoding: Q88Encoding,
     range_policy: RangePolicy,
-    /// Layout tag written into [`FpgaMetadata::version`].
+    /// Layout tag written into [`FpgaMetadata::version`]. Empty by default
+    /// so the checked path does not inherit `Spikenaut-v2`.
     format_version: String,
-    /// Caller-supplied RFC 3339 timestamp; `None` uses `chrono::Utc::now`.
-    timestamp: Option<String>,
+    /// Timestamp recorded by the checked path. Defaults to omit.
+    timestamp: TimestampPolicy,
 }
 
 /// Which parameter bank a validation error refers to.
@@ -881,10 +907,12 @@ pub struct FpgaParameters {
 /// `..Default::default()`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FpgaMetadata {
-    /// Historical layout tag. [`EXPORT_FORMAT_VERSION`] (`Spikenaut-v2`) for
-    /// [`ParameterExport::export`] and the legacy compatibility writer.
-    /// Omitted from generic / signed-output JSON (empty string). Distinct
-    /// from [`Self::schema_version`], [`Self::producer_version`], and
+    /// Historical layout tag. Empty on the default checked path. The
+    /// legacy [`ParameterExport::export`] wrapper and
+    /// [`MemFileWriter::write_mem_files`] still stamp
+    /// [`EXPORT_FORMAT_VERSION`] (`Spikenaut-v2`). Omitted from generic /
+    /// signed-output JSON (empty string). Distinct from
+    /// [`Self::schema_version`], [`Self::producer_version`], and
     /// [`Self::profile`].
     ///
     /// Not a validated invariant of the type itself: `FpgaMetadata` is public
@@ -892,8 +920,9 @@ pub struct FpgaMetadata {
     /// externally-supplied `parameters.json` can carry any string here.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub version: String,
-    /// Export timestamp. Empty when omitted (generic default). Legacy writes
-    /// use `chrono::Utc::now()`; the generic path copies a caller-supplied
+    /// Export timestamp. Empty when omitted (checked / generic default).
+    /// Legacy `ParameterExport::export` and `write_mem_files` use
+    /// `chrono::Utc::now()`; the generic path copies a caller-supplied
     /// string or omits the field so repeats stay byte-identical.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub timestamp: String,
@@ -1017,8 +1046,8 @@ impl FpgaParameterExporter {
             decay_encoding: Q88Encoding::Signed,
             readout_encoding: Q88Encoding::Signed,
             range_policy: RangePolicy::Reject,
-            format_version: EXPORT_FORMAT_VERSION.to_string(),
-            timestamp: None,
+            format_version: String::new(),
+            timestamp: TimestampPolicy::Omit,
         }
     }
 
@@ -1102,10 +1131,12 @@ impl FpgaParameterExporter {
 
     /// Set the layout tag written into [`FpgaMetadata::version`].
     ///
-    /// The default is [`EXPORT_FORMAT_VERSION`] (`Spikenaut-v2`), a historical
-    /// layout identifier. It does **not** change word width, signedness, or
-    /// flattening. Generic consumers should pass a name that does not imply
-    /// a Spikenaut model (for example `generic-dense-q88`).
+    /// The default is empty: the checked path does **not** inherit
+    /// [`EXPORT_FORMAT_VERSION`] (`Spikenaut-v2`). That string is a
+    /// historical layout identifier, not a second on-disk format. Pass it
+    /// only for Spikenaut compatibility. Generic consumers typically leave
+    /// this unset; disk writes use [`ExportConfig`] profile / schema fields
+    /// instead.
     pub fn set_format_version(&mut self, version: impl Into<String>) {
         self.format_version = version.into();
     }
@@ -1115,8 +1146,9 @@ impl FpgaParameterExporter {
     /// `timestamp` must be RFC 3339 with a UTC offset (`Z` or `±00:00`).
     /// The caller’s spelling is stored unchanged so repeated exports stay
     /// byte-identical. Non-UTC offsets and unparsable strings return
-    /// [`MetadataTimestampError`]. Call [`Self::use_wall_clock_timestamp`] to
-    /// restore `chrono::Utc::now` at export time (the default).
+    /// [`MetadataTimestampError`]. The default is to **omit** the timestamp.
+    /// Call [`Self::use_wall_clock_timestamp`] to record `chrono::Utc::now`
+    /// at export time (legacy behaviour).
     pub fn set_timestamp(
         &mut self,
         timestamp: impl AsRef<str>,
@@ -1127,13 +1159,16 @@ impl FpgaParameterExporter {
         if parsed.offset().local_minus_utc() != 0 {
             return Err(MetadataTimestampError::NotUtc);
         }
-        self.timestamp = Some(timestamp.to_owned());
+        self.timestamp = TimestampPolicy::Supplied(timestamp.to_owned());
         Ok(())
     }
 
-    /// Restore wall-clock timestamps (`chrono::Utc::now` at export time).
+    /// Record a wall-clock timestamp (`chrono::Utc::now` at export time).
+    ///
+    /// This is opt-in. The default checked path omits timestamps so repeats
+    /// stay byte-identical.
     pub fn use_wall_clock_timestamp(&mut self) {
-        self.timestamp = None;
+        self.timestamp = TimestampPolicy::Now;
     }
 
     fn metadata_version(&self) -> String {
@@ -1141,9 +1176,11 @@ impl FpgaParameterExporter {
     }
 
     fn metadata_timestamp(&self) -> String {
-        self.timestamp
-            .clone()
-            .unwrap_or_else(|| chrono::Utc::now().to_rfc3339())
+        match &self.timestamp {
+            TimestampPolicy::Omit => String::new(),
+            TimestampPolicy::Supplied(value) => value.clone(),
+            TimestampPolicy::Now => chrono::Utc::now().to_rfc3339(),
+        }
     }
 
     fn block_encodings(&self, include_readout: bool) -> BlockEncodings {
@@ -1162,19 +1199,23 @@ impl FpgaParameterExporter {
         self.encode_q88(value)
     }
 
-    /// Export parameters to FPGA-compatible format.
+    /// Export parameters to an in-memory Q8.8 bundle.
     ///
-    /// Prefer [`ParameterExport::export`] when coding against the trait.
+    /// Prefer [`CheckedParameterExport::try_export`] for an FPGA image and
+    /// [`Self::write_generic`] for the default disk path. This inherent
+    /// wrapper is the documented **legacy** flatten-and-saturate path
+    /// (same as [`ParameterExport::export`]).
     pub fn export(&self) -> FpgaParameters {
         ParameterExport::export(self)
     }
 
     /// Export parameters to `.mem` files for silicon-hdl / Vivado `$readmemh`.
     ///
-    /// Prefer [`MemFileWriter::write_mem_files`] when coding against the trait.
-    /// This is the checked **legacy** writer: it uses
-    /// [`ExportConfig::legacy_spikenaut_v2`], replaces existing files, and
-    /// does not create or truncate files if validation fails.
+    /// This is an alias of [`MemFileWriter::write_mem_files`]: the checked
+    /// **legacy Spikenaut-v2** writer. Prefer [`Self::write_generic`] for new
+    /// callers. This path uses [`ExportConfig::legacy_spikenaut_v2`], replaces
+    /// existing files, and does not create or truncate files if validation
+    /// fails.
     pub fn export_to_mem_files<P: AsRef<Path>>(
         &self,
         output_dir: P,
@@ -1198,8 +1239,8 @@ impl FpgaParameterExporter {
             decay_encoding: Q88Encoding::Signed,
             readout_encoding: Q88Encoding::Signed,
             range_policy: RangePolicy::Reject,
-            format_version: EXPORT_FORMAT_VERSION.to_string(),
-            timestamp: None,
+            format_version: String::new(),
+            timestamp: TimestampPolicy::Omit,
         }
     }
 
@@ -1272,6 +1313,11 @@ impl FpgaParameterExporter {
     /// [`ParameterExport::export`] when producing an FPGA image. The infallible
     /// methods remain for callers that need the historical flatten-and-clamp
     /// behaviour; they are not a safe default.
+    ///
+    /// Metadata defaults match **generic-dense-q88**: no Spikenaut layout tag,
+    /// no timestamp, no declared latency. Disk writes should use
+    /// [`Self::write_generic`]. [`MemFileWriter::write_mem_files`] is the
+    /// explicit Spikenaut-v2 compatibility writer.
     ///
     /// Out-of-range values are rejected under the default
     /// [`RangePolicy::Reject`]. [`RangePolicy::Saturate`] returns
@@ -1534,7 +1580,7 @@ impl FpgaParameterExporter {
             } else {
                 self.weights[0].len()
             },
-            target_latency_us: Some(SPIKENAUT_LEGACY_TARGET_LATENCY_US),
+            target_latency_us: None,
             memory_usage_kb: self.calculate_memory_usage(),
             encodings: self.block_encodings(output_weights.is_some()),
             ..FpgaMetadata::default()
@@ -1740,9 +1786,19 @@ impl ParameterExport for FpgaParameterExporter {
             .map(|&v| self.encode_q88(v))
             .collect();
 
+        let version = if self.format_version.is_empty() {
+            EXPORT_FORMAT_VERSION.to_string()
+        } else {
+            self.format_version.clone()
+        };
+        let timestamp = match &self.timestamp {
+            TimestampPolicy::Supplied(value) => value.clone(),
+            TimestampPolicy::Omit | TimestampPolicy::Now => chrono::Utc::now().to_rfc3339(),
+        };
+
         let metadata = FpgaMetadata {
-            version: self.metadata_version(),
-            timestamp: self.metadata_timestamp(),
+            version,
+            timestamp,
             num_neurons: self.thresholds.len(),
             num_channels: if self.weights.is_empty() {
                 0
@@ -2049,6 +2105,27 @@ mod tests {
         assert_eq!(params.thresholds, vec![256]);
         assert_eq!(params.weights, vec![128]);
         assert_eq!(params.decay_rates, vec![230]);
+        assert!(params.metadata.target_latency_us.is_some());
+    }
+
+    #[test]
+    fn checked_export_defaults_are_generic_not_spikenaut() {
+        let exporter = FpgaParameterExporter::from_params(vec![1.0], vec![vec![-1.0]], vec![0.5]);
+        let params = exporter.try_export().expect("checked");
+        assert!(
+            params.metadata.version.is_empty(),
+            "default checked path must not stamp Spikenaut-v2"
+        );
+        assert!(!params.metadata.version.contains("Spikenaut"));
+        assert!(params.metadata.timestamp.is_empty());
+        assert!(params.metadata.target_latency_us.is_none());
+        assert_eq!(params.weights[0], -256);
+
+        let dir = tempfile::tempdir().unwrap();
+        let report = exporter.write_generic(dir.path()).expect("generic write");
+        assert_eq!(report.profile, ExportProfile::GenericDenseQ88);
+        let json = fs::read_to_string(dir.path().join("parameters.json")).unwrap();
+        assert!(!json.contains("Spikenaut"));
     }
 
     #[test]

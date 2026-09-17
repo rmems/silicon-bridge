@@ -327,7 +327,11 @@ fn generic_4x6_matches_committed_mem_and_row_major_layout() {
     let params = generic_4x6_exporter()
         .try_export()
         .expect("checked generic export");
-    assert_eq!(params.metadata.version, EXPORT_FORMAT_VERSION);
+    assert!(
+        params.metadata.version.is_empty(),
+        "default checked path must not stamp Spikenaut-v2"
+    );
+    assert!(!params.metadata.version.contains("Spikenaut"));
     assert_eq!(params.metadata.num_neurons, 4);
     assert_eq!(params.metadata.num_channels, 6);
     assert_eq!(

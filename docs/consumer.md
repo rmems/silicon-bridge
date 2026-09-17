@@ -6,10 +6,52 @@ How to use `silicon-bridge` without Spikenaut, a sibling checkout, or the
 author's workstation. This is the packaged **public** API. Implementation
 modules under `src/` are not part of the contract.
 
-The crate was **not on crates.io or docs.rs** when this guide was written
-(registry and docs.rs lookups for `silicon-bridge` returned 404 on
-2026-09-15). A README badge is not publication. See
-[release-readiness.md](release-readiness.md) before any `cargo publish`.
+Install from crates.io once 0.3.0 is published:
+
+```toml
+silicon-bridge = "0.3.0"
+```
+
+Until an authorized human `cargo publish`, depend on git/path. A README badge
+is not publication. See [release-readiness.md](release-readiness.md).
+
+## Bring your own floats
+
+You already have trained `f32` values. This crate does not train a network
+and does not interpret what the floats mean.
+
+| Input | Shape | Output file |
+|---|---|---|
+| Thresholds | `N` | `parameters.mem` |
+| Hidden weights | `N×M` dense row-major | `parameters_weights.mem` |
+| Decay | `N` | `parameters_decay.mem` |
+| Optional readout | `K×N` (class row, hidden column) | `parameters_output_weights.mem` |
+| Manifest | — | `parameters.json` |
+
+```rust
+use silicon_bridge::FpgaParameterExporter;
+
+let mut exporter = FpgaParameterExporter::from_params(
+    thresholds,  // Vec<f32>, length N
+    weights,     // Vec<Vec<f32>>, N rows × M columns
+    decay,       // Vec<f32>, length N
+);
+// exporter.set_output_weights(readout); // optional K×N
+
+let params = exporter.try_export()?; // rejects empty/ragged/NaN/overflow
+let report = exporter.write_generic("fpga_output")?; // generic-dense-q88
+```
+
+`try_export` uses `RangePolicy::Reject` by default. Hardware `.mem` is signed
+two's complement Q8.8. The generic path writes no Spikenaut tag, no timestamp,
+and no `target_latency_us`. Existing files are refused unless you pass
+`ExportConfig::generic().allow_replace()`. Prefer `write_generic` over
+`ParameterExport::export` / `MemFileWriter::write_mem_files`.
+
+Required signed `K×N` readout: `ExportConfig::generic_with_required_readout()`
+(`spikenaut_signed_output_v1()` is the Spikenaut-named alias). Spikenaut-v2
+files are **opt-in**: `MemFileWriter::write_mem_files` /
+`ExportConfig::legacy_spikenaut_v2()`.
 
 ## Who owns what
 
@@ -96,14 +138,14 @@ Native serial prerequisites (only if you enable `uart` and open a port):
 
 ## UART firmware profiles
 
-Custom [`DenseQ88Layout`](../src/fpga_codec.rs) dimensions require **matching
+Listed **example layouts** with #53 golden-byte evidence. They are host
+codecs, not a claim that this crate only works with Basys3. Custom
+[`DenseQ88Layout`](../src/fpga_codec.rs) dimensions require **matching
 firmware**. Changing host channel counts does not reconfigure the FPGA.
 
-Listed only with #53 golden-byte evidence:
-
-| Profile | Evidence | Firmware claim |
+| Profile | Evidence | What it is |
 |---|---|---|
-| SiliconBridge v3.0 (16 in / 16 out, switch field) | `tests/golden/uart/legacy_v3.json` | Software profile that matches current Basys3 firmware |
+| SiliconBridge v3.0 (16 in / 16 out, switch field) | `tests/golden/uart/legacy_v3.json` | Example layout with golden bytes recorded against Basys3 firmware |
 | Dense 8 / 32 / 8×10 | `tests/golden/uart/dense_*.json` | Host codec only |
 
 ## Examples
@@ -118,8 +160,8 @@ against the public crate surface.
 | Legacy unsigned `.mem` | Re-export with signed `encode_q88_signed_full`. Old unsigned hex above `7FFF` is a different number under `$signed`. |
 | Signed parameter / readout | Hidden and readout default signed; set `set_encoding` per block. Read `metadata.encodings`. |
 | Legacy UART clipping | Keep `encode_q88_signed` on the wire. Do not reuse it for `.mem`. |
-| Timestamps / printing | `set_timestamp` requires RFC 3339 UTC. `write_mem_files` still prints a summary (legacy). |
-| `Spikenaut-v2` tag | Layout identifier, not a model. Override with `set_format_version` for generic bundles. Do not silently retag signed-readout JSON as a new schema without a distinct name. |
+| `Spikenaut-v2` tag | Layout identifier, not a model. The default checked path omits it. Use `ExportConfig::legacy_spikenaut_v2()` / `write_mem_files` when a consumer keys on that string. Prefer `write_generic`. Required readout: `ExportConfig::generic_with_required_readout()`. |
+| Timestamps / printing | `set_timestamp` requires RFC 3339 UTC. The checked path omits timestamps by default. `write_mem_files` records a wall-clock stamp and does not print. |
 | Pre-1.0 | Public types are `#[non_exhaustive]` where noted. Field additions (`tns_ns`, `encodings`) need `..Default::default()` in struct literals. No 1.0 stability promise. |
 
 ## Publication
@@ -128,8 +170,7 @@ Publication is a **separately authorized** action. This guide and the
 examples do not run `cargo publish`, flash an FPGA, or implement NIR (see
 GitHub [#15](https://github.com/rmems/silicon-bridge/issues/15)).
 
-Rewrite README and crate rustdoc to the selected crates.io version **on the
-candidate commit**, before `cargo publish --dry-run`. Published versions are
-immutable. After a real publish, repeat the packaged-crate smoke test
-against the **registry** version. A path/`cargo package` test does **not**
-prove crates.io publication.
+This tree is packaged as **0.3.0**. After a real `cargo publish`, confirm
+crates.io / docs.rs and repeat the packaged-crate smoke test against the
+**registry** version. A path/`cargo package` test does **not** prove
+crates.io publication.

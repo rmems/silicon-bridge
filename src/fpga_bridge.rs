@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! FPGA Spike Readback — UART Bridge to Basys3 Hardware
+//! FPGA spike readback — blocking UART host adapter.
 //!
-//! Handles UART communication with Basys3 FPGA to send stimuli
-//! and read back spike states using the SiliconBridge v3.0 protocol.
+//! Sends stimuli and reads spike state over a caller-selected serial port
+//! using a dense Q8.8 layout. The default layout is SiliconBridge v3.0, an
+//! **example** 16-channel profile with golden-byte evidence (Basys3 firmware
+//! fixture). This module does not claim the crate only works with Basys3;
+//! open any UART device explicitly and match firmware separately.
 //!
 //! Extracted from Eagle-Lander's Ship of Theseus neuromorphic core.
 //!
@@ -62,8 +65,9 @@
 //! Request/response bytes are encoded by [`crate::DenseQ88Layout`] /
 //! [`crate::encode_stimuli`] / [`crate::decode_response`] and do not depend
 //! on this module. [`DenseQ88Layout::silicon_bridge_v3`] is the 16-channel
-//! software profile that matches current Basys3 firmware. Other dense sizes
-//! need matching FPGA firmware — changing the host layout is not enough.
+//! **example layout** with golden-byte evidence against Basys3 firmware.
+//! Other dense sizes need matching FPGA firmware — changing the host layout
+//! is not enough and does not reconfigure a board.
 //!
 //! A failed or partial exchange sets [`FpgaBridge::needs_recovery`]. Further
 //! stimuli are refused until [`FpgaBridge::recover`]. This crate does not
@@ -79,7 +83,7 @@ use std::fmt;
 use std::io::{self, Read, Write};
 use std::time::Duration;
 
-/// Baud rate the SiliconBridge v3.0 firmware runs at.
+/// Baud rate used by the SiliconBridge v3.0 example firmware layout.
 pub const DEFAULT_BAUD_RATE: u32 = 115_200;
 
 /// Default per-I/O timeout applied to the serial port.
@@ -400,11 +404,13 @@ impl FpgaBridgeBuilder {
     }
 }
 
-/// A blocking UART connection to a Basys3 board speaking SiliconBridge v3.0.
+/// A blocking UART connection using a dense Q8.8 host layout (SiliconBridge
+/// v3.0 by default).
 ///
 /// Construction opens a serial transport only. [`Self::is_transport_open`]
 /// reports that the OS accepted the port. Nothing in this crate verifies that
-/// the peer is FPGA firmware or that it speaks SiliconBridge.
+/// the peer is FPGA firmware or that it speaks SiliconBridge. Basys3 is the
+/// golden-byte example board, not a runtime requirement.
 ///
 /// Framing lives in [`crate::DenseQ88Layout`]. This type owns the serial
 /// descriptor, recovery latch, and I/O.

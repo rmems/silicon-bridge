@@ -6,30 +6,37 @@
 //! This crate provides:
 //! - **Q8.8 fixed-point parameter export** (`FixedPointEncode`, `ParameterExport`,
 //!   `CheckedParameterExport`, `MemFileWriter`, `ExportConfig`) for [silicon-hdl](https://github.com/rmems/silicon-hdl)
-//!   `WeightRam` / `NeuronParamRam` via Vivado `$readmemh`. Prefer
-//!   [`ExportConfig::generic`] when the caller must not inherit Spikenaut
-//!   branding; [`MemFileWriter::write_mem_files`] is the legacy `Spikenaut-v2`
-//!   compatibility writer.
-//! - **SiliconBridge UART codecs** (`DenseQ88Layout`, `encode_stimuli`,
-//!   `decode_response`) that do not depend on `serialport`
-//! - **FPGA spike readback** over UART using the SiliconBridge v3.0 protocol
+//!   `WeightRam` / `NeuronParamRam` via Vivado `$readmemh`. The default public
+//!   path is [`ExportConfig::generic`] / [`FpgaParameterExporter::write_generic`]
+//!   (`generic-dense-q88`). Prefer that over [`ParameterExport::export`] /
+//!   [`MemFileWriter::write_mem_files`] (legacy Spikenaut-v2). Required
+//!   readout: [`ExportConfig::generic_with_required_readout`].
+//! - **UART codecs** (`DenseQ88Layout`, `encode_stimuli`,
+//!   `decode_response`) that do not depend on `serialport`. SiliconBridge v3.0
+//!   is an example 16-channel layout with golden-byte evidence, not a Basys3-only crate.
+//! - **Optional UART I/O** (`uart` feature) for blocking spike exchange on a
+//!   caller-selected port
 //! - **Vivado report parsing** for CI/CD gating on WNS, TNS, and LUT utilization
 //!
 //! Licensed under either of MIT or Apache-2.0 at your option.
 //!
 //! ## Installation
 //!
-//! This crate is **not on crates.io or docs.rs** as of 2026-09-15 (registry
-//! lookup returned 404). A README badge is not publication. Until a
-//! separately authorized `cargo publish`:
-//!
 //! ```toml
-//! silicon-bridge = { git = "https://github.com/rmems/silicon-bridge" }
+//! silicon-bridge = "0.3.0"
 //! ```
 //!
-//! After a real publish, depend on the version crates.io actually serves, and
-//! verify docs.rs only then. `rust-version` is `1.98.1`. See the crate
-//! README and `docs/release-readiness.md` in the git tree.
+//! Optional UART I/O:
+//!
+//! ```toml
+//! silicon-bridge = { version = "0.3.0", features = ["uart"] }
+//! ```
+//!
+//! `rust-version` is `1.88.0` (language floor). See the crate README and
+//! `docs/release-readiness.md` for the authorized `cargo publish` checklist
+//! and the distinction between that floor, the 1.85.0 dependency graph, and
+//! CI `stable`. This rustdoc does **not** claim crates.io or docs.rs are
+//! already live.
 //!
 //! Offline examples (`examples/generic_mem_export.rs`,
 //! `examples/spikenaut_profile_export.rs`, `examples/dense_codec.rs`) use only
@@ -70,9 +77,11 @@
 //!
 //! ## Provenance
 //!
-//! Extracted from Eagle-Lander, the author's own private neuromorphic GPU supervisor
-//! repository (closed-source). The FPGA export pipeline deployed trained SNN parameters
-//! to Basys3 hardware in production before being open-sourced as a standalone crate.
+//! Extracted from Eagle-Lander, the author's own private neuromorphic GPU
+//! supervisor (closed-source). The default public path is framework-agnostic
+//! dense Q8.8 export. Historical Basys3 / Spikenaut deployments are opt-in
+//! profiles with golden-byte evidence, not a claim that this crate only
+//! works with that board.
 //!
 //! ## Quick Start
 //!
@@ -87,18 +96,15 @@
 //! exporter.set_weights(weights);
 //! exporter.set_decay_rates(vec![0.85; 16]);
 //!
-//! let params = exporter.export();
+//! let params = exporter.try_export().expect("rectangular, finite, in-range");
 //! assert_eq!(params.weights[0], -256); // written to .mem as `FF00`
 //! assert_eq!(q88_signed_to_f32(params.weights[0]), -1.0);
+//! assert!(params.metadata.version.is_empty()); // no Spikenaut tag
 //! println!("Memory usage: {:.2} KB", params.metadata.memory_usage_kb);
-//! // Prefer `try_export` / `CheckedParameterExport` when the bundle must be a
-//! // valid FPGA image. Under the default `RangePolicy::Reject`, it rejects
-//! // empty, ragged, mismatched, non-finite, and out-of-range values instead
-//! // of flattening or saturating them. `RangePolicy::Saturate` is not applied
-//! // by `try_export` (it would drop the clamp list); use
-//! // `try_export_with_report` to clamp and inspect a `SaturationReport`.
-//! // Disk writes: `ExportConfig::generic` for a framework-agnostic bundle,
-//! // `write_mem_files` only when the historical Spikenaut-v2 layout is required.
+//! // Disk writes: `write_generic` / `ExportConfig::generic` for a
+//! // framework-agnostic bundle. `write_mem_files` only when the historical
+//! // Spikenaut-v2 layout is required. `ParameterExport::export` remains the
+//! // documented legacy wrapper (flatten + saturate + Spikenaut-v2 stamp).
 //! ```
 //!
 //! Prefer [`CheckedParameterExport::try_export`] when the bundle must be a
@@ -109,19 +115,15 @@
 //! [`FpgaParameterExporter::try_export_with_report`] to clamp and inspect a
 //! [`SaturationReport`].
 //!
-//! Generic consumers should call
-//! [`FpgaParameterExporter::set_format_version`] so `parameters.json` does
-//! not inherit the historical `Spikenaut-v2` layout tag. See
-//! `examples/generic_mem_export.rs`.
+//! The default checked path omits `parameters.json` layout tags, timestamps,
+//! and declared latency. Disk writes use [`FpgaParameterExporter::write_generic`]
+//! (`generic-dense-q88`). See `examples/generic_mem_export.rs`.
 //!
 //! ## FPGA Bridge (requires `uart` feature)
 //!
-//! Not published on crates.io as of this writing. Enable the feature on a git
-//! or path dependency:
-//!
 //! ```toml
 //! [dependencies]
-//! silicon-bridge = { git = "https://github.com/rmems/silicon-bridge", features = ["uart"] }
+//! silicon-bridge = { version = "0.3.0", features = ["uart"] }
 //! ```
 //!
 //! Prefer [`FpgaBridge::open_with_config`] or [`FpgaBridge::builder`] with an
@@ -131,8 +133,9 @@
 //! [`list_serial_ports`] typically does.
 //!
 //! Frame encode/decode is [`encode_stimuli`] / [`decode_response`] and does
-//! not need this feature. Non-v3 [`DenseQ88Layout`]s require matching FPGA
-//! firmware.
+//! not need this feature. [`DenseQ88Layout::silicon_bridge_v3`] is an example
+//! 16-channel layout with golden-byte evidence; other layouts need matching
+//! FPGA firmware. Changing host channel counts does not reconfigure a board.
 
 // `forbid(unsafe_code)` enforces an AGENTS.md *constraint* — "do not add
 // `unsafe` code without explicit safety justification" — mechanically. Nothing

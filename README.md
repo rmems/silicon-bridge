@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo.png" width="220" alt="Spikenaut">
+  <img src="docs/logo.png" width="220" alt="silicon-bridge">
 </p>
 
 <h1 align="center">silicon-bridge</h1>
@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="https://github.com/rmems/silicon-bridge/actions/workflows/ci.yml"><img src="https://github.com/rmems/silicon-bridge/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/crates.io-not%20published-lightgrey" alt="crates.io not published">
+  <img src="https://img.shields.io/crates/v/silicon-bridge.svg" alt="crates.io 0.3.0">
   <img src="https://img.shields.io/badge/license-MIT%2FApache--2.0-blue" alt="MIT/Apache-2.0">
 </p>
 
@@ -23,10 +23,11 @@ stimuli and reading back spike states at runtime.
 
 - **Export traits** for hardware alignment with [silicon-hdl](https://github.com/rmems/silicon-hdl):
   - `FixedPointEncode` — `f32` → signed Q8.8 (`i16`)
-  - `ParameterExport` — build the FPGA parameter bundle (infallible, legacy)
+  - `ParameterExport` — build the FPGA parameter bundle (infallible, **legacy**; prefer `try_export`)
   - `CheckedParameterExport` — same bundle, or a typed `ParameterShapeError`
-  - `MemFileWriter` — write `$readmemh` `.mem` files (legacy Spikenaut-v2 path)
-  - `ExportConfig` / `write_with_config` — generic, legacy, and signed-output profiles
+  - `ExportConfig` / `write_generic` — default **generic-dense-q88** path
+  - `MemFileWriter` — explicit Spikenaut-v2 compatibility writer (prefer `write_generic`)
+  - `write_with_config` — generic, required-readout, and legacy profiles
 - `FpgaParameterExporter` — default implementation of those traits
 - `format_q88_hex` / `encode_q88_signed_full` / `q88_signed_to_f32` — signed
   parameter Q8.8 helpers (full `i16` range). `encode_q88_signed` remains the
@@ -50,39 +51,27 @@ stimuli and reading back spike states at runtime.
 
 ## Installation
 
-`silicon-bridge` is **not published on crates.io** as of 2026-09-15
-(registry lookup `GET https://crates.io/api/v1/crates/silicon-bridge` returned
-404; docs.rs likewise). The former crates.io / docs.rs badges were not proof
-of publication. `[package].version` in this tree is `0.1.0` and
-`rust-version` is `1.98.1`. A real release is a [separately authorized
-publish](docs/release-readiness.md).
-
-### Unpublished / development (current)
-
 ```toml
-# git (pin a rev for reproducible builds)
-silicon-bridge = { git = "https://github.com/rmems/silicon-bridge" }
-# silicon-bridge = { git = "https://github.com/rmems/silicon-bridge", rev = "<commit>" }
-
-# path, while hacking on a checkout — not a sibling-workspace requirement
-# silicon-bridge = { path = "../silicon-bridge" }
+silicon-bridge = "0.3.0"
 ```
-
-### After an authorized crates.io publish
-
-Only once `https://crates.io/crates/silicon-bridge` serves a version:
-
-```toml
-silicon-bridge = "x.y.z"  # the version that was actually published
-```
-
-Verify docs.rs **after** that publish. A `cargo package` / path smoke test is
-not a registry test.
 
 Optional UART I/O:
 
 ```toml
-silicon-bridge = { git = "https://github.com/rmems/silicon-bridge", features = ["uart"] }
+silicon-bridge = { version = "0.3.0", features = ["uart"] }
+```
+
+`[package].version` is `0.3.0`. `[package].rust-version` is **`1.88.0`**:
+that is the language floor this crate actually needs (edition 2024 plus
+`if`/`let` chains). The dependency graph would compile on **1.85.0**.
+CI uses GitHub Actions `stable`; this candidate was also checked on
+`rustc 1.98.1`. Registry publication is a [separately authorized
+`cargo publish`](docs/release-readiness.md) after this tree is merged. Git/path
+pins remain valid for local development:
+
+```toml
+# silicon-bridge = { git = "https://github.com/rmems/silicon-bridge", rev = "<commit>" }
+# silicon-bridge = { path = "../silicon-bridge" }
 ```
 
 ## Quick Start
@@ -90,39 +79,49 @@ silicon-bridge = { git = "https://github.com/rmems/silicon-bridge", features = [
 Runnable copies live in [`examples/`](examples/README.md). They compile
 against the public crate API and run offline (no FPGA, no serial device).
 
-### Generic checked export (4 neurons × 6 inputs)
+### Bring your own floats (generic-dense-q88)
+
+You already have trained `f32` thresholds, hidden weights, decay rates, and
+optionally a `K×N` readout. This crate does not train a network. Load the
+floats, run the checked exporter, write `$readmemh` `.mem` files:
 
 ```rust
-use silicon_bridge::{CheckedParameterExport, ExportConfig, FpgaParameterExporter};
+use silicon_bridge::FpgaParameterExporter;
 
-let mut exporter = FpgaParameterExporter::from_params(
-    vec![1.0, 0.5, 1.5, 0.75],
+let exporter = FpgaParameterExporter::from_params(
+    vec![1.0, 0.5, 1.5, 0.75],           // thresholds (N)
     vec![
         vec![0.5, -1.0, 0.25, 1.0, -0.5, 0.0],
         vec![-128.0, 127.99609375, 1.0 / 256.0, -1.0 / 256.0, 2.0, -2.0],
         vec![1.0; 6],
         vec![-0.5, 0.5, -0.5, 0.5, -0.5, 0.5],
-    ],
-    vec![0.5, 0.75, 0.25, 1.0],
+    ],                                   // hidden weights (N×M, row-major)
+    vec![0.5, 0.75, 0.25, 1.0],          // decay (N)
 );
+// exporter.set_output_weights(vec![vec![1.0, 0.0, 0.0, 0.0]]); // optional K×N readout
 
 let params = exporter.try_export().expect("rectangular, finite, in-range");
 // → params.thresholds, .weights, .decay_rates are Vec<i16> (signed Q8.8)
 // → negative (Dale-inhibitory) weights survive: -1.0 → -256 → `FF00`
 
-// Framework-agnostic disk write: no Spikenaut tag, no invented timing, no stdout.
+// Default public disk path: no Spikenaut tag, no invented timing, no stdout.
 let report = exporter
-    .write_with_config("fpga_output", &ExportConfig::generic())
-    .expect("generic export");
+    .write_generic("fpga_output")
+    .expect("generic-dense-q88 export");
 assert_eq!(report.written[0], "parameters.mem");
 
 // ParameterExport::export is the documented legacy wrapper: it still
-// flattens a ragged matrix and saturates out-of-range values. Prefer try_export
-// (or MemFileWriter::write_mem_files) for any image that will be synthesized.
-// write_mem_files is the Spikenaut-v2 compatibility path: it replaces
-// existing files and records the historical layout tag.
+// flattens a ragged matrix, saturates out-of-range values, and stamps
+// Spikenaut-v2. Prefer try_export for any image that will be synthesized.
+// write_mem_files is the explicit Spikenaut-v2 compatibility path.
 let _legacy = silicon_bridge::ParameterExport::export(&exporter);
 ```
+
+That writes `parameters.mem` (thresholds), `parameters_weights.mem` (`N×M`),
+`parameters_decay.mem`, optional `parameters_output_weights.mem` (`K×N`), and
+`parameters.json`. Existing files are refused unless you call
+`ExportConfig::generic().allow_replace()` (or `write_with_config` with that
+config). Full HDL reader contract: [docs/consumer.md](docs/consumer.md).
 
 ### Export profiles
 
@@ -131,9 +130,9 @@ Dense `.mem` export is profiled. See
 
 | Profile | API | Use when |
 |---|---|---|
-| **Generic** `generic-dense-q88` | `ExportConfig::generic()` + `write_with_config` | Your model is not a Spikenaut deployment. No Spikenaut metadata, no timestamp unless you supply one, no `target_latency_us` unless you declare a target (never a measurement). Refuses to overwrite files unless you call `allow_replace()`. |
-| **Legacy Spikenaut-v2** | `MemFileWriter::write_mem_files` / `ExportConfig::legacy_spikenaut_v2()` | Reproduce `parameters.mem`, `parameters_weights.mem`, `parameters_decay.mem`, optional `parameters_output_weights.mem`, and `parameters.json` with `version: "Spikenaut-v2"`. Replaces existing files (historical). Records a declared 35 µs target, not a measured latency. Names alone do not imply HDL compatibility. |
-| **Signed-output Spikenaut** `spikenaut-signed-output-v1` | `ExportConfig::spikenaut_signed_output_v1()` | Corrected contract that **requires** a signed `K×N` readout (or rejects). Distinct schema — it does **not** redefine `Spikenaut-v2`. |
+| **Generic** `generic-dense-q88` (**default**) | `write_generic` / `ExportConfig::generic()` / `ExportConfig::default()` | New callers. No Spikenaut metadata, no timestamp unless you supply one, no `target_latency_us` unless you declare a target (never a measurement). Refuses to overwrite files unless you call `allow_replace()`. |
+| **Required readout** | `ExportConfig::generic_with_required_readout()` | Dense bundle that **requires** a signed `K×N` readout (or rejects). On-disk profile id remains `spikenaut-signed-output-v1` (not a redefinition of `Spikenaut-v2`). `ExportConfig::spikenaut_signed_output_v1()` is the Spikenaut-named alias. |
+| **Legacy Spikenaut-v2** | `MemFileWriter::write_mem_files` / `ExportConfig::legacy_spikenaut_v2()` | Reproduce historical `version: "Spikenaut-v2"` files. Replaces existing files. Records a declared 35 µs target, not a measured latency. Names alone do not imply HDL compatibility. |
 
 The checked writer returns an `ExportReport` and does not print. Same
 input, config, and metadata produce byte-identical `.mem` and JSON.
@@ -158,11 +157,15 @@ let (_potentials, spikes) = bridge.process_stimuli(&stimuli)?;
 
 `FpgaBridge` is synchronous. The recommended path is an explicit port plus
 `SerialConfig` (baud rate and a finite nonzero per-I/O timeout). Defaults
-match SiliconBridge v3.0 firmware: 115200 baud, 100 ms. `FpgaBridge::new()`
-still exists as a legacy convenience that probes USB-serial-looking names
-(and `/dev/ttyUSB0..2` when enumeration is empty or fails); it is not the
-recommended public path. A port that opens is transport-open only —
-construction does not send stimulus frames or verify the peer.
+(115200 baud, 100 ms) match the SiliconBridge **v3.0 example layout**,
+which has golden-byte evidence against Basys3 firmware
+(`tests/golden/uart/`). `FpgaBridge::new()` still exists as a legacy
+convenience that probes USB-serial-looking names (and `/dev/ttyUSB0..2`
+when enumeration is empty or fails); it is not the recommended public path.
+A port that opens is transport-open only — construction does not send
+stimulus frames or verify the peer. This crate does not only work with
+Basys3: any caller-selected UART device can be opened; matching firmware
+is a separate concern.
 
 `list_serial_ports()` reports OS enumerator failures instead of swallowing
 them. `find_fpga_ports()` is a name heuristic on that list, not FPGA
@@ -170,11 +173,12 @@ authentication. On Linux, enumeration typically requires `libudev`; macOS
 and Windows do not. Default-feature builds do not link `serialport`.
 
 Request/response bytes are encoded by `DenseQ88Layout` / `encode_stimuli` /
-`decode_response` (no `serialport` dependency). SiliconBridge v3.0 is the
-16-channel profile that matches current firmware. Other dense sizes are
-host codecs only — they need matching FPGA firmware; changing the host
-layout is not enough. The checked path requires exactly `input_channels`
-finite stimuli. `process_stimuli` remains the legacy pad/truncate wrapper.
+`decode_response` (no `serialport` dependency). SiliconBridge v3.0 is an
+**example 16-channel layout** with committed golden bytes, not a claim that
+this crate only works with Basys3. Other dense sizes are host codecs only —
+they need matching FPGA firmware; changing the host layout is not enough.
+The checked path requires exactly `input_channels` finite stimuli.
+`process_stimuli` remains the legacy pad/truncate wrapper.
 
 `process_stimuli` writes the request frame and then `read_exact`s the reply.
 The configured timeout is the `serialport` **per-I/O** timeout, not a hard
@@ -265,8 +269,9 @@ named path does not. Always select the device yourself. `ping()` sends a real
 16-channel stimulus and is not passive discovery. Custom
 `DenseQ88Layout::dense` sizes need matching firmware.
 
-Compatibility profiles with #53 golden evidence: SiliconBridge **v3.0**
-(16/16, current firmware) and host-only dense 8 / 32 / 8×10 frames. Do not
+Compatibility **example layouts** with #53 golden-byte evidence: SiliconBridge
+**v3.0** (16/16, Basys3 firmware fixture) and host-only dense 8 / 32 / 8×10
+frames. Changing host channel counts does not reconfigure an FPGA. Do not
 list other revisions without fixtures.
 
 ## Migration
@@ -274,26 +279,28 @@ list other revisions without fixtures.
 - **Unsigned `.mem`:** re-export signed. `FFFF` is unsigned `255.996` and
   signed `-1/256`.
 - **Signed parameters / readout:** defaults are signed; read
-  `metadata.encodings`. The `Spikenaut-v2` string is a layout id — override
-  with `set_format_version` for generic bundles.
+  `metadata.encodings`. The default public path is generic-dense-q88
+  (`write_generic`). Prefer `ExportConfig::generic_with_required_readout()`
+  when a signed `K×N` readout is required. The `Spikenaut-v2` string is a
+  layout id used only by the explicit legacy profile (`write_mem_files` /
+  `ExportConfig::legacy_spikenaut_v2()`).
+  Prefer `try_export` / `write_generic` over `ParameterExport::export`.
 - **UART clamp:** keep `encode_q88_signed` on the wire; do not use it for
   `.mem`.
-- **Timestamps / printing:** `set_timestamp` requires RFC 3339 UTC.
-  `write_mem_files` still prints a summary.
+- **Timestamps / printing:** `set_timestamp` requires RFC 3339 UTC. The
+  checked path omits timestamps by default. `write_mem_files` still records
+  a wall-clock stamp (legacy).
 - **Pre-1.0:** no stability promise. New public fields may appear; use
   `..Default::default()` on struct literals.
 
 ## Public-release readiness
 
-See [docs/release-readiness.md](docs/release-readiness.md). Checklist: verify
-registry state, choose the real version, **rewrite README and crate rustdoc
-installation to that version on the candidate commit** (the crates.io tarball
-is immutable), test Rust `1.98.1`, review license/`cargo package --list`, run
-default and UART checks, deny rustdoc warnings, `cargo publish --dry-run`.
-Verify docs.rs and a **registry** consumer only after publish. This ticket does
-not run `cargo publish`. Packaged-crate smoke:
-`bash scripts/smoke-packaged-consumer.sh` (not a crates.io proof). CI matrix
-remains [#24](https://github.com/rmems/silicon-bridge/issues/24).
+See [docs/release-readiness.md](docs/release-readiness.md). This tree is the
+**0.3.0** publish candidate: install lines already say
+`silicon-bridge = "0.3.0"`. An authorized human `cargo publish` of 0.3.0 is
+required after merge before crates.io / docs.rs are live. Packaged-crate
+smoke (`bash scripts/smoke-packaged-consumer.sh`) is not registry proof. CI
+matrix remains [#24](https://github.com/rmems/silicon-bridge/issues/24).
 
 ## Vivado Timing Metrics
 
@@ -335,8 +342,10 @@ versus `neuromod`, `brainstem-daemon`, `limbic-critic`, and `silicon-hdl`.
 ## Extracted from Production
 
 Extracted from [Eagle-Lander](https://github.com/rmems/Eagle-Lander), a private
-neuromorphic GPU supervisor. The FPGA export pipeline was decoupled from the private
-training orchestrator so it works with any SNN framework.
+neuromorphic GPU supervisor. The FPGA export pipeline was decoupled from that
+training orchestrator so any SNN framework can supply `f32` thresholds,
+weights, and decay. Historical Basys3 / Spikenaut deployments remain
+**opt-in profiles**, not the default public path.
 
 ## Related Ecosystem
 

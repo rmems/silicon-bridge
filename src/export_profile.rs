@@ -15,6 +15,8 @@ use super::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
+use std::fs;
+use std::io::{self, ErrorKind};
 use std::path::{Component, Path, PathBuf};
 
 /// Crate name recorded as the producer of a profiled export.
@@ -62,6 +64,9 @@ pub enum ExportProfile {
     /// Historical Spikenaut-v2 compatibility profile.
     LegacySpikenautV2,
     /// Corrected Spikenaut contract that requires a signed `K×N` readout.
+    /// Construct with [`ExportConfig::generic_with_required_readout`] (or
+    /// the Spikenaut-named [`ExportConfig::spikenaut_signed_output_v1`]).
+    /// **Must not** be serialized as `Spikenaut-v2`.
     SpikenautSignedOutputV1,
 }
 
@@ -225,6 +230,11 @@ impl ExportConfig {
     /// Neutral dense Q8.8 export: no Spikenaut tag, no timestamp, no declared
     /// latency, overwrite prohibited until [`Self::allow_replace`].
     ///
+    /// This is also [`Default`]: new public helpers start here. Call
+    /// [`Self::generic_with_required_readout`] when a signed `K×N` readout
+    /// is required. Spikenaut-v2 deployments use
+    /// [`Self::legacy_spikenaut_v2`].
+    ///
     /// ```
     /// use silicon_bridge::{ExportConfig, FpgaParameterExporter};
     ///
@@ -269,11 +279,16 @@ impl ExportConfig {
         }
     }
 
-    /// Corrected signed-output Spikenaut contract. Requires a `K×N` readout.
-    /// Distinct schema/profile ids — does not emit `Spikenaut-v2`.
+    /// Neutral required-readout dense Q8.8 export.
     ///
-    /// Overwrite is prohibited by default (same as the generic path).
-    pub fn spikenaut_signed_output_v1() -> Self {
+    /// Same contract as [`Self::spikenaut_signed_output_v1`]: a signed `K×N`
+    /// readout is required, overwrite is prohibited until
+    /// [`Self::allow_replace`], and timestamps / declared latency are omitted
+    /// unless supplied. On-disk metadata still records
+    /// [`SPIKENAUT_SIGNED_OUTPUT_PROFILE_ID`] — this constructor does not
+    /// invent a second schema.
+    #[doc(alias = "spikenaut_signed_output_v1")]
+    pub fn generic_with_required_readout() -> Self {
         Self {
             profile: ExportProfile::SpikenautSignedOutputV1,
             files: ExportFileLayout::spikenaut_deployment(),
@@ -282,6 +297,16 @@ impl ExportConfig {
             declared_target_latency_us: None,
             model_id: String::new(),
         }
+    }
+
+    /// Spikenaut-named alias of [`Self::generic_with_required_readout`].
+    ///
+    /// Prefer the generic name for new callers. This name remains so existing
+    /// Spikenaut deployments keep compiling. Distinct schema/profile ids —
+    /// does not emit `Spikenaut-v2`.
+    #[doc(alias = "generic_with_required_readout")]
+    pub fn spikenaut_signed_output_v1() -> Self {
+        Self::generic_with_required_readout()
     }
 
     /// Profile this configuration will write.
@@ -360,6 +385,13 @@ impl ExportConfig {
     pub fn with_model_id(mut self, model_id: impl Into<String>) -> Self {
         self.model_id = model_id.into();
         self
+    }
+}
+
+impl Default for ExportConfig {
+    /// [`Self::generic`]: framework-agnostic dense Q8.8.
+    fn default() -> Self {
+        Self::generic()
     }
 }
 
@@ -609,6 +641,18 @@ impl FpgaParameterExporter {
     /// [`ExportConfig::allow_replace`] was set. Filename and overwrite checks
     /// run before any create/truncate.
     ///
+    /// The complete bundle is written into a temporary subdirectory of
+    /// `output_dir`, then each planned file is promoted into place. A failure
+    /// during validation or staging leaves destination files untouched and
+    /// removes the staging directory. [`OverwritePolicy::Prohibit`] promotes
+    /// with an exclusive link/create so a dest that appears after the
+    /// pre-check — including a dangling symlink, which `Path::exists`
+    /// misses — is refused rather than replaced. It also deletes any files
+    /// already promoted if a later promote fails.
+    /// [`OverwritePolicy::Replace`] cannot restore previous contents after
+    /// the first successful rename: same-filesystem rename is per-file, not
+    /// a multi-file swap (Windows may `unlink` the destination first).
+    ///
     /// ASCII `.mem` lines are uppercase 16-bit hex patterns, one word per
     /// line — not UART byte order, and not an endianness switch.
     pub fn write_with_config(
@@ -643,13 +687,19 @@ impl FpgaParameterExporter {
         let planned = planned_paths(output_dir, &config.files, has_readout);
         if matches!(config.overwrite, OverwritePolicy::Prohibit) {
             for path in &planned {
-                if path.exists() {
+                if dest_occupied(path) {
                     return Err(ExportError::OverwriteRefused { path: path.clone() });
                 }
             }
         }
 
-        std::fs::create_dir_all(output_dir).map_err(|source| ExportError::Io {
+        let metadata_json =
+            serde_json::to_string_pretty(&params).map_err(|source| ExportError::Serialize {
+                path: output_dir.join(&config.files.metadata),
+                source,
+            })?;
+
+        fs::create_dir_all(output_dir).map_err(|source| ExportError::Io {
             path: output_dir.to_path_buf(),
             source,
         })?;
@@ -659,33 +709,59 @@ impl FpgaParameterExporter {
         // truncate our targets.
         if matches!(config.overwrite, OverwritePolicy::Prohibit) {
             for path in &planned {
-                if path.exists() {
+                if dest_occupied(path) {
                     return Err(ExportError::OverwriteRefused { path: path.clone() });
                 }
             }
         }
 
+        let staging = create_staging_dir(output_dir)?;
+        let staged_overwrite = OverwritePolicy::Replace;
         Self::write_mem_file(
-            output_dir.join(&config.files.thresholds),
+            staging.path.join(&config.files.thresholds),
             &params.thresholds,
-            config.overwrite,
+            staged_overwrite,
         )?;
         Self::write_mem_file(
-            output_dir.join(&config.files.weights),
+            staging.path.join(&config.files.weights),
             &params.weights,
-            config.overwrite,
+            staged_overwrite,
         )?;
         Self::write_mem_file(
-            output_dir.join(&config.files.decay),
+            staging.path.join(&config.files.decay),
             &params.decay_rates,
-            config.overwrite,
+            staged_overwrite,
         )?;
         if let Some(readout) = &params.output_weights {
             let Some(name) = &config.files.output_weights else {
                 return Err(ExportError::MissingReadoutFilename);
             };
-            Self::write_mem_file(output_dir.join(name), readout, config.overwrite)?;
-        } else if matches!(config.overwrite, OverwritePolicy::Replace)
+            Self::write_mem_file(staging.path.join(name), readout, staged_overwrite)?;
+        }
+        Self::write_json_file(
+            staging.path.join(&config.files.metadata),
+            &metadata_json,
+            staged_overwrite,
+        )?;
+
+        let names = config.files.names_for(has_readout);
+        let mut promoted = Vec::new();
+        for name in &names {
+            let from = staging.path.join(name);
+            let to = output_dir.join(name);
+            if let Err(err) = promote_file(&from, &to, config.overwrite) {
+                if matches!(config.overwrite, OverwritePolicy::Prohibit) {
+                    for path in &promoted {
+                        let _ = fs::remove_file(path);
+                    }
+                }
+                return Err(err);
+            }
+            promoted.push(to);
+        }
+
+        if !has_readout
+            && matches!(config.overwrite, OverwritePolicy::Replace)
             && let Some(name) = &config.files.output_weights
         {
             // Same leftover-delete as the legacy writer: a readout-less
@@ -693,28 +769,44 @@ impl FpgaParameterExporter {
             Self::remove_mem_file_if_present(output_dir.join(name))?;
         }
 
-        let metadata_path = output_dir.join(&config.files.metadata);
-        let metadata_json =
-            serde_json::to_string_pretty(&params).map_err(|source| ExportError::Serialize {
-                path: metadata_path.clone(),
-                source,
-            })?;
-        Self::write_json_file(&metadata_path, &metadata_json, config.overwrite)?;
-
         Ok(ExportReport {
             profile: config.profile,
             output_dir: output_dir.to_path_buf(),
-            written: config
-                .files
-                .names_for(has_readout)
-                .into_iter()
-                .map(str::to_string)
-                .collect(),
+            written: names.into_iter().map(str::to_string).collect(),
             overwrite: config.overwrite,
             num_neurons: params.metadata.num_neurons,
             num_channels: params.metadata.num_channels,
             readout_shape: params.metadata.readout_shape,
         })
+    }
+
+    /// Write a [`ExportConfig::generic`] dense Q8.8 bundle.
+    ///
+    /// This is the default public disk path. Equivalent to
+    /// `write_with_config(output_dir, &ExportConfig::generic())`. Staging and
+    /// overwrite semantics are those of [`Self::write_with_config`]. Prefer
+    /// this over [`super::ParameterExport::export`] and
+    /// [`super::MemFileWriter::write_mem_files`]. Required-readout bundles use
+    /// [`ExportConfig::generic_with_required_readout`]. Spikenaut-v2
+    /// deployments call [`super::MemFileWriter::write_mem_files`] or
+    /// [`ExportConfig::legacy_spikenaut_v2`].
+    ///
+    /// ```
+    /// use silicon_bridge::FpgaParameterExporter;
+    ///
+    /// let exporter = FpgaParameterExporter::from_params(
+    ///     vec![1.0, 0.5, 1.5, 0.75],
+    ///     vec![vec![0.5; 6]; 4],
+    ///     vec![0.9; 4],
+    /// );
+    /// let dir = tempfile::tempdir().unwrap();
+    /// let report = exporter.write_generic(dir.path()).unwrap();
+    /// assert_eq!(report.profile, silicon_bridge::ExportProfile::GenericDenseQ88);
+    /// let json = std::fs::read_to_string(dir.path().join("parameters.json")).unwrap();
+    /// assert!(!json.contains("Spikenaut"));
+    /// ```
+    pub fn write_generic(&self, output_dir: impl AsRef<Path>) -> Result<ExportReport, ExportError> {
+        self.write_with_config(output_dir, &ExportConfig::generic())
     }
 }
 
@@ -724,6 +816,129 @@ fn planned_paths(output_dir: &Path, files: &ExportFileLayout, has_readout: bool)
         .into_iter()
         .map(|name| output_dir.join(name))
         .collect()
+}
+
+const STAGING_PREFIX: &str = ".silicon-bridge-staging-";
+
+struct StagingDir {
+    path: PathBuf,
+}
+
+impl Drop for StagingDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.path);
+    }
+}
+
+fn create_staging_dir(output_dir: &Path) -> Result<StagingDir, ExportError> {
+    for n in 0..1024u32 {
+        let path = output_dir.join(format!("{STAGING_PREFIX}{}-{n}", std::process::id()));
+        match fs::create_dir(&path) {
+            Ok(()) => return Ok(StagingDir { path }),
+            Err(source) if source.kind() == ErrorKind::AlreadyExists => continue,
+            Err(source) => return Err(ExportError::Io { path, source }),
+        }
+    }
+    Err(ExportError::Io {
+        path: output_dir.to_path_buf(),
+        source: std::io::Error::new(
+            ErrorKind::AlreadyExists,
+            "could not allocate a unique staging directory",
+        ),
+    })
+}
+
+fn dest_occupied(path: &Path) -> bool {
+    path.symlink_metadata().is_ok()
+}
+
+fn promote_file(from: &Path, to: &Path, overwrite: OverwritePolicy) -> Result<(), ExportError> {
+    match overwrite {
+        OverwritePolicy::Prohibit => promote_exclusive(from, to),
+        OverwritePolicy::Replace => promote_replace(from, to),
+    }
+}
+
+/// Promote without replacing an existing dest, including a dangling symlink.
+///
+/// Unix `rename` would clobber a dest created after `exists()`, and
+/// `Path::exists` is false for a dangling symlink. A hard link (same
+/// directory, same filesystem) fails with `AlreadyExists` instead. If the
+/// filesystem rejects hard links, fall back to `create_new` + copy.
+fn promote_exclusive(from: &Path, to: &Path) -> Result<(), ExportError> {
+    match fs::hard_link(from, to) {
+        Ok(()) => {
+            let _ = fs::remove_file(from);
+            Ok(())
+        }
+        Err(source) if source.kind() == ErrorKind::AlreadyExists => {
+            Err(ExportError::OverwriteRefused {
+                path: to.to_path_buf(),
+            })
+        }
+        Err(_) => promote_exclusive_copy(from, to),
+    }
+}
+
+fn promote_exclusive_copy(from: &Path, to: &Path) -> Result<(), ExportError> {
+    let mut dest = match fs::OpenOptions::new().write(true).create_new(true).open(to) {
+        Ok(file) => file,
+        Err(source) if source.kind() == ErrorKind::AlreadyExists => {
+            return Err(ExportError::OverwriteRefused {
+                path: to.to_path_buf(),
+            });
+        }
+        Err(source) => {
+            return Err(ExportError::Io {
+                path: to.to_path_buf(),
+                source,
+            });
+        }
+    };
+    let copied = (|| -> Result<(), ExportError> {
+        let mut src = fs::File::open(from).map_err(|source| ExportError::Io {
+            path: from.to_path_buf(),
+            source,
+        })?;
+        io::copy(&mut src, &mut dest).map_err(|source| ExportError::Io {
+            path: to.to_path_buf(),
+            source,
+        })?;
+        dest.sync_all().map_err(|source| ExportError::Io {
+            path: to.to_path_buf(),
+            source,
+        })?;
+        Ok(())
+    })();
+    if copied.is_err() {
+        let _ = fs::remove_file(to);
+    } else {
+        let _ = fs::remove_file(from);
+    }
+    copied
+}
+
+fn promote_replace(from: &Path, to: &Path) -> Result<(), ExportError> {
+    match fs::rename(from, to) {
+        Ok(()) => Ok(()),
+        Err(source) => {
+            if dest_occupied(to) {
+                fs::remove_file(to).map_err(|source| ExportError::Io {
+                    path: to.to_path_buf(),
+                    source,
+                })?;
+                fs::rename(from, to).map_err(|source| ExportError::Io {
+                    path: to.to_path_buf(),
+                    source,
+                })
+            } else {
+                Err(ExportError::Io {
+                    path: to.to_path_buf(),
+                    source,
+                })
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -765,6 +980,32 @@ mod tests {
 
     fn read_bytes(dir: &Path, name: &str) -> Vec<u8> {
         fs::read(dir.join(name)).unwrap_or_else(|err| panic!("read {name}: {err}"))
+    }
+
+    #[test]
+    fn export_config_default_is_generic() {
+        assert_eq!(ExportConfig::default(), ExportConfig::generic());
+        assert_eq!(
+            ExportConfig::default().profile(),
+            ExportProfile::GenericDenseQ88
+        );
+    }
+
+    #[test]
+    fn required_readout_alias_matches_spikenaut_named_constructor() {
+        assert_eq!(
+            ExportConfig::generic_with_required_readout(),
+            ExportConfig::spikenaut_signed_output_v1()
+        );
+        assert_eq!(
+            ExportConfig::generic_with_required_readout().profile(),
+            ExportProfile::SpikenautSignedOutputV1
+        );
+        assert!(
+            ExportConfig::generic_with_required_readout()
+                .profile()
+                .requires_readout()
+        );
     }
 
     #[test]
@@ -875,7 +1116,7 @@ mod tests {
         let err = dense_4x6()
             .write_with_config(
                 missing_dir.path(),
-                &ExportConfig::spikenaut_signed_output_v1(),
+                &ExportConfig::generic_with_required_readout(),
             )
             .expect_err("readout required");
         assert!(matches!(err, ExportError::MissingRequiredReadout));
@@ -883,7 +1124,7 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         let report = signed_readout_4x6()
-            .write_with_config(dir.path(), &ExportConfig::spikenaut_signed_output_v1())
+            .write_with_config(dir.path(), &ExportConfig::generic_with_required_readout())
             .expect("signed-output write");
         assert_eq!(
             report.readout_shape,
@@ -1024,11 +1265,13 @@ mod tests {
         assert!(matches!(err, ExportError::OverwriteRefused { .. }));
         assert_eq!(fs::read(&marker).unwrap(), b"KEEP");
         assert!(!dir.path().join("parameters.json").exists());
+        assert!(leftover_staging(dir.path()).is_empty());
 
         dense_4x6()
             .write_with_config(dir.path(), &ExportConfig::generic().allow_replace())
             .expect("explicit replace");
         assert_ne!(fs::read(&marker).unwrap(), b"KEEP");
+        assert!(leftover_staging(dir.path()).is_empty());
     }
 
     #[test]
@@ -1128,5 +1371,125 @@ mod tests {
         );
         let json = fs::read_to_string(dir.path().join("parameters.json")).unwrap();
         assert!(!json.contains("output_weights"));
+        assert!(
+            leftover_staging(dir.path()).is_empty(),
+            "successful replace must not leave a staging directory"
+        );
+    }
+
+    fn leftover_staging(dir: &Path) -> Vec<PathBuf> {
+        fs::read_dir(dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with(STAGING_PREFIX))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn staged_export_leaves_no_staging_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        dense_4x6()
+            .write_generic(dir.path())
+            .expect("generic write");
+        assert!(dir.path().join("parameters.mem").is_file());
+        assert!(dir.path().join("parameters.json").is_file());
+        assert!(
+            leftover_staging(dir.path()).is_empty(),
+            "successful export must promote out of the staging directory"
+        );
+    }
+
+    #[test]
+    fn staging_dir_is_removed_on_drop() {
+        let dir = tempfile::tempdir().unwrap();
+        let staging = create_staging_dir(dir.path()).expect("allocate staging");
+        let path = staging.path.clone();
+        assert!(path.is_dir());
+        drop(staging);
+        assert!(!path.exists(), "StagingDir Drop must remove the directory");
+    }
+
+    #[test]
+    fn prohibit_existing_metadata_does_not_write_siblings() {
+        let dir = tempfile::tempdir().unwrap();
+        let metadata = dir.path().join("parameters.json");
+        fs::write(&metadata, b"KEEP").unwrap();
+
+        let err = dense_4x6()
+            .write_with_config(dir.path(), &ExportConfig::generic())
+            .expect_err("overwrite prohibited");
+        assert!(matches!(err, ExportError::OverwriteRefused { .. }));
+        assert_eq!(fs::read(&metadata).unwrap(), b"KEEP");
+        assert!(!dir.path().join("parameters.mem").exists());
+        assert!(!dir.path().join("parameters_weights.mem").exists());
+        assert!(!dir.path().join("parameters_decay.mem").exists());
+        assert!(leftover_staging(dir.path()).is_empty());
+    }
+
+    #[test]
+    fn replace_promote_failure_cleans_staging() {
+        let dir = tempfile::tempdir().unwrap();
+        let json_dir = dir.path().join("parameters.json");
+        fs::create_dir(&json_dir).unwrap();
+        fs::write(json_dir.join("nested"), b"KEEP").unwrap();
+
+        let err = dense_4x6()
+            .write_with_config(dir.path(), &ExportConfig::generic().allow_replace())
+            .expect_err("cannot replace a directory named parameters.json");
+        assert!(matches!(err, ExportError::Io { .. }));
+        assert!(
+            leftover_staging(dir.path()).is_empty(),
+            "failed promote must still remove the staging directory"
+        );
+        assert!(
+            json_dir.is_dir(),
+            "Replace does not restore a directory target"
+        );
+        assert_eq!(fs::read(json_dir.join("nested")).unwrap(), b"KEEP");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn exclusive_promote_refuses_dangling_symlink() {
+        use std::os::unix::fs::symlink;
+        let dir = tempfile::tempdir().unwrap();
+        let from = dir.path().join("staged");
+        let to = dir.path().join("dest");
+        fs::write(&from, b"NEW").unwrap();
+        symlink("missing-target", &to).unwrap();
+        assert!(
+            !to.exists(),
+            "Path::exists must be false for a dangling symlink"
+        );
+        let err = promote_exclusive(&from, &to).expect_err("no clobber");
+        assert!(matches!(err, ExportError::OverwriteRefused { .. }));
+        assert!(
+            to.symlink_metadata().unwrap().file_type().is_symlink(),
+            "dangling symlink must remain"
+        );
+        assert_eq!(fs::read(&from).unwrap(), b"NEW");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn prohibit_refuses_dangling_symlink_without_writing_siblings() {
+        use std::os::unix::fs::symlink;
+        let dir = tempfile::tempdir().unwrap();
+        let json = dir.path().join("parameters.json");
+        symlink("missing-target", &json).unwrap();
+
+        let err = dense_4x6()
+            .write_with_config(dir.path(), &ExportConfig::generic())
+            .expect_err("overwrite prohibited");
+        assert!(matches!(err, ExportError::OverwriteRefused { .. }));
+        assert!(json.symlink_metadata().unwrap().file_type().is_symlink());
+        assert!(!dir.path().join("parameters.mem").exists());
+        assert!(!dir.path().join("parameters_weights.mem").exists());
+        assert!(leftover_staging(dir.path()).is_empty());
     }
 }

@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Synthetic Spikenaut-shaped export: 16 neurons × 16 inputs + signed readout.
 //!
-//! Names the **layout** accurately (`Spikenaut-v2`, [`EXPORT_FORMAT_VERSION`]).
-//! That string is a historical on-disk identifier. This binary does **not**
-//! claim the weights are trained, that old model artifacts are validated, or
-//! that silicon-hdl `OutputLayer` addresses readout the same way.
+//! **Opt-in** compatibility demo. New callers should start from
+//! `examples/generic_mem_export.rs` (`write_generic`). This binary names the
+//! historical **layout** (`Spikenaut-v2`, [`EXPORT_FORMAT_VERSION`]). That
+//! string is an on-disk identifier. This binary does **not** claim the weights
+//! are trained, that old model artifacts are validated, or that silicon-hdl
+//! `OutputLayer` addresses readout the same way.
 //!
 //! Golden numeric evidence: `tests/golden/spikenaut_16/` (#53). Offline;
 //! no serial device, private paths, or vendor toolchain.

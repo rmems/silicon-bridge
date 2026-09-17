@@ -16,8 +16,8 @@ knob for text hex.
 | Profile | Identity | Schema | Readout | Timestamp | `target_latency_us` | Overwrite |
 |---|---|---|---|---|---|---|
 | Generic dense Q8.8 | `generic-dense-q88` | `silicon-bridge-dense-q88-v1` | optional | omitted unless supplied | omitted unless declared | refuse unless `allow_replace` |
+| Required readout | `spikenaut-signed-output-v1` | `spikenaut-signed-output-v1` | **required** `K×N` | omitted unless supplied | omitted unless declared | refuse unless `allow_replace` |
 | Legacy Spikenaut-v2 | `spikenaut-v2-legacy` | `Spikenaut-v2` (historical tag) | optional | wall-clock RFC 3339 | declared `35.0` (not measured) | replace (historical) |
-| Signed-output Spikenaut | `spikenaut-signed-output-v1` | `spikenaut-signed-output-v1` | **required** `K×N` | omitted unless supplied | omitted unless declared | refuse unless `allow_replace` |
 
 Schema version, producer crate / crate version, and profile / model
 identity are separate `FpgaMetadata` fields. The corrected signed-output
@@ -31,42 +31,56 @@ contract-test issue, not this writer.
 ## What to call
 
 ```rust
-use silicon_bridge::{ExportConfig, FpgaParameterExporter};
+use silicon_bridge::FpgaParameterExporter;
 
-let mut exporter = FpgaParameterExporter::from_params(
+let exporter = FpgaParameterExporter::from_params(
     vec![1.0, 0.5, 1.5, 0.75],
     vec![vec![0.5; 6]; 4],
     vec![0.9; 4],
 );
 
-// Framework-agnostic path: no Spikenaut tag, no invented timing, no stdout.
-let report = exporter.write_with_config("out", &ExportConfig::generic())?;
+// Default public path: no Spikenaut tag, no invented timing, no stdout.
+let report = exporter.write_generic("out")?;
+// equivalent: exporter.write_with_config("out", &ExportConfig::generic())?;
 ```
 
-- **New callers** who are not reproducing a Spikenaut deployment: 
-  `ExportConfig::generic()` + `write_with_config`.
+- **New callers** (default): `write_generic` /
+  `ExportConfig::generic()` / `ExportConfig::default()`. Prefer these over
+  `ParameterExport::export` and `MemFileWriter::write_mem_files`.
+- **Required signed `K×N` readout**:
+  `ExportConfig::generic_with_required_readout()`. Missing readout is an
+  error (`ExportError::MissingRequiredReadout`). On-disk profile id remains
+  `spikenaut-signed-output-v1` — not a silent redefinition of `Spikenaut-v2`.
+  `ExportConfig::spikenaut_signed_output_v1()` is the Spikenaut-named alias.
 - **Existing Spikenaut-v2 tooling** that keys on `version: "Spikenaut-v2"`,
   the documented filenames, overwrite-in-place, and a declared 35 µs
   target: `MemFileWriter::write_mem_files` /
   `ExportConfig::legacy_spikenaut_v2()`.
-- **Signed readout that must record `K×N`**:
-  `ExportConfig::spikenaut_signed_output_v1()`. Missing readout is an
-  error (`ExportError::MissingRequiredReadout`). Do not treat this JSON
-  as `Spikenaut-v2`.
 
-`ParameterExport::export` / `try_export` still stamp the historical
-in-memory bundle (`Spikenaut-v2`, wall-clock timestamp, declared 35 µs).
-They do not write files and they do not print.
+`ParameterExport::export` still stamps the historical in-memory bundle
+(`Spikenaut-v2`, wall-clock timestamp, declared 35 µs). It does not write
+files and it does not print. `try_export` is the default checked path: it
+omits the Spikenaut tag, timestamps, and declared latency unless the caller
+opts in.
 
 ## Overwrite
 
 `write_mem_files` **replaces** files in the output directory. That is
 deliberate compatibility.
 
-`ExportConfig::generic()` and `spikenaut_signed_output_v1()` **refuse** if
+`ExportConfig::generic()` and `generic_with_required_readout()` **refuse** if
 any configured target already exists. Pass `.allow_replace()` for
 explicit consent. Filename and overwrite checks run before any
 create/truncate.
+
+The shared writer stages the complete bundle in a
+`.silicon-bridge-staging-*` subdirectory of the output directory, then
+promotes each planned file into place. `OverwritePolicy::Prohibit` uses
+an exclusive hard link / `create_new` so a dest that appears after the
+pre-check (including a dangling symlink) is refused rather than replaced.
+It also removes files already promoted if a later promote fails.
+`OverwritePolicy::Replace` is still per-file, not a multi-file atomic
+swap (Windows may `unlink` the destination before rename).
 
 Unsafe names (absolute paths, `..` traversal, nested paths, collisions)
 are rejected before writing.
