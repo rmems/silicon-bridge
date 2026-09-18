@@ -21,13 +21,13 @@ stimuli and reading back spike states at runtime.
 
 ## Features
 
-- **Export traits** for hardware alignment with [silicon-hdl](https://github.com/rmems/silicon-hdl):
+- **Export traits** for hardware consumers, with a pinned [silicon-hdl](https://github.com/rmems/silicon-hdl) reference contract:
   - `FixedPointEncode` — `f32` → signed Q8.8 (`i16`)
   - `ParameterExport` — build the FPGA parameter bundle (infallible, **legacy**; prefer `try_export`)
   - `CheckedParameterExport` — same bundle, or a typed `ParameterShapeError`
   - `ExportConfig` / `write_generic` — default **generic-dense-q88** path
   - `MemFileWriter` — explicit Spikenaut-v2 compatibility writer (prefer `write_generic`)
-  - `write_with_config` — generic, required-readout, and legacy profiles
+  - `write_with_config` — generic, custom, required-readout, reference, and legacy contracts
 - `FpgaParameterExporter` — default implementation of those traits
 - `format_q88_hex` / `encode_q88_signed_full` / `q88_signed_to_f32` — signed
   parameter Q8.8 helpers (full `i16` range). `encode_q88_signed` remains the
@@ -99,6 +99,17 @@ Optional UART I/O:
 ```toml
 silicon-bridge = { git = "https://github.com/rmems/silicon-bridge", features = ["uart"] }
 ```
+
+Optional NIR interop dependency, for downstream crates that want to share the
+upstream NIR type surface without adding an HDF5 reader here:
+
+```toml
+silicon-bridge = { git = "https://github.com/rmems/silicon-bridge", features = ["nir"] }
+```
+
+The default feature set does not depend on `nir-rs`. The `nir` feature pins
+`nir-rs = 0.4.3`, whose own crate metadata currently raises the effective
+feature-specific toolchain floor above this crate's default `rust-version`.
 
 `[package].rust-version` is **`1.88.0`**: that is the language floor this
 crate actually needs (edition 2024 plus `if`/`let` chains). The dependency
@@ -175,8 +186,9 @@ Dense `.mem` export is profiled. See
 | Profile | API | Use when |
 |---|---|---|
 | **Generic** `generic-dense-q88` (**default**) | `write_generic` / `ExportConfig::generic()` / `ExportConfig::default()` | New callers. No Spikenaut metadata, no timestamp unless you supply one, no `target_latency_us` unless you declare a target (never a measurement). Refuses to overwrite files unless you call `allow_replace()`. |
+| **Custom contract** | `ExportContract::custom(...)` + `ExportConfig::from_contract(...)` | Bring your own profile id, schema id, filenames, and readout rule. This is the path for another HDL package or board-specific firmware that consumes the same dense Q8.8 files without inheriting Spikenaut or silicon-hdl metadata. |
 | **Required readout** | `ExportConfig::generic_with_required_readout()` | Dense bundle that **requires** a signed `K×N` readout (or rejects). On-disk profile id remains `spikenaut-signed-output-v1` (not a redefinition of `Spikenaut-v2`). `ExportConfig::spikenaut_signed_output_v1()` is the Spikenaut-named alias. |
-| **silicon-hdl v3** | `ExportConfig::silicon_hdl_v3()` | Pinned reference profile for 16 input channels, 16 hidden neurons, and 3 output classes. Preserves `parameters_output_weights.mem` as generic `K×N` and also writes `hdl_readout_neuron_major.mem` as HDL-native `N×K`. See [docs/host-hdl-contract.md](docs/host-hdl-contract.md). |
+| **silicon-hdl v3** | `ExportConfig::silicon_hdl_v3()` | Pinned reference profile for 16 input channels, 16 hidden neurons, and 3 output classes. Preserves `parameters_output_weights.mem` as generic `K×N`, also writes `hdl_readout_neuron_major.mem` as HDL-native `N×K`, and records a generic upstream `reference` for the pinned silicon-hdl revision. See [docs/host-hdl-contract.md](docs/host-hdl-contract.md). |
 | **Legacy Spikenaut-v2** | `MemFileWriter::write_mem_files` / `ExportConfig::legacy_spikenaut_v2()` | Reproduce historical `version: "Spikenaut-v2"` files. Replaces existing files. Records a declared 35 µs target, not a measured latency. Names alone do not imply HDL compatibility. |
 
 The checked writer returns an `ExportReport` and does not print. Same

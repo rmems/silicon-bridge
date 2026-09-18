@@ -3,9 +3,10 @@
 # Export profiles — migration note
 
 Issue [#50](https://github.com/rmems/silicon-bridge/issues/50). Dense Q8.8
-export is no longer a single Spikenaut-branded writer. Three **named**
-profiles share the #48 checked validator and the #49 per-block encoding
-policy. This is not a plugin or tensor framework.
+export is no longer a single Spikenaut-branded writer. Predefined contracts
+share the #48 checked validator and the #49 per-block encoding policy, and
+callers can build a custom contract for their own HDL package. This is not a
+plugin or tensor framework.
 
 ASCII `.mem` files remain one uppercase 16-bit hex word per line. That
 layout is independent of UART frame byte order. There is no endianness
@@ -16,6 +17,7 @@ knob for text hex.
 | Profile | Identity | Schema | Readout | Timestamp | `target_latency_us` | Overwrite |
 |---|---|---|---|---|---|---|
 | Generic dense Q8.8 | `generic-dense-q88` | `silicon-bridge-dense-q88-v1` | optional | omitted unless supplied | omitted unless declared | refuse unless `allow_replace` |
+| Custom contract | caller-supplied | caller-supplied | optional, required `K×N`, or required `K×N` plus HDL-native `N×K` | omitted unless supplied | omitted unless declared | refuse unless `allow_replace` |
 | Required readout | `spikenaut-signed-output-v1` | `spikenaut-signed-output-v1` | **required** `K×N` | omitted unless supplied | omitted unless declared | refuse unless `allow_replace` |
 | silicon-hdl v3 reference | `silicon-hdl-v3-compatible` | `silicon-hdl-v3-profile-v1` | **required** `K×N` plus HDL-native `N×K` | omitted unless supplied | omitted unless declared | refuse unless `allow_replace` |
 | Legacy Spikenaut-v2 | `spikenaut-v2-legacy` | `Spikenaut-v2` (historical tag) | optional | wall-clock RFC 3339 | declared `35.0` (not measured) | replace (historical) |
@@ -49,6 +51,11 @@ let report = exporter.write_generic("out")?;
 - **New callers** (default): `write_generic` /
   `ExportConfig::generic()` / `ExportConfig::default()`. Prefer these over
   `ParameterExport::export` and `MemFileWriter::write_mem_files`.
+- **Custom HDL / board contract**: build an `ExportContract::custom(...)`
+  with a caller-owned profile id, schema id, file layout, and
+  `ReadoutContract`. Pass it through `ExportConfig::from_contract(...)`. A
+  custom contract writes the same dense Q8.8 file format without inheriting
+  Spikenaut branding or the pinned silicon-hdl compatibility metadata.
 - **Required signed `K×N` readout**:
   `ExportConfig::generic_with_required_readout()`. Missing readout is an
   error (`ExportError::MissingRequiredReadout`). On-disk profile id remains
@@ -103,7 +110,8 @@ are rejected before writing.
   (`truncate_toward_zero`), overflow policy, Q-format bit widths, and
   per-block shapes.
 - `ExportConfig::silicon_hdl_v3()` also records
-  `metadata.compatibility.contract_id`, the pinned `silicon-hdl` revision,
+  `metadata.compatibility.contract_id`, a generic
+  `metadata.compatibility.reference` object for the pinned `silicon-hdl` revision,
   supported dimensions, emitted filenames, readout source/HDL layouts,
   reset/timestep assumptions, and SiliconBridge v3.0 UART frame sizes.
 - `write_mem_files` returns `ExportReport` instead of `()` and no longer

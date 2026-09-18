@@ -107,7 +107,9 @@ jq '.metadata.compatibility' fpga_output/parameters.json
 The manifest should show:
 
 - `contract_id: "silicon-bridge-silicon-hdl-v3-contract-v1"`
-- `silicon_hdl_revision: "d45163f38ac1cd88f8a3918e3793a08ace85e132"`
+- `reference.name: "silicon-hdl"`
+- `reference.repository: "https://github.com/rmems/silicon-hdl"`
+- `reference.revision: "d45163f38ac1cd88f8a3918e3793a08ace85e132"`
 - `supported_dimensions.input_channels: 16`
 - `supported_dimensions.hidden_neurons: 16`
 - `supported_dimensions.output_classes: 3`

@@ -450,7 +450,7 @@ fn silicon_hdl_profile_emits_explicit_neuron_major_readout_and_contract_metadata
         .write_with_config(dir.path(), &ExportConfig::silicon_hdl_v3())
         .expect("silicon-hdl profile write");
 
-    assert_eq!(report.profile.id(), SILICON_HDL_V3_PROFILE_ID);
+    assert_eq!(report.profile, SILICON_HDL_V3_PROFILE_ID);
     assert_eq!(
         report.written,
         [
@@ -499,8 +499,17 @@ fn silicon_hdl_profile_emits_explicit_neuron_major_readout_and_contract_metadata
         meta["compatibility"]["contract_id"],
         SILICON_HDL_V3_CONTRACT_ID
     );
+    assert!(
+        meta["compatibility"].get("silicon_hdl_revision").is_none(),
+        "compatibility metadata should use a generic reference object"
+    );
+    assert_eq!(meta["compatibility"]["reference"]["name"], "silicon-hdl");
     assert_eq!(
-        meta["compatibility"]["silicon_hdl_revision"],
+        meta["compatibility"]["reference"]["repository"],
+        "https://github.com/rmems/silicon-hdl"
+    );
+    assert_eq!(
+        meta["compatibility"]["reference"]["revision"],
         SILICON_HDL_V3_SUPPORTED_REVISION
     );
     assert_eq!(
@@ -557,7 +566,7 @@ fn silicon_hdl_profile_rejects_shapes_outside_the_pinned_reference_contract() {
     assert!(matches!(
         err,
         ExportError::UnsupportedCompatibilityShape {
-            profile: SILICON_HDL_V3_PROFILE_ID,
+            profile,
             expected: CompatibilityDimensions {
                 input_channels: 16,
                 hidden_neurons: 16,
@@ -568,7 +577,7 @@ fn silicon_hdl_profile_rejects_shapes_outside_the_pinned_reference_contract() {
                 hidden_neurons: 4,
                 output_classes: 1,
             },
-        }
+        } if profile == SILICON_HDL_V3_PROFILE_ID
     ));
     assert!(fs::read_dir(dir.path()).unwrap().next().is_none());
 }
