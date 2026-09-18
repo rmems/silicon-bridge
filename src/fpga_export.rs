@@ -800,8 +800,11 @@ pub enum ExportError {
         /// Requested layout name.
         requested: String,
     },
-    /// [`ExportProfile::SpikenautSignedOutputV1`] requires a `K×N` readout.
-    MissingRequiredReadout,
+    /// A profile that requires a `K×N` readout was used without one.
+    MissingRequiredReadout {
+        /// Profile that requires the readout matrix.
+        profile: &'static str,
+    },
     /// A readout matrix is present but [`ExportFileLayout::output_weights`] is
     /// `None`, so JSON would record the block without a matching `.mem` file.
     MissingReadoutFilename,
@@ -854,10 +857,9 @@ impl fmt::Display for ExportError {
                 "unsupported matrix flattening {requested:?}; only dense row-major \
                  (`row_major` / `row_major_dense`) is implemented"
             ),
-            Self::MissingRequiredReadout => write!(
-                f,
-                "profile spikenaut-signed-output-v1 requires a K×N readout matrix"
-            ),
+            Self::MissingRequiredReadout { profile } => {
+                write!(f, "profile {profile} requires a K×N readout matrix")
+            }
             Self::MissingReadoutFilename => write!(
                 f,
                 "readout matrix is present but ExportFileLayout::output_weights is None; \
@@ -898,7 +900,7 @@ impl std::error::Error for ExportError {
             | Self::ImmutableFileLayout { .. }
             | Self::OverwriteRefused { .. }
             | Self::UnsupportedFlattening { .. }
-            | Self::MissingRequiredReadout
+            | Self::MissingRequiredReadout { .. }
             | Self::MissingReadoutFilename
             | Self::NonFiniteDeclaredLatency
             | Self::UnsupportedCompatibilityShape { .. } => None,

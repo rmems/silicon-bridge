@@ -77,7 +77,7 @@ CI matrix coverage is GitHub [#24](https://github.com/rmems/silicon-bridge/issue
 issue for this checklist.
 
 Do **not** flash an FPGA or send UART stimuli as part of this checklist.
-The Basys 3 UART host session that gates 0.3.0 publish lives in GitHub
+The Basys 3 UART host session that gates 0.3.1 publish lives in GitHub
 [#84](https://github.com/rmems/silicon-bridge/issues/84), not here.
 
 ## 5. Packaged-crate smoke test (not registry proof)

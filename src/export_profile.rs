@@ -921,7 +921,9 @@ impl FpgaParameterExporter {
             return Err(ExportError::UnsignedHardwareEncoding { block });
         }
         if config.profile.requires_readout() && self.output_weights.is_none() {
-            return Err(ExportError::MissingRequiredReadout);
+            return Err(ExportError::MissingRequiredReadout {
+                profile: config.profile.id(),
+            });
         }
         if self.output_weights.is_some() && config.files.output_weights.is_none() {
             return Err(ExportError::MissingReadoutFilename);
@@ -992,7 +994,9 @@ impl FpgaParameterExporter {
             Self::write_mem_file(staging.path.join(name), readout, staged_overwrite)?;
             if let Some(hdl_name) = config.hdl_readout_file.as_deref() {
                 let Some(shape) = params.metadata.readout_shape else {
-                    return Err(ExportError::MissingRequiredReadout);
+                    return Err(ExportError::MissingRequiredReadout {
+                        profile: config.profile.id(),
+                    });
                 };
                 let hdl_readout = transpose_readout_kxn_to_nxk(readout, shape);
                 Self::write_mem_file(staging.path.join(hdl_name), &hdl_readout, staged_overwrite)?;
@@ -1082,7 +1086,9 @@ fn validate_silicon_hdl_v3_shape(params: &FpgaParameters) -> Result<(), ExportEr
     let readout = params
         .output_weights
         .as_ref()
-        .ok_or(ExportError::MissingRequiredReadout)?;
+        .ok_or(ExportError::MissingRequiredReadout {
+            profile: SILICON_HDL_V3_PROFILE_ID,
+        })?;
     let output_classes = readout
         .len()
         .checked_div(params.metadata.num_neurons)
@@ -1414,7 +1420,12 @@ mod tests {
                 &ExportConfig::generic_with_required_readout(),
             )
             .expect_err("readout required");
-        assert!(matches!(err, ExportError::MissingRequiredReadout));
+        assert!(matches!(
+            err,
+            ExportError::MissingRequiredReadout {
+                profile: SPIKENAUT_SIGNED_OUTPUT_PROFILE_ID
+            }
+        ));
         assert!(fs::read_dir(missing_dir.path()).unwrap().next().is_none());
 
         let dir = tempfile::tempdir().unwrap();
