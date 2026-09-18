@@ -1,14 +1,8 @@
-src/fpga_export.rs
-  s_648ab77f1a632d::t_a69caa0e727114 803-807,903
-  s_648ab77f1a632d::t_f12f8cfc3a564c 860-862
-src/export_profile.rs
-  s_648ab77f1a632d::t_07b9d575c42234 924-926,997-999,1089-1091
-  s_648ab77f1a632d::t_d271b8d7eab458 1423-1428
 build.rs
-  s_648ab77f1a632d::t_f12f8cfc3a564c 30-33
-  s_648ab77f1a632d::t_4e57ea9a22c682 11-16,22-29,34-37,54-56,59-60,63,66,75-76,86,89-96
+  s_648ab77f1a632d::t_1fc6f9ab9566ee 23-28
+  s_648ab77f1a632d::t_9a167ebd9c13b3 13-16,22,29-37,54-56,59-60,63,66,75-76,86
 docs/release-readiness.md
-  s_648ab77f1a632d::t_051c8775023f37 80
+  67f2ce16d98f674d 80
 ---
 {
   "schema_version": "authorship/3.0.0",
