@@ -23,7 +23,7 @@ fn watch_git_revision_inputs(git_dir: Option<&Path>) {
     let Some(git_dir) = git_dir else {
         return;
     };
-    watch_path(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".git"));
+    watch_dot_git_pointer(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".git"));
     let head_path = git_dir.join("HEAD");
     watch_path(head_path.clone());
     watch_path(git_dir.join("packed-refs"));
@@ -43,10 +43,24 @@ fn watch_head_reference(head_path: &Path, git_dir: &Path, common_git_dir: Option
         && let Some(reference) = head.strip_prefix("ref: ")
     {
         let reference = reference.trim();
-        watch_path(git_dir.join(reference));
+        watch_reference(git_dir, reference);
         if let Some(common_git_dir) = common_git_dir {
-            watch_path(common_git_dir.join(reference));
+            watch_reference(common_git_dir, reference);
         }
+    }
+}
+
+fn watch_reference(git_dir: &Path, reference: &str) {
+    watch_path(git_dir.join(reference));
+    let mut parts = reference.split('/');
+    if let (Some("refs"), Some(kind)) = (parts.next(), parts.next()) {
+        watch_path(git_dir.join("refs").join(kind));
+    }
+}
+
+fn watch_dot_git_pointer(path: PathBuf) {
+    if path.is_file() {
+        println!("cargo:rerun-if-changed={}", path.display());
     }
 }
 

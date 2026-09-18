@@ -89,7 +89,7 @@ named reference, not a multi-board claim.
 
 silicon-hdl also ships `constraints/artix7_trainer.xdc`. That pinout is
 **not** the claimed reference demo (`build_soc.tcl` uses the Basys 3 XDCs
-only). A silicon-bridge UART host session on Basys 3 is the 0.3.0 publish
+only). A silicon-bridge UART host session on Basys 3 is the 0.3.1 publish
 gate ([#84](https://github.com/rmems/silicon-bridge/issues/84)); this
 guide does not flash a board.
 
