@@ -17,6 +17,7 @@ knob for text hex.
 |---|---|---|---|---|---|---|
 | Generic dense Q8.8 | `generic-dense-q88` | `silicon-bridge-dense-q88-v1` | optional | omitted unless supplied | omitted unless declared | refuse unless `allow_replace` |
 | Required readout | `spikenaut-signed-output-v1` | `spikenaut-signed-output-v1` | **required** `K×N` | omitted unless supplied | omitted unless declared | refuse unless `allow_replace` |
+| silicon-hdl v3 reference | `silicon-hdl-v3-compatible` | `silicon-hdl-v3-profile-v1` | **required** `K×N` plus HDL-native `N×K` | omitted unless supplied | omitted unless declared | refuse unless `allow_replace` |
 | Legacy Spikenaut-v2 | `spikenaut-v2-legacy` | `Spikenaut-v2` (historical tag) | optional | wall-clock RFC 3339 | declared `35.0` (not measured) | replace (historical) |
 
 Schema version, producer crate / crate version, and profile / model
@@ -25,8 +26,9 @@ contract is **not** a silent redefinition of `Spikenaut-v2`.
 
 Matching `parameters.mem` / `parameters_weights.mem` /
 `parameters_decay.mem` / `parameters_output_weights.mem` names does **not**
-imply silicon-hdl compatibility. Downstream mapping stays with the
-contract-test issue, not this writer.
+imply silicon-hdl compatibility. The pinned silicon-hdl v3 profile is the
+explicit path that also writes `hdl_readout_neuron_major.mem` and records
+the Host/HDL contract metadata.
 
 ## What to call
 
@@ -52,6 +54,12 @@ let report = exporter.write_generic("out")?;
   error (`ExportError::MissingRequiredReadout`). On-disk profile id remains
   `spikenaut-signed-output-v1` — not a silent redefinition of `Spikenaut-v2`.
   `ExportConfig::spikenaut_signed_output_v1()` is the Spikenaut-named alias.
+- **Pinned silicon-hdl v3 reference profile**:
+  `ExportConfig::silicon_hdl_v3()`. This profile supports exactly 16 input
+  channels, 16 hidden neurons, and 3 output classes. It preserves
+  `parameters_output_weights.mem` as generic class-major `K×N` and emits
+  `hdl_readout_neuron_major.mem` as the reference HDL `OutputLayer`
+  neuron-major `N×K` image. See [host-hdl-contract.md](host-hdl-contract.md).
 - **Existing Spikenaut-v2 tooling** that keys on `version: "Spikenaut-v2"`,
   the documented filenames, overwrite-in-place, and a declared 35 µs
   target: `MemFileWriter::write_mem_files` /
@@ -94,6 +102,10 @@ are rejected before writing.
   `producer_version`, flattening (`row_major_dense` only), rounding
   (`truncate_toward_zero`), overflow policy, Q-format bit widths, and
   per-block shapes.
+- `ExportConfig::silicon_hdl_v3()` also records
+  `metadata.compatibility.contract_id`, the pinned `silicon-hdl` revision,
+  supported dimensions, emitted filenames, readout source/HDL layouts,
+  reset/timestep assumptions, and SiliconBridge v3.0 UART frame sizes.
 - `write_mem_files` returns `ExportReport` instead of `()` and no longer
   prints a summary. The report does not claim board compatibility or
   measured latency.

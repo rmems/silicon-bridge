@@ -8,8 +8,8 @@
 use serde::Deserialize;
 use silicon_bridge::{
     DENSE_Q88_SYNC, DenseQ88Layout, Q88_SIGNED_MAX, SILICON_BRIDGE_V3_RX_LEN,
-    SILICON_BRIDGE_V3_TX_LEN, decode_response, encode_stimuli, encode_stimuli_legacy_v3,
-    format_q88_hex,
+    SILICON_BRIDGE_V3_TX_LEN, SILICON_HDL_V3_INPUT_CHANNELS, decode_response, encode_stimuli,
+    encode_stimuli_legacy_v3, format_q88_hex,
 };
 use std::fs;
 use std::path::PathBuf;
@@ -120,6 +120,15 @@ fn legacy_v3_tx_matches_independent_bytes() {
             pair.value
         );
     }
+}
+
+#[test]
+fn silicon_hdl_v3_profile_uses_the_existing_silicon_bridge_v3_uart_layout() {
+    let layout = DenseQ88Layout::silicon_bridge_v3();
+    assert_eq!(SILICON_HDL_V3_INPUT_CHANNELS, 16);
+    assert_eq!(layout.input_channels(), SILICON_HDL_V3_INPUT_CHANNELS);
+    assert_eq!(layout.tx_len(), Ok(SILICON_BRIDGE_V3_TX_LEN));
+    assert_eq!(layout.rx_len(), Ok(SILICON_BRIDGE_V3_RX_LEN));
 }
 
 #[test]

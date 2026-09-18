@@ -11,9 +11,12 @@
 //!   (`generic-dense-q88`). Prefer that over [`ParameterExport::export`] /
 //!   [`MemFileWriter::write_mem_files`] (legacy Spikenaut-v2). Required
 //!   readout: [`ExportConfig::generic_with_required_readout`].
+//!   Pinned silicon-hdl reference export:
+//!   [`ExportConfig::silicon_hdl_v3`].
 //! - **UART codecs** (`DenseQ88Layout`, `encode_stimuli`,
 //!   `decode_response`) that do not depend on `serialport`. SiliconBridge v3.0
-//!   is an example 16-channel layout with golden-byte evidence, not a Basys3-only crate.
+//!   is an example 16-channel layout with golden-byte evidence matching
+//!   current Basys 3 firmware, not a claim that any board speaks the frame.
 //! - **Optional UART I/O** (`uart` feature) for blocking spike exchange on a
 //!   caller-selected port
 //! - **Vivado report parsing** for CI/CD gating on WNS, TNS, and LUT utilization
@@ -22,14 +25,24 @@
 //!
 //! ## Installation
 //!
+//! This crate is **not on crates.io or docs.rs**. `[package].version` is
+//! `0.3.1`; an authorized `cargo publish` is a separate maintainer action.
+//! Until then, depend on git or a path:
+//!
 //! ```toml
-//! silicon-bridge = "0.3.0"
+//! silicon-bridge = { git = "https://github.com/rmems/silicon-bridge" }
 //! ```
 //!
 //! Optional UART I/O:
 //!
 //! ```toml
-//! silicon-bridge = { version = "0.3.0", features = ["uart"] }
+//! silicon-bridge = { git = "https://github.com/rmems/silicon-bridge", features = ["uart"] }
+//! ```
+//!
+//! After crates.io actually serves version 0.3.1:
+//!
+//! ```toml
+//! silicon-bridge = "0.3.1"
 //! ```
 //!
 //! `rust-version` is `1.88.0` (language floor). See the crate README and
@@ -37,6 +50,18 @@
 //! and the distinction between that floor, the 1.85.0 dependency graph, and
 //! CI `stable`. This rustdoc does **not** claim crates.io or docs.rs are
 //! already live.
+//!
+//! ## Reference hardware
+//!
+//! The default public path is board-agnostic Q8.8 `.mem` export
+//! (`write_generic`). The **named reference companion path** is Digilent Basys 3
+//! (Xilinx Artix-7 `XC7A35T-1CPG236C`, Vivado part `xc7a35tcpg236-1`) plus
+//! [silicon-hdl](https://github.com/rmems/silicon-hdl)
+//! `spikenaut_soc_basys3_top` (`Basys3_Top.sv`), with
+//! `constraints/basys3.xdc` and `basys3_soc.xdc`. silicon-hdl also ships
+//! `artix7_trainer.xdc`; that pinout is **not** the claimed reference demo.
+//! Prior physical evidence is an LED heartbeat smoke (silicon-hdl #68), not
+//! a silicon-bridge UART host session (that is silicon-bridge #84).
 //!
 //! Offline examples (`examples/generic_mem_export.rs`,
 //! `examples/spikenaut_profile_export.rs`, `examples/dense_codec.rs`) use only
@@ -79,9 +104,8 @@
 //!
 //! Extracted from Eagle-Lander, the author's own private neuromorphic GPU
 //! supervisor (closed-source). The default public path is framework-agnostic
-//! dense Q8.8 export. Historical Basys3 / Spikenaut deployments are opt-in
-//! profiles with golden-byte evidence, not a claim that this crate only
-//! works with that board.
+//! dense Q8.8 export. The named reference companion board is Digilent Basys 3 plus
+//! silicon-hdl; Spikenaut export layouts remain opt-in profiles.
 //!
 //! ## Quick Start
 //!
@@ -123,7 +147,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! silicon-bridge = { version = "0.3.0", features = ["uart"] }
+//! silicon-bridge = { git = "https://github.com/rmems/silicon-bridge", features = ["uart"] }
 //! ```
 //!
 //! Prefer [`FpgaBridge::open_with_config`] or [`FpgaBridge::builder`] with an
@@ -133,9 +157,11 @@
 //! [`list_serial_ports`] typically does.
 //!
 //! Frame encode/decode is [`encode_stimuli`] / [`decode_response`] and does
-//! not need this feature. [`DenseQ88Layout::silicon_bridge_v3`] is an example
-//! 16-channel layout with golden-byte evidence; other layouts need matching
-//! FPGA firmware. Changing host channel counts does not reconfigure a board.
+//! not need this feature. [`DenseQ88Layout::silicon_bridge_v3`] is the
+//! 16-channel example layout with golden-byte evidence matching current
+//! Basys 3 firmware, not a claim that any board speaks this frame. Other
+//! layouts need matching FPGA firmware. Changing host channel counts does
+//! not reconfigure a board.
 
 // `forbid(unsafe_code)` enforces an AGENTS.md *constraint* — "do not add
 // `unsafe` code without explicit safety justification" — mechanically. Nothing
@@ -159,16 +185,20 @@ mod fpga_bridge;
 
 // Re-export public API
 pub use fpga_export::{
-    BlockEncodings, BlockShape, BundleShapes, CheckedParameterExport, EXPORT_FORMAT_VERSION,
-    ExportConfig, ExportError, ExportFileLayout, ExportProfile, ExportReport, FilenameError,
-    FixedPointEncode, FpgaMetadata, FpgaParameterExporter, FpgaParameters,
-    GENERIC_DENSE_PROFILE_ID, GENERIC_DENSE_SCHEMA_VERSION, MatrixFlattening, MemFileWriter,
-    MetadataTimestampError, NonFiniteKind, OverflowPolicy, OverwritePolicy, PRODUCER_CRATE,
-    ParameterBlock, ParameterExport, ParameterLocation, ParameterShapeError, Q88_SIGNED_MAX,
-    Q88_SIGNED_MIN, Q88_UNSIGNED_MAX, Q88Encoding, QFormat, RangePolicy, ReadoutShape,
-    RoundingMode, SPIKENAUT_LEGACY_TARGET_LATENCY_US, SPIKENAUT_SIGNED_OUTPUT_PROFILE_ID,
-    SPIKENAUT_SIGNED_OUTPUT_SCHEMA_VERSION, SPIKENAUT_V2_LEGACY_PROFILE_ID, STIMULUS_Q88_MAX,
-    STIMULUS_Q88_MIN, SaturationEvent, SaturationReport, TimestampPolicy, encode_q88_signed,
+    BlockEncodings, BlockShape, BundleShapes, CheckedParameterExport, CompatibilityDimensions,
+    CompatibilityFiles, CompatibilityMetadata, EXPORT_FORMAT_VERSION, ExportConfig, ExportError,
+    ExportFileLayout, ExportProfile, ExportReport, FilenameError, FixedPointEncode, FpgaMetadata,
+    FpgaParameterExporter, FpgaParameters, GENERIC_DENSE_PROFILE_ID, GENERIC_DENSE_SCHEMA_VERSION,
+    MatrixFlattening, MemFileWriter, MetadataTimestampError, NonFiniteKind, OverflowPolicy,
+    OverwritePolicy, PRODUCER_CRATE, ParameterBlock, ParameterExport, ParameterLocation,
+    ParameterShapeError, Q88_SIGNED_MAX, Q88_SIGNED_MIN, Q88_UNSIGNED_MAX, Q88Encoding, QFormat,
+    RangePolicy, ReadoutShape, RoundingMode, SILICON_HDL_V3_CONTRACT_ID,
+    SILICON_HDL_V3_HIDDEN_NEURONS, SILICON_HDL_V3_INPUT_CHANNELS, SILICON_HDL_V3_OUTPUT_CLASSES,
+    SILICON_HDL_V3_PROFILE_ID, SILICON_HDL_V3_READOUT_FILENAME, SILICON_HDL_V3_SCHEMA_VERSION,
+    SILICON_HDL_V3_SUPPORTED_REVISION, SPIKENAUT_LEGACY_TARGET_LATENCY_US,
+    SPIKENAUT_SIGNED_OUTPUT_PROFILE_ID, SPIKENAUT_SIGNED_OUTPUT_SCHEMA_VERSION,
+    SPIKENAUT_V2_LEGACY_PROFILE_ID, STIMULUS_Q88_MAX, STIMULUS_Q88_MIN, SaturationEvent,
+    SaturationReport, TimestampPolicy, UartContractMetadata, encode_q88_signed,
     encode_q88_signed_full, encode_q88_unsigned, format_q88_hex, q88_signed_to_f32, q88_to_f32,
 };
 

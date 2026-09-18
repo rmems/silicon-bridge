@@ -24,18 +24,23 @@ explicitly authorized that exact version.
    crates.io tarballs and the docs.rs build for that version are immutable;
    a later git commit cannot correct them.
 
-The first crates.io semver is **0.3.0** (UART milestone numbering; Toward-0.1.0
-/ v0.2.0 are closed). Registry lookup returned 404 on 2026-09-17, so 0.3.0
-is unoccupied. This tree already rewrites install lines to
-`silicon-bridge = "0.3.0"`. An authorized human `cargo publish` of 0.3.0
-is still required after merge.
+The current crates.io-intended semver is **0.3.1**. Registry state must still
+be checked immediately before publication. README and crate rustdoc keep
+git/path install lines until a maintainer authorizes the exact registry
+publish. Do not treat a crates.io badge or an in-tree `0.3.1` string as a
+live registry crate.
+
+The reference FPGA named in README / `docs/consumer.md` is Digilent Basys 3
+(Artix-7 `XC7A35T-1CPG236C`, `xc7a35tcpg236-1`) with silicon-hdl
+`spikenaut_soc_basys3_top`. silicon-hdl LED heartbeat smoke (#68) is **not**
+that host proof.
 
 ## 2. Supported Rust version
 
 - `[package].rust-version` is `1.88.0` (language floor: edition 2024 plus
   `if`/`let` chains). The dependency graph would compile on 1.85.0.
   Validated against `rustc 1.88.0 (6b00bc388 2025-06-23)` and
-  `rustc 1.98.1 (48a229cea 2026-09-01)` for the 0.3.0 candidate. CI uses
+  `rustc 1.98.1 (48a229cea 2026-09-01)` for the 0.3.1 candidate. CI uses
   GitHub Actions `stable`, not a dedicated 1.88 job.
 - Build and test on 1.88.0 or newer stable.
 - Record the toolchain in the release notes.
@@ -72,6 +77,8 @@ CI matrix coverage is GitHub [#24](https://github.com/rmems/silicon-bridge/issue
 issue for this checklist.
 
 Do **not** flash an FPGA or send UART stimuli as part of this checklist.
+The Basys 3 UART host session that gates 0.3.1 publish lives in GitHub
+[#84](https://github.com/rmems/silicon-bridge/issues/84), not here.
 
 ## 5. Packaged-crate smoke test (not registry proof)
 
@@ -97,5 +104,5 @@ that rewrite belongs on the candidate commit in step 1.5 / item 5 above.
 ## 7. Out of scope here
 
 - NIR HDF5 I/O (GitHub [#15](https://github.com/rmems/silicon-bridge/issues/15))
-- Flashing silicon-hdl / Basys3
+- Flashing silicon-hdl / Basys 3 (owned by silicon-hdl + GitHub [#84](https://github.com/rmems/silicon-bridge/issues/84))
 - Changing the GitHub Actions matrix (#24 already owns it)

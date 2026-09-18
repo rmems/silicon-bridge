@@ -119,8 +119,8 @@ Future (allowed when explicitly landed):
 
 ### vs `silicon-hdl`
 
-- **silicon-hdl**: single source of truth for RTL (`WeightRam`, `NeuronParamRam`, `SiliconBridge`, …).
-- **silicon-bridge**: host tools and parameter formats that must **align** with those modules.
+- **silicon-hdl**: single source of truth for RTL (`WeightRam`, `NeuronParamRam`, `SiliconBridge`, …). The **reference** companion SoC is Digilent Basys 3 / Artix-7 `XC7A35T-1CPG236C` (`spikenaut_soc_basys3_top`); silicon-hdl also ships an Artix-7 trainer XDC that is **not** the claimed demo.
+- **silicon-bridge**: host tools and parameter formats that must **align** with those modules. Default `.mem` export is board-agnostic; UART v3 golden bytes match Basys 3 firmware.
 - Alignment issues (widths, file names, UART frames) are coordinated across both repos; RTL changes land in silicon-hdl.
 
 ## Domain leaks, risks, sequencing
