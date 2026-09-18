@@ -1,0 +1,21 @@
+build.rs
+  s_648ab77f1a632d::t_2664445e2df490 26,46,48,53-63
+docs/consumer.md
+  s_648ab77f1a632d::t_4822f42fc521df 92
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d96db7ee0f4f1677e3cdb6bbc0425449e995c674",
+  "prompts": {},
+  "sessions": {
+    "s_648ab77f1a632d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ad92-0aba-75a1-b901-c699e17cbef1",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
