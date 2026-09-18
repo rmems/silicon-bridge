@@ -1,0 +1,28 @@
+src/fpga_export.rs
+  s_648ab77f1a632d::t_a69caa0e727114 803-807,903
+  s_648ab77f1a632d::t_f12f8cfc3a564c 860-862
+src/export_profile.rs
+  s_648ab77f1a632d::t_07b9d575c42234 924-926,997-999,1089-1091
+  s_648ab77f1a632d::t_d271b8d7eab458 1423-1428
+build.rs
+  s_648ab77f1a632d::t_f12f8cfc3a564c 30-33
+  s_648ab77f1a632d::t_4e57ea9a22c682 11-16,22-29,34-37,54-56,59-60,63,66,75-76,86,89-96
+docs/release-readiness.md
+  s_648ab77f1a632d::t_051c8775023f37 80
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f3e4582dd934af42c57e4b7dec6a72c47537c53a",
+  "prompts": {},
+  "sessions": {
+    "s_648ab77f1a632d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ad92-0aba-75a1-b901-c699e17cbef1",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
