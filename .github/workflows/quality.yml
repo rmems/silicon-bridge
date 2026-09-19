@@ -29,6 +29,11 @@ jobs:
           components: llvm-tools-preview
           toolchain: stable
 
+      - name: Install libudev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libudev-dev
+
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@4076c08d76dba979c11a7285295b0716c1d67908 # v2
         with:
