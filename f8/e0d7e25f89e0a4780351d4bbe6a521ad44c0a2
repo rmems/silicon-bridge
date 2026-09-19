@@ -1,0 +1,27 @@
+.github/workflows/quality.yml
+  s_648ab77f1a632d::t_5ce1bcd58fefec 15-16,59,62,69-70,78,81
+  s_648ab77f1a632d::t_3b7e196e68529b 43
+  s_648ab77f1a632d::t_61e69152cb3464 79
+  s_648ab77f1a632d::t_e3d293e4932683 1-14,17-42,44-58,60-61,63-68,71-77,80,82-83
+README.md
+  s_648ab77f1a632d::t_e3d293e4932683 10-12
+  s_648ab77f1a632d::t_3b7e196e68529b 55-63
+.codecov.yml
+  s_648ab77f1a632d::t_e3d293e4932683 1-12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f8e0d7e25f89e0a4780351d4bbe6a521ad44c0a2",
+  "prompts": {},
+  "sessions": {
+    "s_648ab77f1a632d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ad92-0aba-75a1-b901-c699e17cbef1",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
