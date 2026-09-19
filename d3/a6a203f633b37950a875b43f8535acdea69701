@@ -1,0 +1,29 @@
+docs/export-profiles.md
+  s_648ab77f1a632d::t_1f79f9f2c7376e 22
+README.md
+  s_648ab77f1a632d::t_1f79f9f2c7376e 103-105
+src/export_profile.rs
+  s_648ab77f1a632d::t_1f79f9f2c7376e 54,57,388-390,620-630,633-635,1822-1856
+docs/host-hdl-contract.md
+  s_648ab77f1a632d::t_1f79f9f2c7376e 16-17,109
+CHANGELOG.md
+  s_648ab77f1a632d::t_1f79f9f2c7376e 39
+src/lib.rs
+  s_648ab77f1a632d::t_1f79f9f2c7376e 208-214
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d3a6a203f633b37950a875b43f8535acdea69701",
+  "prompts": {},
+  "sessions": {
+    "s_648ab77f1a632d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ad92-0aba-75a1-b901-c699e17cbef1",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
