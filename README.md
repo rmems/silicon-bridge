@@ -100,8 +100,9 @@ Optional UART I/O:
 silicon-bridge = { git = "https://github.com/rmems/silicon-bridge", features = ["uart"] }
 ```
 
-Optional NIR interop dependency, for downstream crates that want to share the
-upstream NIR type surface without adding an HDF5 reader here:
+Optional NIR interop dependency, for downstream crates that want to access
+the upstream NIR type surface re-exported as `silicon_bridge::nir` without
+adding an HDF5 reader here:
 
 ```toml
 silicon-bridge = { git = "https://github.com/rmems/silicon-bridge", features = ["nir"] }

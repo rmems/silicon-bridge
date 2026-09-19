@@ -13,8 +13,8 @@ FPGA-compatible.
 |---|---|
 | Profile API | `ExportConfig::silicon_hdl_v3()` |
 | Profile id | `silicon-hdl-v3-compatible` |
-| Contract id | `silicon-bridge-silicon-hdl-v3-contract-v1` |
-| Metadata schema | `silicon-hdl-v3-profile-v1` |
+| Contract id | `silicon-bridge-silicon-hdl-v3-contract-v2` |
+| Metadata schema | `silicon-hdl-v3-profile-v2` |
 | `silicon-bridge` version | `0.3.1` |
 | Supported `silicon-hdl` revision | `d45163f38ac1cd88f8a3918e3793a08ace85e132` |
 | Supported dimensions | 16 input channels, 16 hidden neurons, 3 output classes |
@@ -106,7 +106,7 @@ jq '.metadata.compatibility' fpga_output/parameters.json
 
 The manifest should show:
 
-- `contract_id: "silicon-bridge-silicon-hdl-v3-contract-v1"`
+- `contract_id: "silicon-bridge-silicon-hdl-v3-contract-v2"`
 - `reference.name: "silicon-hdl"`
 - `reference.repository: "https://github.com/rmems/silicon-hdl"`
 - `reference.revision: "d45163f38ac1cd88f8a3918e3793a08ace85e132"`

@@ -19,7 +19,7 @@ knob for text hex.
 | Generic dense Q8.8 | `generic-dense-q88` | `silicon-bridge-dense-q88-v1` | optional | omitted unless supplied | omitted unless declared | refuse unless `allow_replace` |
 | Custom contract | caller-supplied | caller-supplied | optional, required `K×N`, or required `K×N` plus HDL-native `N×K` | omitted unless supplied | omitted unless declared | refuse unless `allow_replace` |
 | Required readout | `spikenaut-signed-output-v1` | `spikenaut-signed-output-v1` | **required** `K×N` | omitted unless supplied | omitted unless declared | refuse unless `allow_replace` |
-| silicon-hdl v3 reference | `silicon-hdl-v3-compatible` | `silicon-hdl-v3-profile-v1` | **required** `K×N` plus HDL-native `N×K` | omitted unless supplied | omitted unless declared | refuse unless `allow_replace` |
+| silicon-hdl v3 reference | `silicon-hdl-v3-compatible` | `silicon-hdl-v3-profile-v2` | **required** `K×N` plus HDL-native `N×K` | omitted unless supplied | omitted unless declared | refuse unless `allow_replace` |
 | Legacy Spikenaut-v2 | `spikenaut-v2-legacy` | `Spikenaut-v2` (historical tag) | optional | wall-clock RFC 3339 | declared `35.0` (not measured) | replace (historical) |
 
 Schema version, producer crate / crate version, and profile / model
@@ -113,7 +113,15 @@ are rejected before writing.
   `metadata.compatibility.contract_id`, a generic
   `metadata.compatibility.reference` object for the pinned `silicon-hdl` revision,
   supported dimensions, emitted filenames, readout source/HDL layouts,
-  reset/timestep assumptions, and SiliconBridge v3.0 UART frame sizes.
+  reset/timestep assumptions, and SiliconBridge v3.0 UART frame sizes. The
+  reference-object metadata shape is versioned as
+  `silicon-bridge-silicon-hdl-v3-contract-v2` /
+  `silicon-hdl-v3-profile-v2`; v1 manifests used the silicon-hdl-specific
+  `metadata.compatibility.silicon_hdl_revision` field.
+- Public profile fields are string ids for custom contracts:
+  `ExportConfig::profile()` returns `&str`, `ExportReport::profile` is
+  `String`, and the profile fields on `ImmutableFileLayout`,
+  `MissingRequiredReadout`, and `UnsupportedCompatibilityShape` are `String`.
 - `write_mem_files` returns `ExportReport` instead of `()` and no longer
   prints a summary. The report does not claim board compatibility or
   measured latency.

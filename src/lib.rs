@@ -205,6 +205,13 @@ pub use fpga_export::{
 
 pub use fpga_metrics::FpgaMetrics;
 
+/// Re-export of the upstream `nir-rs` crate for optional NIR interoperability.
+///
+/// Enable the `nir` feature to use the shared NIR type surface without adding
+/// NIR HDF5 graph I/O to silicon-bridge itself.
+#[cfg(feature = "nir")]
+pub use nir_rs as nir;
+
 pub use fpga_codec::{
     CodecError, DENSE_Q88_SYNC, DenseQ88Layout, MAX_DENSE_CHANNELS, SILICON_BRIDGE_V3_CHANNELS,
     SILICON_BRIDGE_V3_RX_LEN, SILICON_BRIDGE_V3_TX_LEN, StimulusResponse, decode_response,

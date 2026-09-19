@@ -51,10 +51,10 @@ pub const SPIKENAUT_SIGNED_OUTPUT_SCHEMA_VERSION: &str = "spikenaut-signed-outpu
 pub const SILICON_HDL_V3_PROFILE_ID: &str = "silicon-hdl-v3-compatible";
 
 /// Metadata schema for the pinned silicon-hdl v3 compatibility profile.
-pub const SILICON_HDL_V3_SCHEMA_VERSION: &str = "silicon-hdl-v3-profile-v1";
+pub const SILICON_HDL_V3_SCHEMA_VERSION: &str = "silicon-hdl-v3-profile-v2";
 
 /// Explicit host/HDL contract id recorded by [`ExportConfig::silicon_hdl_v3`].
-pub const SILICON_HDL_V3_CONTRACT_ID: &str = "silicon-bridge-silicon-hdl-v3-contract-v1";
+pub const SILICON_HDL_V3_CONTRACT_ID: &str = "silicon-bridge-silicon-hdl-v3-contract-v2";
 
 /// Pinned silicon-hdl revision used by the reference compatibility profile.
 pub const SILICON_HDL_V3_SUPPORTED_REVISION: &str = "d45163f38ac1cd88f8a3918e3793a08ace85e132";
@@ -385,6 +385,9 @@ impl ExportContract {
     }
 
     fn validate_file_names(&self, include_optional_readout_name: bool) -> Result<(), ExportError> {
+        if self.readout.requires_readout() && self.files.output_weights.is_none() {
+            return Err(ExportError::MissingReadoutFilename);
+        }
         self.files.validate_for(include_optional_readout_name)?;
         if let Some(name) = self.readout.hdl_filename() {
             validate_basename(name)?;
@@ -614,11 +617,22 @@ impl ExportConfig {
 
     /// Build a config from a user-defined or predefined export contract.
     pub fn from_contract(contract: ExportContract) -> Self {
+        let overwrite = if contract.profile_id() == SPIKENAUT_V2_LEGACY_PROFILE_ID {
+            OverwritePolicy::Replace
+        } else {
+            OverwritePolicy::Prohibit
+        };
+        let timestamp = if contract.profile_id() == SPIKENAUT_V2_LEGACY_PROFILE_ID {
+            TimestampPolicy::Now
+        } else {
+            TimestampPolicy::Omit
+        };
+        let declared_target_latency_us = contract.default_target_latency_us;
         Self {
             contract,
-            overwrite: OverwritePolicy::Prohibit,
-            timestamp: TimestampPolicy::Omit,
-            declared_target_latency_us: None,
+            overwrite,
+            timestamp,
+            declared_target_latency_us,
             model_id: String::new(),
         }
     }
@@ -1803,6 +1817,43 @@ mod tests {
         let hdl = fs::read_to_string(dir.path().join("acme_readout_nxk.mem")).unwrap();
         assert_ne!(source, hdl);
         assert_eq!(hdl.lines().count(), 12);
+    }
+
+    #[test]
+    fn required_readout_contract_rejects_missing_output_filename() {
+        let files = ExportFileLayout {
+            thresholds: "thresholds.mem".into(),
+            weights: "weights.mem".into(),
+            decay: "decay.mem".into(),
+            metadata: "parameters.json".into(),
+            output_weights: None,
+        };
+
+        let err = ExportContract::custom(
+            "acme-hdl-v1",
+            "acme-hdl-schema-v1",
+            files.clone(),
+            ReadoutContract::RequiredKxN,
+        )
+        .expect_err("required readout needs an output filename");
+        assert!(matches!(err, ExportError::MissingReadoutFilename));
+
+        let err = ExportConfig::generic_with_required_readout()
+            .with_files(files)
+            .expect_err("replacement layout must keep the readout filename");
+        assert!(matches!(err, ExportError::MissingReadoutFilename));
+    }
+
+    #[test]
+    fn from_legacy_contract_preserves_legacy_defaults() {
+        let config = ExportConfig::from_contract(ExportContract::legacy_spikenaut_v2());
+        assert_eq!(config, ExportConfig::legacy_spikenaut_v2());
+        assert_eq!(config.overwrite(), OverwritePolicy::Replace);
+        assert!(matches!(config.timestamp(), TimestampPolicy::Now));
+        assert_eq!(
+            config.declared_target_latency_us(),
+            Some(SPIKENAUT_LEGACY_TARGET_LATENCY_US)
+        );
     }
 
     #[test]
