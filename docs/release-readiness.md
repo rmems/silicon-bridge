@@ -42,8 +42,10 @@ that host proof.
   Validated against `rustc 1.88.0 (6b00bc388 2025-06-23)` and
   `rustc 1.98.1 (48a229cea 2026-09-01)` for the 0.3.1 candidate. CI uses
   GitHub Actions `stable`, not a dedicated 1.88 job.
-- Build and test on 1.88.0 or newer stable.
-- Record the toolchain in the release notes.
+- Build and test default features on 1.88.0 or newer stable. The optional
+  `nir` feature pins `nir-rs = 0.4.3`; validate it on a toolchain new enough
+  for `nir-rs` before claiming that feature.
+- Record the toolchain and enabled features in the release notes.
 
 ## 3. License and package contents
 
@@ -61,6 +63,7 @@ Run on the commit you will tag, not a dirty tree:
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test
+cargo check --features nir
 # Linux with libudev-dev:
 cargo check --features uart
 cargo test --features uart

@@ -186,15 +186,16 @@ mod fpga_bridge;
 // Re-export public API
 pub use fpga_export::{
     BlockEncodings, BlockShape, BundleShapes, CheckedParameterExport, CompatibilityDimensions,
-    CompatibilityFiles, CompatibilityMetadata, EXPORT_FORMAT_VERSION, ExportConfig, ExportError,
-    ExportFileLayout, ExportProfile, ExportReport, FilenameError, FixedPointEncode, FpgaMetadata,
-    FpgaParameterExporter, FpgaParameters, GENERIC_DENSE_PROFILE_ID, GENERIC_DENSE_SCHEMA_VERSION,
-    MatrixFlattening, MemFileWriter, MetadataTimestampError, NonFiniteKind, OverflowPolicy,
-    OverwritePolicy, PRODUCER_CRATE, ParameterBlock, ParameterExport, ParameterLocation,
-    ParameterShapeError, Q88_SIGNED_MAX, Q88_SIGNED_MIN, Q88_UNSIGNED_MAX, Q88Encoding, QFormat,
-    RangePolicy, ReadoutShape, RoundingMode, SILICON_HDL_V3_CONTRACT_ID,
-    SILICON_HDL_V3_HIDDEN_NEURONS, SILICON_HDL_V3_INPUT_CHANNELS, SILICON_HDL_V3_OUTPUT_CLASSES,
-    SILICON_HDL_V3_PROFILE_ID, SILICON_HDL_V3_READOUT_FILENAME, SILICON_HDL_V3_SCHEMA_VERSION,
+    CompatibilityFiles, CompatibilityMetadata, ContractReference, EXPORT_FORMAT_VERSION,
+    ExportConfig, ExportContract, ExportError, ExportFileLayout, ExportProfile, ExportReport,
+    FilenameError, FixedPointEncode, FpgaMetadata, FpgaParameterExporter, FpgaParameters,
+    GENERIC_DENSE_PROFILE_ID, GENERIC_DENSE_SCHEMA_VERSION, MatrixFlattening, MemFileWriter,
+    MetadataTimestampError, NonFiniteKind, OverflowPolicy, OverwritePolicy, PRODUCER_CRATE,
+    ParameterBlock, ParameterExport, ParameterLocation, ParameterShapeError, Q88_SIGNED_MAX,
+    Q88_SIGNED_MIN, Q88_UNSIGNED_MAX, Q88Encoding, QFormat, RangePolicy, ReadoutContract,
+    ReadoutShape, RoundingMode, SILICON_HDL_V3_CONTRACT_ID, SILICON_HDL_V3_HIDDEN_NEURONS,
+    SILICON_HDL_V3_INPUT_CHANNELS, SILICON_HDL_V3_OUTPUT_CLASSES, SILICON_HDL_V3_PROFILE_ID,
+    SILICON_HDL_V3_READOUT_FILENAME, SILICON_HDL_V3_SCHEMA_VERSION,
     SILICON_HDL_V3_SUPPORTED_REVISION, SPIKENAUT_LEGACY_TARGET_LATENCY_US,
     SPIKENAUT_SIGNED_OUTPUT_PROFILE_ID, SPIKENAUT_SIGNED_OUTPUT_SCHEMA_VERSION,
     SPIKENAUT_V2_LEGACY_PROFILE_ID, STIMULUS_Q88_MAX, STIMULUS_Q88_MIN, SaturationEvent,
@@ -203,6 +204,13 @@ pub use fpga_export::{
 };
 
 pub use fpga_metrics::FpgaMetrics;
+
+/// Re-export of the upstream `nir-rs` crate for optional NIR interoperability.
+///
+/// Enable the `nir` feature to use the shared NIR type surface without adding
+/// NIR HDF5 graph I/O to silicon-bridge itself.
+#[cfg(feature = "nir")]
+pub use nir_rs as nir;
 
 pub use fpga_codec::{
     CodecError, DENSE_Q88_SYNC, DenseQ88Layout, MAX_DENSE_CHANNELS, SILICON_BRIDGE_V3_CHANNELS,

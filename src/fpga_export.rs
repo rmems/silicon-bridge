@@ -75,14 +75,14 @@ mod export_profile;
 
 pub use export_profile::{
     BlockShape, BundleShapes, CompatibilityDimensions, CompatibilityFiles, CompatibilityMetadata,
-    ExportConfig, ExportFileLayout, ExportProfile, ExportReport, GENERIC_DENSE_PROFILE_ID,
-    GENERIC_DENSE_SCHEMA_VERSION, OverwritePolicy, PRODUCER_CRATE, ReadoutShape,
-    SILICON_HDL_V3_CONTRACT_ID, SILICON_HDL_V3_HIDDEN_NEURONS, SILICON_HDL_V3_INPUT_CHANNELS,
-    SILICON_HDL_V3_OUTPUT_CLASSES, SILICON_HDL_V3_PROFILE_ID, SILICON_HDL_V3_READOUT_FILENAME,
-    SILICON_HDL_V3_SCHEMA_VERSION, SILICON_HDL_V3_SUPPORTED_REVISION,
-    SPIKENAUT_LEGACY_TARGET_LATENCY_US, SPIKENAUT_SIGNED_OUTPUT_PROFILE_ID,
-    SPIKENAUT_SIGNED_OUTPUT_SCHEMA_VERSION, SPIKENAUT_V2_LEGACY_PROFILE_ID, TimestampPolicy,
-    UartContractMetadata,
+    ContractReference, ExportConfig, ExportContract, ExportFileLayout, ExportProfile, ExportReport,
+    GENERIC_DENSE_PROFILE_ID, GENERIC_DENSE_SCHEMA_VERSION, OverwritePolicy, PRODUCER_CRATE,
+    ReadoutContract, ReadoutShape, SILICON_HDL_V3_CONTRACT_ID, SILICON_HDL_V3_HIDDEN_NEURONS,
+    SILICON_HDL_V3_INPUT_CHANNELS, SILICON_HDL_V3_OUTPUT_CLASSES, SILICON_HDL_V3_PROFILE_ID,
+    SILICON_HDL_V3_READOUT_FILENAME, SILICON_HDL_V3_SCHEMA_VERSION,
+    SILICON_HDL_V3_SUPPORTED_REVISION, SPIKENAUT_LEGACY_TARGET_LATENCY_US,
+    SPIKENAUT_SIGNED_OUTPUT_PROFILE_ID, SPIKENAUT_SIGNED_OUTPUT_SCHEMA_VERSION,
+    SPIKENAUT_V2_LEGACY_PROFILE_ID, TimestampPolicy, UartContractMetadata,
 };
 
 /// Metadata / layout tag for the Q8.8 `.mem` bundle shared with silicon-hdl.
@@ -780,6 +780,11 @@ pub enum ExportError {
         /// Why the name was rejected.
         reason: FilenameError,
     },
+    /// A custom export contract was built with a blank profile or schema id.
+    EmptyContractIdentifier {
+        /// Identifier field that must be non-empty.
+        field: &'static str,
+    },
     /// Two blocks were assigned the same output filename.
     DuplicateFilename {
         /// Repeated basename.
@@ -788,7 +793,7 @@ pub enum ExportError {
     /// A pinned compatibility profile refused caller-supplied filenames.
     ImmutableFileLayout {
         /// Profile whose filenames are part of its compatibility contract.
-        profile: &'static str,
+        profile: String,
     },
     /// The generic / signed-output path refused to replace an existing file.
     OverwriteRefused {
@@ -803,7 +808,7 @@ pub enum ExportError {
     /// A profile that requires a `K×N` readout was used without one.
     MissingRequiredReadout {
         /// Profile that requires the readout matrix.
-        profile: &'static str,
+        profile: String,
     },
     /// A readout matrix is present but [`ExportFileLayout::output_weights`] is
     /// `None`, so JSON would record the block without a matching `.mem` file.
@@ -813,7 +818,7 @@ pub enum ExportError {
     /// A pinned compatibility profile was selected for unsupported dimensions.
     UnsupportedCompatibilityShape {
         /// Profile that rejected the shape.
-        profile: &'static str,
+        profile: String,
         /// Dimensions supported by that profile.
         expected: CompatibilityDimensions,
         /// Dimensions supplied by the export.
@@ -842,6 +847,9 @@ impl fmt::Display for ExportError {
             }
             Self::DuplicateFilename { name } => {
                 write!(f, "output filename {name:?} is used by more than one block")
+            }
+            Self::EmptyContractIdentifier { field } => {
+                write!(f, "custom export contract {field} must not be empty")
             }
             Self::ImmutableFileLayout { profile } => write!(
                 f,
@@ -897,6 +905,7 @@ impl std::error::Error for ExportError {
             Self::UnsignedHardwareEncoding { .. }
             | Self::UnsafeFilename { .. }
             | Self::DuplicateFilename { .. }
+            | Self::EmptyContractIdentifier { .. }
             | Self::ImmutableFileLayout { .. }
             | Self::OverwriteRefused { .. }
             | Self::UnsupportedFlattening { .. }
@@ -2170,7 +2179,7 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         let report = exporter.write_generic(dir.path()).expect("generic write");
-        assert_eq!(report.profile, ExportProfile::GenericDenseQ88);
+        assert_eq!(report.profile, GENERIC_DENSE_PROFILE_ID);
         let json = fs::read_to_string(dir.path().join("parameters.json")).unwrap();
         assert!(!json.contains("Spikenaut"));
     }

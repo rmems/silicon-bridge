@@ -51,10 +51,10 @@ pub const SPIKENAUT_SIGNED_OUTPUT_SCHEMA_VERSION: &str = "spikenaut-signed-outpu
 pub const SILICON_HDL_V3_PROFILE_ID: &str = "silicon-hdl-v3-compatible";
 
 /// Metadata schema for the pinned silicon-hdl v3 compatibility profile.
-pub const SILICON_HDL_V3_SCHEMA_VERSION: &str = "silicon-hdl-v3-profile-v1";
+pub const SILICON_HDL_V3_SCHEMA_VERSION: &str = "silicon-hdl-v3-profile-v2";
 
 /// Explicit host/HDL contract id recorded by [`ExportConfig::silicon_hdl_v3`].
-pub const SILICON_HDL_V3_CONTRACT_ID: &str = "silicon-bridge-silicon-hdl-v3-contract-v1";
+pub const SILICON_HDL_V3_CONTRACT_ID: &str = "silicon-bridge-silicon-hdl-v3-contract-v2";
 
 /// Pinned silicon-hdl revision used by the reference compatibility profile.
 pub const SILICON_HDL_V3_SUPPORTED_REVISION: &str = "d45163f38ac1cd88f8a3918e3793a08ace85e132";
@@ -129,6 +129,17 @@ pub struct UartContractMetadata {
     pub word_byte_order: String,
 }
 
+/// Upstream contract or fixture reference pinned by compatibility metadata.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContractReference {
+    /// Human-readable reference name.
+    pub name: String,
+    /// Canonical repository or source URL.
+    pub repository: String,
+    /// Pinned revision, tag, digest, or version in the referenced source.
+    pub revision: String,
+}
+
 /// Machine-readable compatibility contract recorded in `parameters.json`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompatibilityMetadata {
@@ -142,8 +153,8 @@ pub struct CompatibilityMetadata {
     pub silicon_bridge_version: String,
     /// Producing checkout revision when available at build time.
     pub silicon_bridge_revision: String,
-    /// Pinned silicon-hdl revision supported by this profile.
-    pub silicon_hdl_revision: String,
+    /// Generic upstream contract reference pinned by this profile.
+    pub reference: Option<ContractReference>,
     /// Only dimensions supported by this pinned profile.
     pub supported_dimensions: CompatibilityDimensions,
     /// Generic hidden-weight layout.
@@ -214,6 +225,196 @@ impl ExportProfile {
     /// Whether this profile requires a readout / output-weight matrix.
     pub fn requires_readout(self) -> bool {
         matches!(self, Self::SpikenautSignedOutputV1 | Self::SiliconHdlV3)
+    }
+}
+
+/// Readout file contract for a dense export.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReadoutContract {
+    /// Readout/output weights are optional.
+    Optional,
+    /// A generic class-major `K×N` readout file is required.
+    RequiredKxN,
+    /// A generic `K×N` readout is required and an HDL-native `N×K` copy is emitted.
+    RequiredKxNAndHdlNxK {
+        /// HDL-native readout filename.
+        filename: String,
+    },
+}
+
+impl ReadoutContract {
+    /// Whether the contract rejects exports without output/readout weights.
+    pub fn requires_readout(&self) -> bool {
+        matches!(self, Self::RequiredKxN | Self::RequiredKxNAndHdlNxK { .. })
+    }
+
+    /// HDL-native readout filename emitted in addition to the generic `K×N` readout, if any.
+    pub fn hdl_filename(&self) -> Option<&str> {
+        match self {
+            Self::RequiredKxNAndHdlNxK { filename } => Some(filename.as_str()),
+            Self::Optional | Self::RequiredKxN => None,
+        }
+    }
+}
+
+/// A dense Q8.8 export contract selected by [`ExportConfig`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExportContract {
+    profile_id: String,
+    schema_version: String,
+    files: ExportFileLayout,
+    readout: ReadoutContract,
+    compatibility: Option<CompatibilityMetadata>,
+    immutable_files: bool,
+    legacy_version: Option<String>,
+    default_target_latency_us: Option<f32>,
+    supported_dimensions: Option<CompatibilityDimensions>,
+}
+
+impl ExportContract {
+    /// Build a user-defined HDL/export contract.
+    pub fn custom(
+        profile_id: impl Into<String>,
+        schema_version: impl Into<String>,
+        files: ExportFileLayout,
+        readout: ReadoutContract,
+    ) -> Result<Self, ExportError> {
+        let profile_id = profile_id.into();
+        let schema_version = schema_version.into();
+        if profile_id.trim().is_empty() {
+            return Err(ExportError::EmptyContractIdentifier {
+                field: "profile_id",
+            });
+        }
+        if schema_version.trim().is_empty() {
+            return Err(ExportError::EmptyContractIdentifier {
+                field: "schema_version",
+            });
+        }
+        let contract = Self {
+            profile_id,
+            schema_version,
+            files,
+            readout,
+            compatibility: None,
+            immutable_files: false,
+            legacy_version: None,
+            default_target_latency_us: None,
+            supported_dimensions: None,
+        };
+        contract.validate_file_names(true)?;
+        Ok(contract)
+    }
+
+    /// Framework-agnostic dense Q8.8 contract.
+    pub fn generic_dense_q88() -> Self {
+        Self::known(
+            GENERIC_DENSE_PROFILE_ID,
+            GENERIC_DENSE_SCHEMA_VERSION,
+            ExportFileLayout::generic_default(),
+            ReadoutContract::Optional,
+        )
+    }
+
+    /// Generic dense Q8.8 contract that requires a signed `K×N` readout.
+    pub fn generic_required_readout() -> Self {
+        Self::known(
+            SPIKENAUT_SIGNED_OUTPUT_PROFILE_ID,
+            SPIKENAUT_SIGNED_OUTPUT_SCHEMA_VERSION,
+            ExportFileLayout::spikenaut_deployment(),
+            ReadoutContract::RequiredKxN,
+        )
+    }
+
+    /// Historical Spikenaut-v2 compatibility contract.
+    pub fn legacy_spikenaut_v2() -> Self {
+        let mut contract = Self::known(
+            SPIKENAUT_V2_LEGACY_PROFILE_ID,
+            EXPORT_FORMAT_VERSION,
+            ExportFileLayout::spikenaut_deployment(),
+            ReadoutContract::Optional,
+        );
+        contract.legacy_version = Some(EXPORT_FORMAT_VERSION.to_string());
+        contract.default_target_latency_us = Some(SPIKENAUT_LEGACY_TARGET_LATENCY_US);
+        contract
+    }
+
+    /// Pinned silicon-hdl v3 reference contract.
+    pub fn silicon_hdl_v3() -> Self {
+        let files = ExportFileLayout::spikenaut_deployment();
+        Self {
+            profile_id: SILICON_HDL_V3_PROFILE_ID.to_string(),
+            schema_version: SILICON_HDL_V3_SCHEMA_VERSION.to_string(),
+            compatibility: Some(silicon_hdl_v3_metadata_for_files(&files)),
+            files,
+            readout: ReadoutContract::RequiredKxNAndHdlNxK {
+                filename: SILICON_HDL_V3_READOUT_FILENAME.to_string(),
+            },
+            immutable_files: true,
+            legacy_version: None,
+            default_target_latency_us: None,
+            supported_dimensions: Some(CompatibilityDimensions::SILICON_HDL_V3),
+        }
+    }
+
+    fn known(
+        profile_id: impl Into<String>,
+        schema_version: impl Into<String>,
+        files: ExportFileLayout,
+        readout: ReadoutContract,
+    ) -> Self {
+        Self {
+            profile_id: profile_id.into(),
+            schema_version: schema_version.into(),
+            files,
+            readout,
+            compatibility: None,
+            immutable_files: false,
+            legacy_version: None,
+            default_target_latency_us: None,
+            supported_dimensions: None,
+        }
+    }
+
+    /// Profile identity written to metadata.
+    pub fn profile_id(&self) -> &str {
+        &self.profile_id
+    }
+
+    /// Metadata schema version written by this contract.
+    pub fn schema_version(&self) -> &str {
+        &self.schema_version
+    }
+
+    /// File layout for this contract.
+    pub fn files(&self) -> &ExportFileLayout {
+        &self.files
+    }
+
+    /// Readout behavior for this contract.
+    pub fn readout(&self) -> &ReadoutContract {
+        &self.readout
+    }
+
+    fn validate_file_names(&self, include_optional_readout_name: bool) -> Result<(), ExportError> {
+        if self.readout.requires_readout() && self.files.output_weights.is_none() {
+            return Err(ExportError::MissingReadoutFilename);
+        }
+        self.files.validate_for(include_optional_readout_name)?;
+        if let Some(name) = self.readout.hdl_filename() {
+            validate_basename(name)?;
+            let mut seen = self.files.names_for(include_optional_readout_name);
+            if seen
+                .iter()
+                .any(|existing| existing.eq_ignore_ascii_case(name))
+            {
+                return Err(ExportError::DuplicateFilename {
+                    name: name.to_string(),
+                });
+            }
+            seen.push(name);
+        }
+        Ok(())
     }
 }
 
@@ -339,9 +540,7 @@ impl ExportFileLayout {
 /// Writer configuration for one dense export.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExportConfig {
-    profile: ExportProfile,
-    files: ExportFileLayout,
-    hdl_readout_file: Option<String>,
+    contract: ExportContract,
     overwrite: OverwritePolicy,
     timestamp: TimestampPolicy,
     declared_target_latency_us: Option<f32>,
@@ -375,15 +574,7 @@ impl ExportConfig {
     /// assert!(!json.contains("Spikenaut"));
     /// ```
     pub fn generic() -> Self {
-        Self {
-            profile: ExportProfile::GenericDenseQ88,
-            files: ExportFileLayout::generic_default(),
-            hdl_readout_file: None,
-            overwrite: OverwritePolicy::Prohibit,
-            timestamp: TimestampPolicy::Omit,
-            declared_target_latency_us: None,
-            model_id: String::new(),
-        }
+        Self::from_contract(ExportContract::generic_dense_q88())
     }
 
     /// Historical Spikenaut-v2 writer: documented filenames, wall-clock
@@ -393,9 +584,7 @@ impl ExportConfig {
     /// [`super::MemFileWriter::write_mem_files`].
     pub fn legacy_spikenaut_v2() -> Self {
         Self {
-            profile: ExportProfile::LegacySpikenautV2,
-            files: ExportFileLayout::spikenaut_deployment(),
-            hdl_readout_file: None,
+            contract: ExportContract::legacy_spikenaut_v2(),
             overwrite: OverwritePolicy::Replace,
             timestamp: TimestampPolicy::Now,
             declared_target_latency_us: Some(SPIKENAUT_LEGACY_TARGET_LATENCY_US),
@@ -413,15 +602,7 @@ impl ExportConfig {
     /// invent a second schema.
     #[doc(alias = "spikenaut_signed_output_v1")]
     pub fn generic_with_required_readout() -> Self {
-        Self {
-            profile: ExportProfile::SpikenautSignedOutputV1,
-            files: ExportFileLayout::spikenaut_deployment(),
-            hdl_readout_file: None,
-            overwrite: OverwritePolicy::Prohibit,
-            timestamp: TimestampPolicy::Omit,
-            declared_target_latency_us: None,
-            model_id: String::new(),
-        }
+        Self::from_contract(ExportContract::generic_required_readout())
     }
 
     /// Spikenaut-named alias of [`Self::generic_with_required_readout`].
@@ -443,31 +624,50 @@ impl ExportConfig {
     /// 16-input, 16-hidden, 3-output contract recorded by
     /// [`SILICON_HDL_V3_CONTRACT_ID`].
     pub fn silicon_hdl_v3() -> Self {
+        Self::from_contract(ExportContract::silicon_hdl_v3())
+    }
+
+    /// Build a config from a user-defined or predefined export contract.
+    pub fn from_contract(contract: ExportContract) -> Self {
+        let overwrite = if contract.legacy_version.is_some() {
+            OverwritePolicy::Replace
+        } else {
+            OverwritePolicy::Prohibit
+        };
+        let timestamp = if contract.legacy_version.is_some() {
+            TimestampPolicy::Now
+        } else {
+            TimestampPolicy::Omit
+        };
+        let declared_target_latency_us = contract.default_target_latency_us;
         Self {
-            profile: ExportProfile::SiliconHdlV3,
-            files: ExportFileLayout::spikenaut_deployment(),
-            hdl_readout_file: Some(SILICON_HDL_V3_READOUT_FILENAME.to_string()),
-            overwrite: OverwritePolicy::Prohibit,
-            timestamp: TimestampPolicy::Omit,
-            declared_target_latency_us: None,
+            contract,
+            overwrite,
+            timestamp,
+            declared_target_latency_us,
             model_id: String::new(),
         }
     }
 
-    /// Profile this configuration will write.
-    pub fn profile(&self) -> ExportProfile {
-        self.profile
+    /// Contract this configuration will write.
+    pub fn contract(&self) -> &ExportContract {
+        &self.contract
+    }
+
+    /// Profile identity this configuration will write.
+    pub fn profile(&self) -> &str {
+        self.contract.profile_id()
     }
 
     /// File layout this configuration will write.
     pub fn files(&self) -> &ExportFileLayout {
-        &self.files
+        self.contract.files()
     }
 
     /// Optional HDL-native readout file emitted in addition to the generic
     /// `K×N` readout file.
     pub fn hdl_readout_file(&self) -> Option<&str> {
-        self.hdl_readout_file.as_deref()
+        self.contract.readout.hdl_filename()
     }
 
     /// Overwrite policy.
@@ -499,13 +699,16 @@ impl ExportConfig {
     /// Pinned compatibility profiles may reject this because their filenames
     /// are part of the external HDL contract.
     pub fn with_files(mut self, files: ExportFileLayout) -> Result<Self, ExportError> {
-        if self.profile == ExportProfile::SiliconHdlV3 {
+        if self.contract.immutable_files {
             return Err(ExportError::ImmutableFileLayout {
-                profile: self.profile.id(),
+                profile: self.contract.profile_id.clone(),
             });
         }
-        self.validate_file_names_for_layout(&files, true)?;
-        self.files = files;
+        files.validate_for(true)?;
+        let mut contract = self.contract.clone();
+        contract.files = files;
+        contract.validate_file_names(true)?;
+        self.contract = contract;
         Ok(self)
     }
 
@@ -548,45 +751,22 @@ impl ExportConfig {
 
     fn names_for(&self, has_readout: bool) -> Vec<&str> {
         let mut names = vec![
-            self.files.thresholds.as_str(),
-            self.files.weights.as_str(),
-            self.files.decay.as_str(),
+            self.contract.files.thresholds.as_str(),
+            self.contract.files.weights.as_str(),
+            self.contract.files.decay.as_str(),
         ];
-        if has_readout && let Some(name) = self.files.output_weights.as_deref() {
+        if has_readout && let Some(name) = self.contract.files.output_weights.as_deref() {
             names.push(name);
         }
-        if has_readout && let Some(name) = self.hdl_readout_file.as_deref() {
+        if has_readout && let Some(name) = self.contract.readout.hdl_filename() {
             names.push(name);
         }
-        names.push(self.files.metadata.as_str());
+        names.push(self.contract.files.metadata.as_str());
         names
     }
 
     fn validate_file_names(&self, has_readout: bool) -> Result<(), ExportError> {
-        self.validate_file_names_for_layout(&self.files, has_readout)
-    }
-
-    fn validate_file_names_for_layout(
-        &self,
-        files: &ExportFileLayout,
-        has_readout: bool,
-    ) -> Result<(), ExportError> {
-        files.validate_for(has_readout)?;
-        let mut seen = BTreeSet::new();
-        let mut seen_folded = BTreeSet::new();
-        let mut names = files.names_for(has_readout);
-        if has_readout && let Some(name) = self.hdl_readout_file.as_deref() {
-            names.push(name);
-        }
-        for name in names {
-            validate_basename(name)?;
-            if !seen.insert(name) || !seen_folded.insert(name.to_ascii_lowercase()) {
-                return Err(ExportError::DuplicateFilename {
-                    name: name.to_string(),
-                });
-            }
-        }
-        Ok(())
+        self.contract.validate_file_names(has_readout)
     }
 }
 
@@ -604,8 +784,8 @@ impl Default for ExportConfig {
 /// RAM will consume the image.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExportReport {
-    /// Profile that produced the files.
-    pub profile: ExportProfile,
+    /// Profile identity that produced the files.
+    pub profile: String,
     /// Directory the files were written under.
     pub output_dir: PathBuf,
     /// Basenames actually written, in a stable order (thresholds, weights,
@@ -799,8 +979,8 @@ pub(super) fn stamp_profile_metadata(
         num_channels: m,
         memory_usage_kb: params.metadata.memory_usage_kb,
         encodings,
-        profile: config.profile.id().to_string(),
-        schema_version: config.profile.schema_version().to_string(),
+        profile: config.contract.profile_id.clone(),
+        schema_version: config.contract.schema_version.clone(),
         producer_crate: PRODUCER_CRATE.to_string(),
         producer_version: env!("CARGO_PKG_VERSION").to_string(),
         model_id: config.model_id.clone(),
@@ -813,19 +993,10 @@ pub(super) fn stamp_profile_metadata(
         ..FpgaMetadata::default()
     };
 
-    match config.profile {
-        ExportProfile::LegacySpikenautV2 => {
-            metadata.version = EXPORT_FORMAT_VERSION.to_string();
-            metadata.target_latency_us = config
-                .declared_target_latency_us
-                .or(Some(SPIKENAUT_LEGACY_TARGET_LATENCY_US));
-        }
-        ExportProfile::GenericDenseQ88
-        | ExportProfile::SpikenautSignedOutputV1
-        | ExportProfile::SiliconHdlV3 => {
-            metadata.target_latency_us = config.declared_target_latency_us;
-        }
-    }
+    metadata.version = config.contract.legacy_version.clone().unwrap_or_default();
+    metadata.target_latency_us = config
+        .declared_target_latency_us
+        .or(config.contract.default_target_latency_us);
 
     metadata.timestamp = match &config.timestamp {
         TimestampPolicy::Omit => String::new(),
@@ -833,39 +1004,37 @@ pub(super) fn stamp_profile_metadata(
         TimestampPolicy::Now => chrono::Utc::now().to_rfc3339(),
     };
 
-    if config.profile == ExportProfile::SiliconHdlV3 {
-        metadata.compatibility = Some(silicon_hdl_v3_metadata(config));
-    }
+    metadata.compatibility = config.contract.compatibility.clone();
 
     params.metadata = metadata;
 }
 
-fn silicon_hdl_v3_metadata(config: &ExportConfig) -> CompatibilityMetadata {
+fn silicon_hdl_v3_metadata_for_files(files: &ExportFileLayout) -> CompatibilityMetadata {
     CompatibilityMetadata {
         contract_id: SILICON_HDL_V3_CONTRACT_ID.to_string(),
         contract_version: SILICON_HDL_V3_SCHEMA_VERSION.to_string(),
         profile: SILICON_HDL_V3_PROFILE_ID.to_string(),
         silicon_bridge_version: env!("CARGO_PKG_VERSION").to_string(),
         silicon_bridge_revision: env!("SILICON_BRIDGE_GIT_REV").to_string(),
-        silicon_hdl_revision: SILICON_HDL_V3_SUPPORTED_REVISION.to_string(),
+        reference: Some(ContractReference {
+            name: "silicon-hdl".to_string(),
+            repository: "https://github.com/rmems/silicon-hdl".to_string(),
+            revision: SILICON_HDL_V3_SUPPORTED_REVISION.to_string(),
+        }),
         supported_dimensions: CompatibilityDimensions::SILICON_HDL_V3,
         hidden_weights_layout: "row_major_nxm".to_string(),
         readout_source_layout: "class_major_kxn".to_string(),
         readout_hdl_layout: "neuron_major_nxk".to_string(),
         files: CompatibilityFiles {
-            thresholds: config.files.thresholds.clone(),
-            hidden_weights: config.files.weights.clone(),
-            decay: config.files.decay.clone(),
-            generic_readout_kxn: config
-                .files
+            thresholds: files.thresholds.clone(),
+            hidden_weights: files.weights.clone(),
+            decay: files.decay.clone(),
+            generic_readout_kxn: files
                 .output_weights
                 .clone()
                 .unwrap_or_else(|| "parameters_output_weights.mem".to_string()),
-            hdl_readout_nxk: config
-                .hdl_readout_file
-                .clone()
-                .unwrap_or_else(|| SILICON_HDL_V3_READOUT_FILENAME.to_string()),
-            manifest: config.files.metadata.clone(),
+            hdl_readout_nxk: SILICON_HDL_V3_READOUT_FILENAME.to_string(),
+            manifest: files.metadata.clone(),
         },
         reset_assumption: "reset asserted before loading/replay; no retained state across fixtures"
             .to_string(),
@@ -920,20 +1089,20 @@ impl FpgaParameterExporter {
         if let Some(block) = self.unsigned_hardware_block() {
             return Err(ExportError::UnsignedHardwareEncoding { block });
         }
-        if config.profile.requires_readout() && self.output_weights.is_none() {
+        if config.contract.readout.requires_readout() && self.output_weights.is_none() {
             return Err(ExportError::MissingRequiredReadout {
-                profile: config.profile.id(),
+                profile: config.contract.profile_id.clone(),
             });
         }
-        if self.output_weights.is_some() && config.files.output_weights.is_none() {
+        if self.output_weights.is_some() && config.files().output_weights.is_none() {
             return Err(ExportError::MissingReadoutFilename);
         }
 
         let mut params = CheckedParameterExport::try_export(self)?;
         let has_readout = params.output_weights.is_some();
         config.validate_file_names(has_readout)?;
-        if config.profile == ExportProfile::SiliconHdlV3 {
-            validate_silicon_hdl_v3_shape(&params)?;
+        if let Some(expected) = config.contract.supported_dimensions {
+            validate_compatibility_shape(&params, config.contract.profile_id(), expected)?;
         }
 
         stamp_profile_metadata(&mut params, config, self.range_policy);
@@ -950,7 +1119,7 @@ impl FpgaParameterExporter {
 
         let metadata_json =
             serde_json::to_string_pretty(&params).map_err(|source| ExportError::Serialize {
-                path: output_dir.join(&config.files.metadata),
+                path: output_dir.join(&config.files().metadata),
                 source,
             })?;
 
@@ -973,29 +1142,29 @@ impl FpgaParameterExporter {
         let staging = create_staging_dir(output_dir)?;
         let staged_overwrite = OverwritePolicy::Replace;
         Self::write_mem_file(
-            staging.path.join(&config.files.thresholds),
+            staging.path.join(&config.files().thresholds),
             &params.thresholds,
             staged_overwrite,
         )?;
         Self::write_mem_file(
-            staging.path.join(&config.files.weights),
+            staging.path.join(&config.files().weights),
             &params.weights,
             staged_overwrite,
         )?;
         Self::write_mem_file(
-            staging.path.join(&config.files.decay),
+            staging.path.join(&config.files().decay),
             &params.decay_rates,
             staged_overwrite,
         )?;
         if let Some(readout) = &params.output_weights {
-            let Some(name) = &config.files.output_weights else {
+            let Some(name) = &config.files().output_weights else {
                 return Err(ExportError::MissingReadoutFilename);
             };
             Self::write_mem_file(staging.path.join(name), readout, staged_overwrite)?;
-            if let Some(hdl_name) = config.hdl_readout_file.as_deref() {
+            if let Some(hdl_name) = config.hdl_readout_file() {
                 let Some(shape) = params.metadata.readout_shape else {
                     return Err(ExportError::MissingRequiredReadout {
-                        profile: config.profile.id(),
+                        profile: config.contract.profile_id.clone(),
                     });
                 };
                 let hdl_readout = transpose_readout_kxn_to_nxk(readout, shape);
@@ -1003,7 +1172,7 @@ impl FpgaParameterExporter {
             }
         }
         Self::write_json_file(
-            staging.path.join(&config.files.metadata),
+            staging.path.join(&config.files().metadata),
             &metadata_json,
             staged_overwrite,
         )?;
@@ -1026,7 +1195,7 @@ impl FpgaParameterExporter {
 
         if !has_readout
             && matches!(config.overwrite, OverwritePolicy::Replace)
-            && let Some(name) = &config.files.output_weights
+            && let Some(name) = &config.files().output_weights
         {
             // Same leftover-delete as the legacy writer: a readout-less
             // re-export must not leave a stale `$readmemh` image.
@@ -1034,7 +1203,7 @@ impl FpgaParameterExporter {
         }
 
         Ok(ExportReport {
-            profile: config.profile,
+            profile: config.contract.profile_id.clone(),
             output_dir: output_dir.to_path_buf(),
             written: names.into_iter().map(str::to_string).collect(),
             overwrite: config.overwrite,
@@ -1065,7 +1234,7 @@ impl FpgaParameterExporter {
     /// );
     /// let dir = tempfile::tempdir().unwrap();
     /// let report = exporter.write_generic(dir.path()).unwrap();
-    /// assert_eq!(report.profile, silicon_bridge::ExportProfile::GenericDenseQ88);
+    /// assert_eq!(report.profile, silicon_bridge::GENERIC_DENSE_PROFILE_ID);
     /// let json = std::fs::read_to_string(dir.path().join("parameters.json")).unwrap();
     /// assert!(!json.contains("Spikenaut"));
     /// ```
@@ -1082,13 +1251,18 @@ fn planned_paths(output_dir: &Path, config: &ExportConfig, has_readout: bool) ->
         .collect()
 }
 
-fn validate_silicon_hdl_v3_shape(params: &FpgaParameters) -> Result<(), ExportError> {
-    let readout = params
-        .output_weights
-        .as_ref()
-        .ok_or(ExportError::MissingRequiredReadout {
-            profile: SILICON_HDL_V3_PROFILE_ID,
-        })?;
+fn validate_compatibility_shape(
+    params: &FpgaParameters,
+    profile: &str,
+    expected: CompatibilityDimensions,
+) -> Result<(), ExportError> {
+    let readout =
+        params
+            .output_weights
+            .as_ref()
+            .ok_or_else(|| ExportError::MissingRequiredReadout {
+                profile: profile.to_string(),
+            })?;
     let output_classes = readout
         .len()
         .checked_div(params.metadata.num_neurons)
@@ -1098,12 +1272,12 @@ fn validate_silicon_hdl_v3_shape(params: &FpgaParameters) -> Result<(), ExportEr
         hidden_neurons: params.metadata.num_neurons,
         output_classes,
     };
-    if actual == CompatibilityDimensions::SILICON_HDL_V3 {
+    if actual == expected {
         Ok(())
     } else {
         Err(ExportError::UnsupportedCompatibilityShape {
-            profile: SILICON_HDL_V3_PROFILE_ID,
-            expected: CompatibilityDimensions::SILICON_HDL_V3,
+            profile: profile.to_string(),
+            expected,
             actual,
         })
     }
@@ -1286,10 +1460,7 @@ mod tests {
     #[test]
     fn export_config_default_is_generic() {
         assert_eq!(ExportConfig::default(), ExportConfig::generic());
-        assert_eq!(
-            ExportConfig::default().profile(),
-            ExportProfile::GenericDenseQ88
-        );
+        assert_eq!(ExportConfig::default().profile(), GENERIC_DENSE_PROFILE_ID);
     }
 
     #[test]
@@ -1300,11 +1471,12 @@ mod tests {
         );
         assert_eq!(
             ExportConfig::generic_with_required_readout().profile(),
-            ExportProfile::SpikenautSignedOutputV1
+            SPIKENAUT_SIGNED_OUTPUT_PROFILE_ID
         );
         assert!(
             ExportConfig::generic_with_required_readout()
-                .profile()
+                .contract()
+                .readout()
                 .requires_readout()
         );
     }
@@ -1315,7 +1487,7 @@ mod tests {
         let report = dense_4x6()
             .write_with_config(dir.path(), &ExportConfig::generic())
             .expect("generic 4×6");
-        assert_eq!(report.profile, ExportProfile::GenericDenseQ88);
+        assert_eq!(report.profile, GENERIC_DENSE_PROFILE_ID);
         assert_eq!(report.num_neurons, 4);
         assert_eq!(report.num_channels, 6);
         assert_eq!(report.readout_shape, None);
@@ -1384,7 +1556,7 @@ mod tests {
         let report = positive_2x2()
             .write_with_config(dir.path(), &ExportConfig::legacy_spikenaut_v2())
             .expect("legacy write");
-        assert_eq!(report.profile, ExportProfile::LegacySpikenautV2);
+        assert_eq!(report.profile, SPIKENAUT_V2_LEGACY_PROFILE_ID);
         assert_eq!(
             report.written,
             [
@@ -1422,9 +1594,7 @@ mod tests {
             .expect_err("readout required");
         assert!(matches!(
             err,
-            ExportError::MissingRequiredReadout {
-                profile: SPIKENAUT_SIGNED_OUTPUT_PROFILE_ID
-            }
+            ExportError::MissingRequiredReadout { profile } if profile == SPIKENAUT_SIGNED_OUTPUT_PROFILE_ID
         ));
         assert!(fs::read_dir(missing_dir.path()).unwrap().next().is_none());
 
@@ -1575,9 +1745,7 @@ mod tests {
 
         assert!(matches!(
             err,
-            ExportError::ImmutableFileLayout {
-                profile: SILICON_HDL_V3_PROFILE_ID
-            }
+            ExportError::ImmutableFileLayout { profile } if profile == SILICON_HDL_V3_PROFILE_ID
         ));
 
         let config = ExportConfig::silicon_hdl_v3();
@@ -1585,6 +1753,166 @@ mod tests {
         assert_eq!(
             config.hdl_readout_file(),
             Some(SILICON_HDL_V3_READOUT_FILENAME)
+        );
+    }
+
+    #[test]
+    fn custom_contract_requires_readout_without_named_profiles() {
+        let contract = ExportContract::custom(
+            "acme-hdl-v1",
+            "acme-hdl-schema-v1",
+            ExportFileLayout::generic_default(),
+            ReadoutContract::RequiredKxN,
+        )
+        .expect("custom contract");
+
+        let missing_dir = tempfile::tempdir().unwrap();
+        let err = dense_4x6()
+            .write_with_config(
+                missing_dir.path(),
+                &ExportConfig::from_contract(contract.clone()),
+            )
+            .expect_err("readout required");
+        assert!(matches!(
+            err,
+            ExportError::MissingRequiredReadout { profile } if profile == "acme-hdl-v1"
+        ));
+
+        let dir = tempfile::tempdir().unwrap();
+        let report = signed_readout_4x6()
+            .write_with_config(dir.path(), &ExportConfig::from_contract(contract))
+            .expect("custom write");
+        assert_eq!(report.profile, "acme-hdl-v1");
+
+        let json: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(dir.path().join("parameters.json")).unwrap())
+                .unwrap();
+        assert_eq!(json["metadata"]["profile"], "acme-hdl-v1");
+        assert_eq!(json["metadata"]["schema_version"], "acme-hdl-schema-v1");
+        assert!(
+            !json.to_string().contains("Spikenaut"),
+            "custom contract must not inherit Spikenaut branding"
+        );
+        assert!(json["metadata"].get("compatibility").is_none());
+    }
+
+    #[test]
+    fn custom_contract_can_emit_hdl_native_readout() {
+        let contract = ExportContract::custom(
+            "acme-hdl-v1",
+            "acme-hdl-schema-v1",
+            ExportFileLayout::generic_default(),
+            ReadoutContract::RequiredKxNAndHdlNxK {
+                filename: "acme_readout_nxk.mem".into(),
+            },
+        )
+        .expect("custom contract");
+
+        let dir = tempfile::tempdir().unwrap();
+        let report = signed_readout_4x6()
+            .write_with_config(dir.path(), &ExportConfig::from_contract(contract))
+            .expect("custom write");
+
+        assert_eq!(
+            report.written,
+            [
+                "parameters.mem",
+                "parameters_weights.mem",
+                "parameters_decay.mem",
+                "parameters_output_weights.mem",
+                "acme_readout_nxk.mem",
+                "parameters.json",
+            ]
+        );
+
+        let source = fs::read_to_string(dir.path().join("parameters_output_weights.mem")).unwrap();
+        let hdl = fs::read_to_string(dir.path().join("acme_readout_nxk.mem")).unwrap();
+        assert_ne!(source, hdl);
+        assert_eq!(hdl.lines().count(), 12);
+    }
+
+    #[test]
+    fn required_readout_contract_rejects_missing_output_filename() {
+        let files = ExportFileLayout {
+            thresholds: "thresholds.mem".into(),
+            weights: "weights.mem".into(),
+            decay: "decay.mem".into(),
+            metadata: "parameters.json".into(),
+            output_weights: None,
+        };
+
+        let err = ExportContract::custom(
+            "acme-hdl-v1",
+            "acme-hdl-schema-v1",
+            files.clone(),
+            ReadoutContract::RequiredKxN,
+        )
+        .expect_err("required readout needs an output filename");
+        assert!(matches!(err, ExportError::MissingReadoutFilename));
+
+        let err = ExportConfig::generic_with_required_readout()
+            .with_files(files)
+            .expect_err("replacement layout must keep the readout filename");
+        assert!(matches!(err, ExportError::MissingReadoutFilename));
+    }
+
+    #[test]
+    fn custom_contract_rejects_blank_identifiers() {
+        let err = ExportContract::custom(
+            " ",
+            "acme-hdl-schema-v1",
+            ExportFileLayout::generic_default(),
+            ReadoutContract::Optional,
+        )
+        .expect_err("blank profile id");
+        assert!(matches!(
+            err,
+            ExportError::EmptyContractIdentifier {
+                field: "profile_id"
+            }
+        ));
+
+        let err = ExportContract::custom(
+            "acme-hdl-v1",
+            "	",
+            ExportFileLayout::generic_default(),
+            ReadoutContract::Optional,
+        )
+        .expect_err("blank schema id");
+        assert!(matches!(
+            err,
+            ExportError::EmptyContractIdentifier {
+                field: "schema_version"
+            }
+        ));
+    }
+
+    #[test]
+    fn custom_contract_with_legacy_profile_id_keeps_safe_defaults() {
+        let contract = ExportContract::custom(
+            SPIKENAUT_V2_LEGACY_PROFILE_ID,
+            "custom-schema-v1",
+            ExportFileLayout::generic_default(),
+            ReadoutContract::Optional,
+        )
+        .expect("custom contract may own any non-empty id");
+
+        let config = ExportConfig::from_contract(contract);
+        assert_eq!(config.profile(), SPIKENAUT_V2_LEGACY_PROFILE_ID);
+        assert_eq!(config.overwrite(), OverwritePolicy::Prohibit);
+        assert!(matches!(config.timestamp(), TimestampPolicy::Omit));
+        assert_eq!(config.declared_target_latency_us(), None);
+    }
+
+    #[test]
+    fn from_legacy_contract_preserves_legacy_defaults() {
+        let config = ExportConfig::from_contract(ExportContract::legacy_spikenaut_v2());
+        assert_eq!(config, ExportConfig::legacy_spikenaut_v2());
+        assert_eq!(config.overwrite(), OverwritePolicy::Replace);
+        assert!(matches!(config.timestamp(), TimestampPolicy::Now));
+        assert_eq!(
+            config.declared_target_latency_us(),
+            Some(SPIKENAUT_LEGACY_TARGET_LATENCY_US)
         );
     }
 
@@ -1662,7 +1990,7 @@ mod tests {
     fn write_mem_files_is_the_legacy_replace_path() {
         let dir = tempfile::tempdir().unwrap();
         let report = MemFileWriter::write_mem_files(&positive_2x2(), dir.path()).expect("legacy");
-        assert_eq!(report.profile, ExportProfile::LegacySpikenautV2);
+        assert_eq!(report.profile, SPIKENAUT_V2_LEGACY_PROFILE_ID);
         assert_eq!(report.overwrite, OverwritePolicy::Replace);
         MemFileWriter::write_mem_files(&positive_2x2(), dir.path())
             .expect("legacy overwrite still allowed");

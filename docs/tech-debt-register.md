@@ -308,8 +308,9 @@ criteria explicitly cover licences.
 
 **Fix (#27)** — copyright line is now `Copyright (c) 2025 rmems contributors`,
 matching the silicon-hdl hygiene. Remaining `Limen-Neural` mentions are
-intentional: `neuromod` and `nir-rs` still live under that org, and the
-project-board workflow comments record the old Hardware board as history.
+intentional: `neuromod` still lives under that org, `nir-rs` is consumed as
+an optional external interop dependency, and the project-board workflow
+comments record the old Hardware board as history.
 
 ### 20. 2.4 MB logo and an unmergeable `imgbot` branch
 

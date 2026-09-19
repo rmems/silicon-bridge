@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `ExportContract::custom`, `ExportConfig::from_contract`, and
+  `ReadoutContract` let downstream HDL consumers define their own profile id,
+  schema id, filenames, and readout rule without inheriting Spikenaut or
+  silicon-hdl metadata.
+- The optional `nir` feature now re-exports `nir-rs` as `silicon_bridge::nir`
+  for downstream NIR type interop without adding NIR HDF5 graph I/O here.
+
+### Changed
+
+- The silicon-hdl reference manifest is versioned as
+  `silicon-bridge-silicon-hdl-v3-contract-v2` /
+  `silicon-hdl-v3-profile-v2` because compatibility metadata now replaces
+  the silicon-hdl-specific `silicon_hdl_revision` field with a generic
+  `reference` object.
+- `ExportReport::profile` is now a `String` profile id, and
+  `ExportConfig::profile()` now returns `&str`, so custom contracts are not
+  forced through the closed `ExportProfile` enum.
+- `ExportError::ImmutableFileLayout`, `ExportError::MissingRequiredReadout`,
+  and `ExportError::UnsupportedCompatibilityShape` now carry `String` profile
+  ids. Callers constructing those variants with string literals should use
+  `.into()` or `.to_owned()`.
+- `ExportContract::custom` rejects blank profile/schema ids and keeps
+  non-overwriting defaults even if a caller chooses an id that matches a
+  predefined legacy profile.
+
 ## [0.3.1] - 2026-09-17
 
 ### Added
