@@ -7,6 +7,9 @@
 
 <p align="center">
   <a href="https://github.com/rmems/silicon-bridge/actions/workflows/ci.yml"><img src="https://github.com/rmems/silicon-bridge/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://app.codecov.io/gh/rmems/silicon-bridge"><img src="https://codecov.io/gh/rmems/silicon-bridge/branch/main/graph/badge.svg" alt="Codecov coverage"></a>
+  <a href="https://qlty.sh/gh/rmems/projects/silicon-bridge"><img src="https://qlty.sh/gh/rmems/projects/silicon-bridge/coverage.svg" alt="Qlty coverage"></a>
+  <a href="https://github.com/rmems/silicon-bridge/actions/workflows/quality.yml"><img src="https://github.com/rmems/silicon-bridge/actions/workflows/quality.yml/badge.svg" alt="Quality services"></a>
   <img src="https://img.shields.io/badge/crates.io-not%20published-lightgrey" alt="crates.io not published">
   <img src="https://img.shields.io/badge/license-MIT%2FApache--2.0-blue" alt="MIT/Apache-2.0">
 </p>
@@ -48,6 +51,15 @@ stimuli and reading back spike states at runtime.
 - `FpgaMetrics` — Vivado report parser for CI/CD gating: **WNS** and **TNS**
   from timing summary reports, **LUT utilization** from `report_utilization`
   reports (missing TNS or LUT values degrade to `0.0`)
+
+## Quality reporting
+
+The `Quality` workflow generates one Rust LCOV report and publishes it to
+Codecov and Qlty on pushes to `main` and pull requests. Codecov and Qlty use
+GitHub Actions OIDC, so neither requires a long-lived coverage token. Codacy
+analysis and coverage are also wired in; add a repository secret named
+`CODACY_PROJECT_TOKEN` to enable those two uploads. The existing [`.codacy.yml`](.codacy.yml)
+keeps repository-specific analyzer exclusions in version control.
 
 ## Reference hardware
 
