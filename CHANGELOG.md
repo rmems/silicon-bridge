@@ -39,7 +39,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Pinned silicon-hdl v3 compatibility export profile (#81):
   `ExportConfig::silicon_hdl_v3()` records
-  `silicon-bridge-silicon-hdl-v3-contract-v2`, supports exactly 16 input
+  `silicon-bridge-silicon-hdl-v3-contract-v1`, supports exactly 16 input
   channels, 16 hidden neurons, and 3 output classes, and writes
   `hdl_readout_neuron_major.mem` as the HDL-native `N×K` readout image while
   preserving the generic `parameters_output_weights.mem` `K×N` contract.
