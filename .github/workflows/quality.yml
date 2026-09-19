@@ -1,0 +1,111 @@
+name: Quality
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  coverage:
+    name: coverage (ubuntu-latest)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # stable
+        with:
+          components: llvm-tools-preview
+          toolchain: stable
+
+      - name: Install libudev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libudev-dev
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@4076c08d76dba979c11a7285295b0716c1d67908 # v2
+        with:
+          tool: cargo-llvm-cov
+
+      - name: Generate LCOV coverage
+        run: cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
+
+      # OIDC avoids storing a long-lived Codecov token. For fork pull requests,
+      # Codecov's public-repository tokenless path is used instead.
+      - name: Upload coverage to Codecov
+        continue-on-error: ${{ github.actor == 'dependabot[bot]' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) }}
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5
+        with:
+          files: lcov.info
+          fail_ci_if_error: true
+          use_oidc: ${{ github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+
+      - name: Upload coverage to Qlty
+        if: ${{ github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        uses: qltysh/qlty-action/coverage@08a0a862c159eae9b9003081da6663d96efef637 # v2
+        with:
+          oidc: true
+          files: lcov.info
+
+      - name: Check Codacy token
+        id: codacy-token
+        env:
+          CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
+        run: |
+          if [[ -n "$CODACY_PROJECT_TOKEN" ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Add CODACY_PROJECT_TOKEN in repository settings to enable this upload.
+      - name: Upload coverage to Codacy
+        if: ${{ steps.codacy-token.outputs.enabled == 'true' }}
+        uses: codacy/codacy-coverage-reporter-action@89d6c85cfafaec52c72b6c5e8b2878d33104c699 # v1.3.0
+        env:
+          CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
+        with:
+          project-token: ${{ env.CODACY_PROJECT_TOKEN }}
+          coverage-reports: lcov.info
+          language: rust
+
+  codacy-analysis:
+    name: Codacy analysis
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Check Codacy token
+        id: codacy-token
+        env:
+          CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
+        run: |
+          if [[ -n "$CODACY_PROJECT_TOKEN" ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run Codacy Analysis CLI
+        if: ${{ steps.codacy-token.outputs.enabled == 'true' }}
+        uses: codacy/codacy-analysis-cli-action@562ee3e92b8e92df8b67e0a5ff8aa8e261919c08 # v4.4.7
+        env:
+          CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
+        with:
+          project-token: ${{ env.CODACY_PROJECT_TOKEN }}
+          upload: true
+          max-allowed-issues: 2147483647
