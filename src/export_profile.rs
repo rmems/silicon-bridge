@@ -279,9 +279,21 @@ impl ExportContract {
         files: ExportFileLayout,
         readout: ReadoutContract,
     ) -> Result<Self, ExportError> {
+        let profile_id = profile_id.into();
+        let schema_version = schema_version.into();
+        if profile_id.trim().is_empty() {
+            return Err(ExportError::EmptyContractIdentifier {
+                field: "profile_id",
+            });
+        }
+        if schema_version.trim().is_empty() {
+            return Err(ExportError::EmptyContractIdentifier {
+                field: "schema_version",
+            });
+        }
         let contract = Self {
-            profile_id: profile_id.into(),
-            schema_version: schema_version.into(),
+            profile_id,
+            schema_version,
             files,
             readout,
             compatibility: None,
@@ -617,12 +629,12 @@ impl ExportConfig {
 
     /// Build a config from a user-defined or predefined export contract.
     pub fn from_contract(contract: ExportContract) -> Self {
-        let overwrite = if contract.profile_id() == SPIKENAUT_V2_LEGACY_PROFILE_ID {
+        let overwrite = if contract.legacy_version.is_some() {
             OverwritePolicy::Replace
         } else {
             OverwritePolicy::Prohibit
         };
-        let timestamp = if contract.profile_id() == SPIKENAUT_V2_LEGACY_PROFILE_ID {
+        let timestamp = if contract.legacy_version.is_some() {
             TimestampPolicy::Now
         } else {
             TimestampPolicy::Omit
@@ -1842,6 +1854,54 @@ mod tests {
             .with_files(files)
             .expect_err("replacement layout must keep the readout filename");
         assert!(matches!(err, ExportError::MissingReadoutFilename));
+    }
+
+    #[test]
+    fn custom_contract_rejects_blank_identifiers() {
+        let err = ExportContract::custom(
+            " ",
+            "acme-hdl-schema-v1",
+            ExportFileLayout::generic_default(),
+            ReadoutContract::Optional,
+        )
+        .expect_err("blank profile id");
+        assert!(matches!(
+            err,
+            ExportError::EmptyContractIdentifier {
+                field: "profile_id"
+            }
+        ));
+
+        let err = ExportContract::custom(
+            "acme-hdl-v1",
+            "	",
+            ExportFileLayout::generic_default(),
+            ReadoutContract::Optional,
+        )
+        .expect_err("blank schema id");
+        assert!(matches!(
+            err,
+            ExportError::EmptyContractIdentifier {
+                field: "schema_version"
+            }
+        ));
+    }
+
+    #[test]
+    fn custom_contract_with_legacy_profile_id_keeps_safe_defaults() {
+        let contract = ExportContract::custom(
+            SPIKENAUT_V2_LEGACY_PROFILE_ID,
+            "custom-schema-v1",
+            ExportFileLayout::generic_default(),
+            ReadoutContract::Optional,
+        )
+        .expect("custom contract may own any non-empty id");
+
+        let config = ExportConfig::from_contract(contract);
+        assert_eq!(config.profile(), SPIKENAUT_V2_LEGACY_PROFILE_ID);
+        assert_eq!(config.overwrite(), OverwritePolicy::Prohibit);
+        assert!(matches!(config.timestamp(), TimestampPolicy::Omit));
+        assert_eq!(config.declared_target_latency_us(), None);
     }
 
     #[test]

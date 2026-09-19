@@ -780,6 +780,11 @@ pub enum ExportError {
         /// Why the name was rejected.
         reason: FilenameError,
     },
+    /// A custom export contract was built with a blank profile or schema id.
+    EmptyContractIdentifier {
+        /// Identifier field that must be non-empty.
+        field: &'static str,
+    },
     /// Two blocks were assigned the same output filename.
     DuplicateFilename {
         /// Repeated basename.
@@ -843,6 +848,9 @@ impl fmt::Display for ExportError {
             Self::DuplicateFilename { name } => {
                 write!(f, "output filename {name:?} is used by more than one block")
             }
+            Self::EmptyContractIdentifier { field } => {
+                write!(f, "custom export contract {field} must not be empty")
+            }
             Self::ImmutableFileLayout { profile } => write!(
                 f,
                 "profile {profile} has a fixed file layout; choose a generic profile to customize filenames"
@@ -897,6 +905,7 @@ impl std::error::Error for ExportError {
             Self::UnsignedHardwareEncoding { .. }
             | Self::UnsafeFilename { .. }
             | Self::DuplicateFilename { .. }
+            | Self::EmptyContractIdentifier { .. }
             | Self::ImmutableFileLayout { .. }
             | Self::OverwriteRefused { .. }
             | Self::UnsupportedFlattening { .. }

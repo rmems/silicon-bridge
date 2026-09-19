@@ -29,6 +29,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   and `ExportError::UnsupportedCompatibilityShape` now carry `String` profile
   ids. Callers constructing those variants with string literals should use
   `.into()` or `.to_owned()`.
+- `ExportContract::custom` rejects blank profile/schema ids and keeps
+  non-overwriting defaults even if a caller chooses an id that matches a
+  predefined legacy profile.
 
 ## [0.3.1] - 2026-09-17
 
