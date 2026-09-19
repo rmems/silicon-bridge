@@ -1,0 +1,23 @@
+CHANGELOG.md
+  s_648ab77f1a632d::t_a29670dd37692f 32-34
+src/export_profile.rs
+  s_648ab77f1a632d::t_292f1709b7b418 282-293,295-296,632,637,1859-1904
+src/fpga_export.rs
+  s_648ab77f1a632d::t_292f1709b7b418 783-787,851-853,908
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "46c85af0efd2e8f0f1892eedd3cfefbf38d9e37d",
+  "prompts": {},
+  "sessions": {
+    "s_648ab77f1a632d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ad92-0aba-75a1-b901-c699e17cbef1",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
