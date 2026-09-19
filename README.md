@@ -55,9 +55,11 @@ stimuli and reading back spike states at runtime.
 ## Quality reporting
 
 The `Quality` workflow generates one Rust LCOV report and publishes it to
-Codecov and Qlty on pushes to `main` and pull requests. Codecov and Qlty use
-GitHub Actions OIDC, so neither requires a long-lived coverage token. Codacy
-analysis and coverage are also wired in; add a repository secret named
+Codecov and Qlty on pushes to `main` and same-repository pull requests. Fork
+pull requests still generate the report; Qlty skips its upload there because
+fork workflows cannot use this repository's OIDC authorization. Codecov and
+Qlty use GitHub Actions OIDC, so neither requires a long-lived coverage token.
+Codacy analysis and coverage are also wired in; add a repository secret named
 `CODACY_PROJECT_TOKEN` to enable those two uploads. The existing [`.codacy.yml`](.codacy.yml)
 keeps repository-specific analyzer exclusions in version control.
 
