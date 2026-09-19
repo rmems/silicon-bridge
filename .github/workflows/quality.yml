@@ -12,8 +12,6 @@ jobs:
   coverage:
     name: coverage (ubuntu-latest)
     runs-on: ubuntu-latest
-    env:
-      CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
     permissions:
       contents: read
       id-token: write
@@ -59,10 +57,23 @@ jobs:
           oidc: true
           files: lcov.info
 
+      - name: Check Codacy token
+        id: codacy-token
+        env:
+          CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
+        run: |
+          if [[ -n "$CODACY_PROJECT_TOKEN" ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
       # Add CODACY_PROJECT_TOKEN in repository settings to enable this upload.
       - name: Upload coverage to Codacy
-        if: ${{ env.CODACY_PROJECT_TOKEN != '' }}
+        if: ${{ steps.codacy-token.outputs.enabled == 'true' }}
         uses: codacy/codacy-coverage-reporter-action@89d6c85cfafaec52c72b6c5e8b2878d33104c699 # v1.3.0
+        env:
+          CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
         with:
           project-token: ${{ env.CODACY_PROJECT_TOKEN }}
           coverage-reports: lcov.info
@@ -71,17 +82,29 @@ jobs:
   codacy-analysis:
     name: Codacy analysis
     runs-on: ubuntu-latest
-    env:
-      CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
+      - name: Check Codacy token
+        id: codacy-token
+        env:
+          CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
+        run: |
+          if [[ -n "$CODACY_PROJECT_TOKEN" ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Run Codacy Analysis CLI
-        if: ${{ env.CODACY_PROJECT_TOKEN != '' }}
+        if: ${{ steps.codacy-token.outputs.enabled == 'true' }}
         uses: codacy/codacy-analysis-cli-action@562ee3e92b8e92df8b67e0a5ff8aa8e261919c08 # v4.4.7
+        env:
+          CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
         with:
           project-token: ${{ env.CODACY_PROJECT_TOKEN }}
           upload: true
