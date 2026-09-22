@@ -898,7 +898,7 @@ impl FpgaBridge {
         }
     }
 
-    /// Whether the last [`Self::ping`] succeeded, or no ping has been issued.
+    /// Whether exchanges are eligible under the [`Self::ping`] activity latch.
     ///
     /// Starts `true` after open, becomes `false` after a failed ping, and is
     /// restored by successful [`Self::recover`]. This is **not** verified
@@ -1304,6 +1304,7 @@ mod tests {
         read_chunks: VecDeque<io::Result<Vec<u8>>>,
         leftover: Vec<u8>,
         write_err: Option<io::ErrorKind>,
+        clear_err: Option<serialport::ErrorKind>,
     }
 
     impl MockPort {
@@ -1318,6 +1319,7 @@ mod tests {
                 read_chunks: VecDeque::new(),
                 leftover: Vec::new(),
                 write_err: None,
+                clear_err: None,
             }
         }
 
@@ -1332,6 +1334,7 @@ mod tests {
                 read_chunks: VecDeque::new(),
                 leftover: Vec::new(),
                 write_err: None,
+                clear_err: None,
             }
         }
 
@@ -1481,6 +1484,9 @@ mod tests {
         }
 
         fn clear(&self, _buffer_to_clear: ClearBuffer) -> serialport::Result<()> {
+            if let Some(kind) = self.clear_err {
+                return Err(serialport::Error::new(kind, "mock: scripted clear failure"));
+            }
             Ok(())
         }
 
@@ -1651,6 +1657,28 @@ mod tests {
             .process_stimuli(&[0.0; 16])
             .expect("exchange after explicit recovery");
         assert_eq!(writes.lock().expect("log").len(), 2);
+    }
+
+    #[test]
+    fn failed_recovery_keeps_ping_and_recovery_latches_set() {
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let mut mock = MockPort::scripted(Arc::clone(&writes));
+        mock.read_chunks.push_back(Ok(Vec::new()));
+        mock.clear_err = Some(serialport::ErrorKind::Unknown);
+        let mut bridge = FpgaBridge::from_port(Box::new(mock));
+
+        assert!(!bridge.ping());
+        assert!(matches!(
+            bridge.recover(),
+            Err(ExchangeError::Recover { .. })
+        ));
+        assert!(!bridge.is_active());
+        assert!(bridge.needs_recovery());
+        assert!(matches!(
+            bridge.process_stimuli(&[0.0; 16]),
+            Err(ExchangeError::NotActive)
+        ));
+        assert_eq!(writes.lock().expect("log").len(), 1);
     }
 
     #[test]
