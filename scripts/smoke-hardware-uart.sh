@@ -37,10 +37,15 @@ SILICON_BRIDGE_BAUD="$BAUD" \
   cargo run --features uart --example uart_host_smoke -- "$SILICON_BRIDGE_PORT" \
   | tee "$WORK/smoke.out" || status=$?
 
-echo "==> This proves a live silicon-bridge UART host session on ONE named board."
-echo "==> It is distinct from the silicon-hdl LED-heartbeat smoke (#68), which is"
-echo "    NOT a silicon-bridge UART host session."
-echo "==> It is NOT a crates.io / docs.rs publication proof."
+if [[ "$status" -eq 0 ]]; then
+  echo "==> PASS: proved a live silicon-bridge UART host session on ONE named board."
+else
+  echo "==> FAIL (exit ${status}): no live silicon-bridge UART host session was proved."
+fi
+echo "==> A PASS proves only a live UART host session on ONE named board. It is"
+echo "    distinct from the silicon-hdl LED-heartbeat smoke (#68), which is NOT a"
+echo "    silicon-bridge UART host session, and is NOT a crates.io / docs.rs"
+echo "    publication proof."
 echo "==> Record the PASS/FAIL line above in docs/hardware-smoke-note.md (#84)."
 
 exit "$status"

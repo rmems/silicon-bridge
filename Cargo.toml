@@ -31,6 +31,7 @@ include = [
     "examples/README.md",
     "docs/consumer.md",
     "docs/export-profiles.md",
+    "docs/hardware-smoke-note.md",
     "docs/host-hdl-contract.md",
     "docs/release-readiness.md",
     "README.md",

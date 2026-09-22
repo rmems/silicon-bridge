@@ -90,12 +90,20 @@ Separate from the §4 checklist, which does **not** flash an FPGA. This is a
 maintainer-run hardware step, still tracked under GitHub
 [#84](https://github.com/rmems/silicon-bridge/issues/84).
 
-Before the authorized `cargo publish` in §7, both of the following must hold:
+Before the authorized `cargo publish` in §7, all of the following must hold:
 
 1. `docs/hardware-smoke-note.md` records a **passing** silicon-bridge UART host
    session on the reference Basys 3 (Artix-7 `XC7A35T-1CPG236C`, silicon-hdl
-   `spikenaut_soc_basys3_top`), with every session-record field filled in.
-2. A maintainer records explicit go-ahead in that note.
+   `spikenaut_soc_basys3_top`), with every session-record field filled in and a
+   `Result` of exactly `PASS`.
+2. The note's recorded **Candidate SHA** is the commit being tagged and
+   published in §7 (not the note's own commit; see the note for why "current
+   `HEAD`" is the wrong reference). A recorded `PASS` whose Candidate SHA is not
+   the publish candidate does **not** satisfy this gate.
+3. The note's Status line and the "Host-session evidence" row in
+   `docs/consumer.md` are updated to agree with the recorded result, so no
+   document claims "not yet recorded" once a `PASS` is on file.
+4. A maintainer records explicit go-ahead in that note.
 
 Produce the evidence with an explicit serial port:
 

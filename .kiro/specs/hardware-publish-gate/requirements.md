@@ -77,7 +77,7 @@ design's correctness properties can reference specific acceptance criteria.
 #### Acceptance Criteria
 
 1. THE Evidence_Note SHALL record the Reference_Board identity as Digilent Basys 3, FPGA `XC7A35T-1CPG236C` (`xc7a35tcpg236-1`), and silicon-hdl top `spikenaut_soc_basys3_top`.
-2. THE Evidence_Note SHALL provide a session-record section containing exactly these labeled fields: silicon-bridge HEAD SHA, silicon-hdl HEAD SHA, serial port, baud rate, exact commands run, and a result field whose value is one of `PASS` or `FAIL`.
+2. THE Evidence_Note SHALL provide a session-record section containing at least these labeled fields: silicon-bridge Candidate SHA (the commit to be tagged and published), silicon-hdl HEAD SHA, serial port, baud rate, exact commands run, a harness result line (the verbatim `PASS: ...` / `FAIL: ...` line), a result field whose value is one of `PASS` or `FAIL`, and a maintainer go-ahead field. Additional labeled fields are permitted; the list is a minimum, not an exhaustive set.
 3. THE Evidence_Note SHALL describe the evidence flow as an ordered sequence of exactly four steps in this order: `write_generic` output, then silicon-hdl `$readmemh` banks, then a bitstream, then a `uart`-feature UART_Host_Session.
 4. THE Evidence_Note SHALL contain a two-part structure in which both a "What this proves" part and a "does not prove" part are present and each contains at least one non-empty line of content.
 5. THE Evidence_Note SHALL reference GitHub #84 as the tracking issue.
@@ -120,7 +120,7 @@ design's correctness properties can reference specific acceptance criteria.
 3. IF opening the port or the `exchange` fails, THEN THE Smoke_Harness SHALL print exactly one line beginning with `FAIL` to standard output, indicating the failing stage (open or exchange), and return exit code 1.
 4. IF an `exchange` failure occurs AND `needs_recovery` reports true, THEN THE Smoke_Harness SHALL call `recover`, emit one status line to standard error indicating whether `recover` returned success or failure, and return exit code 1 regardless of the `recover` outcome.
 5. THE Smoke_Harness SHALL write exactly one copy-pasteable result line beginning with either `PASS` or `FAIL` (never both) to standard output, and SHALL write all other status lines to standard error.
-6. IF no non-empty Explicit_Port is resolved from the SILICON_BRIDGE_PORT environment variable or the command-line argument, THEN THE Smoke_Harness SHALL print one line beginning with `FAIL` to standard output indicating that no port was provided and return exit code 1.
+6. IF no non-empty Explicit_Port is resolved from the SILICON_BRIDGE_PORT environment variable or the command-line argument, THEN THE Smoke_Harness SHALL print one line beginning with `FAIL` to standard output indicating that no port was provided and return exit code 2 (the usage-error status, consistent with Requirement 3.3; no `FpgaBridge` is constructed in this case).
 7. WHERE the Smoke_Harness is built without the `uart` feature, THE Smoke_Harness SHALL print to standard error a message stating that the `uart` feature must be enabled to run the harness and return exit code 2.
 8. THE Smoke_Harness SHALL carry the SPDX_Header as a `//!` or `//` comment.
 

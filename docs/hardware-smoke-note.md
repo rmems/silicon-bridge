@@ -10,6 +10,14 @@ in GitHub [#84](https://github.com/rmems/silicon-bridge/issues/84).
 and recorded here. Until the Session record below is filled in with a `PASS`
 result, no such host-session proof exists.
 
+When a session is recorded, the maintainer MUST update this Status line in the
+same edit that fills the Session record (for example, to `**Status: recorded
+PASS for candidate <SHA>.**`) and update the "Host-session evidence" row in
+[`docs/consumer.md`](consumer.md) so no document contradicts the recorded
+result. The release gate (release-readiness §5) treats the note as satisfied
+only when this Status line, every Session-record field, and the maintainer
+go-ahead all agree on a `PASS` for the current candidate.
+
 ## Reference hardware
 
 | Field | Value |
@@ -20,18 +28,30 @@ result, no such host-session proof exists.
 
 ## Session record
 
-Fill in every field when a session is run. Copy the harness `PASS`/`FAIL` line
-verbatim into the Result row. A blank field, or a Result other than `PASS` or
-`FAIL`, means the note is incomplete for reproducibility purposes.
+Fill in every field when a session is run. The **Result** field records only
+the status token — `PASS` or `FAIL` — while the harness's full result line
+(e.g. `PASS: live silicon-bridge UART host session port=... baud=... (...)`)
+goes verbatim in the **Harness result line** field. A blank field, or a Result
+that is not exactly `PASS` or `FAIL`, means the note is incomplete for
+reproducibility purposes.
+
+The **Candidate SHA** is the silicon-bridge commit that will be tagged and
+published — i.e. the commit the session was run against, recorded *before* the
+edit that commits this note. It is not this note's own commit: committing the
+filled-in note necessarily produces a later `HEAD`, so recording "current
+`HEAD`" here would name a commit that no longer exists at publish time. The
+release gate matches this recorded Candidate SHA against the publish candidate,
+not against the note's commit.
 
 | Field | Value |
 |---|---|
-| silicon-bridge HEAD SHA | _<fill in: `git -C silicon-bridge rev-parse HEAD`>_ |
+| silicon-bridge Candidate SHA | _<fill in: the commit to be tagged/published, i.e. `git -C silicon-bridge rev-parse HEAD` taken before committing this note>_ |
 | silicon-hdl HEAD SHA | _<fill in: `git -C silicon-hdl rev-parse HEAD`>_ |
 | Serial port | _<fill in: e.g. `/dev/ttyUSB0`>_ |
 | Baud rate | _<fill in: e.g. `115200`>_ |
 | Exact commands run | _<fill in: copied verbatim>_ |
-| Result | _<fill in: `PASS` or `FAIL`>_ |
+| Harness result line | _<fill in: the full `PASS: ...` / `FAIL: ...` line, verbatim>_ |
+| Result | _<fill in: exactly `PASS` or `FAIL`>_ |
 | Maintainer go-ahead | _<fill in: name + date of explicit publish go-ahead>_ |
 
 ## Flow (in order)
