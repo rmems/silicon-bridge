@@ -14,7 +14,8 @@
 //!   Pinned silicon-hdl reference export:
 //!   [`ExportConfig::silicon_hdl_v3`].
 //! - **UART codecs** (`DenseQ88Layout`, `encode_stimuli`,
-//!   `decode_response`) that do not depend on `serialport`. SiliconBridge v3.0
+//!   `decode_response`, [`encode_request_v4`], [`decode_response_v4`]) that do
+//!   not depend on `serialport`. SiliconBridge v3.0
 //!   is an example 16-channel layout with golden-byte evidence matching
 //!   current Basys 3 firmware, not a claim that any board speaks the frame.
 //! - **Optional UART I/O** (`uart` feature) for blocking spike exchange on a
@@ -177,6 +178,7 @@
 #![deny(missing_docs)]
 
 mod fpga_codec;
+pub mod fpga_codec_v4;
 mod fpga_export;
 mod fpga_metrics;
 
@@ -216,6 +218,10 @@ pub use fpga_codec::{
     CodecError, DENSE_Q88_SYNC, DenseQ88Layout, MAX_DENSE_CHANNELS, SILICON_BRIDGE_V3_CHANNELS,
     SILICON_BRIDGE_V3_RX_LEN, SILICON_BRIDGE_V3_TX_LEN, StimulusResponse, decode_response,
     encode_stimuli, encode_stimuli_legacy_v3,
+};
+pub use fpga_codec_v4::{
+    UART_V4_CRC_BYTES, UART_V4_HEADER_BYTES, UART_V4_SYNC, UART_V4_VERSION, crc16_ccitt_false,
+    decode_response_v4, encode_request_v4, rx_frame_len_v4, tx_frame_len_v4,
 };
 
 #[cfg(feature = "uart")]

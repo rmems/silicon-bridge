@@ -28,12 +28,13 @@
 //! [`crate::encode_q88_signed`] map `NaN` to `0` (the historical
 //! `process_stimuli` behaviour).
 //!
-//! ## Unframed replies
+//! ## Legacy unframed replies
 //!
 //! Legacy RX has no sync byte, length, checksum, or request id. A decode
 //! that sees the expected byte count cannot tell a stale or misaligned
 //! same-length reply from a fresh one. This crate does not invent a
-//! checksum or claim guaranteed resynchronization.
+//! checksum or claim guaranteed resynchronization. Use the opt-in UART v4
+//! codec in [`crate::fpga_codec_v4`] when matching v4 firmware is available.
 
 use crate::{NonFiniteKind, encode_q88_signed, q88_signed_to_f32};
 use serde::{Deserialize, Serialize};
@@ -94,6 +95,18 @@ impl DenseQ88Layout {
     /// bit-order, and 16-bit switch field as v3. Existing FPGA firmware is
     /// **not** assumed to accept non-16/16 sizes — matching RTL is required.
     pub fn dense(input_channels: usize, output_neurons: usize) -> Result<Self, CodecError> {
+        Self::dense_with_switches(input_channels, output_neurons, true)
+    }
+
+    /// Dense Q8.8 frame with an explicit optional 16-bit switch field.
+    ///
+    /// This is a host-side layout description. Matching FPGA firmware is
+    /// required, especially when `include_switches` is false.
+    pub fn dense_with_switches(
+        input_channels: usize,
+        output_neurons: usize,
+        include_switches: bool,
+    ) -> Result<Self, CodecError> {
         if input_channels == 0 || output_neurons == 0 {
             return Err(CodecError::ZeroDimension {
                 input_channels,
@@ -109,11 +122,11 @@ impl DenseQ88Layout {
         }
         // Force length arithmetic to fail closed before any allocation.
         let _ = tx_len(input_channels)?;
-        let _ = rx_len(output_neurons, true)?;
+        let _ = rx_len(output_neurons, include_switches)?;
         Ok(Self {
             input_channels,
             output_neurons,
-            include_switches: true,
+            include_switches,
         })
     }
 
@@ -229,6 +242,41 @@ pub enum CodecError {
         /// Buffer length supplied.
         actual: usize,
     },
+    /// A framed reply did not begin with the protocol sync byte.
+    WrongSync {
+        /// Required sync byte.
+        expected: u8,
+        /// Byte found in the frame.
+        actual: u8,
+    },
+    /// A framed reply used an unsupported protocol version.
+    UnsupportedVersion {
+        /// Version implemented by this codec.
+        expected: u8,
+        /// Version advertised by the frame.
+        actual: u8,
+    },
+    /// A framed reply advertised a payload length inconsistent with its layout.
+    WrongPayloadLength {
+        /// Payload length required by the layout.
+        expected: usize,
+        /// Payload length advertised in the frame header.
+        actual: usize,
+    },
+    /// A framed reply belongs to a different request/tick.
+    RequestIdMismatch {
+        /// Request id supplied by the caller.
+        expected: u32,
+        /// Request id carried by the reply.
+        actual: u32,
+    },
+    /// A framed reply failed its integrity check.
+    ChecksumMismatch {
+        /// CRC computed over the received frame fields.
+        expected: u16,
+        /// CRC carried by the reply.
+        actual: u16,
+    },
 }
 
 impl fmt::Display for CodecError {
@@ -263,6 +311,25 @@ impl fmt::Display for CodecError {
             Self::WrongFrameLength { expected, actual } => write!(
                 f,
                 "reply is {actual} bytes, expected {expected} for this layout"
+            ),
+            Self::WrongSync { expected, actual } => {
+                write!(f, "reply sync is 0x{actual:02X}, expected 0x{expected:02X}")
+            }
+            Self::UnsupportedVersion { expected, actual } => write!(
+                f,
+                "reply version is {actual}, expected protocol version {expected}"
+            ),
+            Self::WrongPayloadLength { expected, actual } => write!(
+                f,
+                "reply advertises {actual} payload bytes, expected {expected}"
+            ),
+            Self::RequestIdMismatch { expected, actual } => write!(
+                f,
+                "reply request id is 0x{actual:08X}, expected 0x{expected:08X}"
+            ),
+            Self::ChecksumMismatch { expected, actual } => write!(
+                f,
+                "reply CRC-16 is 0x{actual:04X}, computed 0x{expected:04X}"
             ),
         }
     }
