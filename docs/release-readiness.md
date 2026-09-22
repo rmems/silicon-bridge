@@ -51,7 +51,7 @@ that host proof.
   `Cargo.toml`, README, this section, and add a **Changed** entry under
   `[Unreleased]` in `CHANGELOG.md` before release.
 - Build and test default features on 1.88.0 or newer stable. The optional
-  `nir` feature pins `nir-rs = 0.4.3`; validate it on a toolchain new enough
+  `nir` feature pins `nir-rs = 0.4.4`; validate it on a toolchain new enough
   for `nir-rs` before claiming that feature.
 - Record the toolchain and enabled features in the release notes.
 
