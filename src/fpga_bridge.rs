@@ -420,7 +420,8 @@ pub struct FpgaBridge {
     /// identity.
     transport_open: bool,
     /// Latch used by [`Self::ping`]. Starts `true` (transport open, not
-    /// verified). A failed ping sets it `false`; this is not device identity.
+    /// verified). A failed ping sets it `false`; [`Self::recover`] restores it
+    /// after clearing the transport. This is not device identity.
     active: bool,
     /// Set when a write/read fails mid-exchange. Further stimuli are refused
     /// until [`Self::recover`].
@@ -447,7 +448,8 @@ impl fmt::Debug for FpgaBridge {
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum ExchangeError {
-    /// [`FpgaBridge::is_active`] is false (the `ping` latch).
+    /// [`FpgaBridge::is_active`] is false after a failed `ping`; call
+    /// [`FpgaBridge::recover`] before another exchange.
     NotActive,
     /// A previous exchange failed part-way; call [`FpgaBridge::recover`].
     NeedsRecovery,
@@ -850,7 +852,10 @@ impl FpgaBridge {
     /// Clear serial buffers after a failed exchange so the next call does
     /// not consume leftover bytes as a fresh reply.
     ///
-    /// Required after [`ExchangeError::Write`] or [`ExchangeError::Read`].
+    /// Required after [`ExchangeError::Write`] or [`ExchangeError::Read`],
+    /// including either error observed through [`Self::ping`]. A successful
+    /// recovery also clears the inactive ping latch so the handle can exchange
+    /// again without being reconstructed.
     /// Clearing the host buffers cannot detect a stale same-length reply
     /// already sitting in the FPGA UART.
     pub fn recover(&mut self) -> Result<(), ExchangeError> {
@@ -860,6 +865,7 @@ impl FpgaBridge {
                 source: io::Error::from(source),
             })?;
         self.needs_recovery = false;
+        self.active = true;
         Ok(())
     }
 
@@ -876,7 +882,9 @@ impl FpgaBridge {
     /// as an experiment step would. It does not identify the peer as FPGA
     /// firmware: any 36-byte reply parses as valid. On error the handle is
     /// latched inactive ([`Self::is_active`] becomes `false`) even though the
-    /// serial descriptor remains open ([`Self::is_transport_open`]).
+    /// serial descriptor remains open ([`Self::is_transport_open`]). Call
+    /// [`Self::recover`] to clear the transport and make exchanges eligible
+    /// again; recovery does not resend the failed stimulus.
     ///
     /// Do not use this to decide which enumerated port is "the board".
     pub fn ping(&mut self) -> bool {
@@ -890,10 +898,11 @@ impl FpgaBridge {
         }
     }
 
-    /// Whether the last [`Self::ping`] succeeded, or no ping has been issued.
+    /// Whether exchanges are eligible under the [`Self::ping`] activity latch.
     ///
-    /// Starts `true` after open. This is **not** verified protocol
-    /// responsiveness and is **not** FPGA identity. Prefer
+    /// Starts `true` after open, becomes `false` after a failed ping, and is
+    /// restored by successful [`Self::recover`]. This is **not** verified
+    /// protocol responsiveness and is **not** FPGA identity. Prefer
     /// [`Self::is_transport_open`] for "did the OS accept the port?".
     pub fn is_active(&self) -> bool {
         self.active
@@ -1295,6 +1304,7 @@ mod tests {
         read_chunks: VecDeque<io::Result<Vec<u8>>>,
         leftover: Vec<u8>,
         write_err: Option<io::ErrorKind>,
+        clear_err: Option<serialport::ErrorKind>,
     }
 
     impl MockPort {
@@ -1309,6 +1319,7 @@ mod tests {
                 read_chunks: VecDeque::new(),
                 leftover: Vec::new(),
                 write_err: None,
+                clear_err: None,
             }
         }
 
@@ -1323,6 +1334,7 @@ mod tests {
                 read_chunks: VecDeque::new(),
                 leftover: Vec::new(),
                 write_err: None,
+                clear_err: None,
             }
         }
 
@@ -1472,6 +1484,9 @@ mod tests {
         }
 
         fn clear(&self, _buffer_to_clear: ClearBuffer) -> serialport::Result<()> {
+            if let Some(kind) = self.clear_err {
+                return Err(serialport::Error::new(kind, "mock: scripted clear failure"));
+            }
             Ok(())
         }
 
@@ -1618,6 +1633,55 @@ mod tests {
     }
 
     #[test]
+    fn failed_ping_can_recover_before_a_successful_exchange() {
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let mut mock = MockPort::scripted(Arc::clone(&writes));
+        mock.read_chunks.push_back(Ok(Vec::new()));
+        mock.read_chunks.push_back(Ok(v3_zero_reply()));
+        let mut bridge = FpgaBridge::from_port(Box::new(mock));
+
+        assert!(!bridge.ping());
+        assert!(!bridge.is_active());
+        assert!(bridge.needs_recovery());
+        assert_eq!(writes.lock().expect("log").len(), 1);
+        assert!(matches!(
+            bridge.process_stimuli(&[0.0; 16]),
+            Err(ExchangeError::NotActive)
+        ));
+        assert_eq!(writes.lock().expect("log").len(), 1);
+
+        bridge.recover().expect("clear");
+        assert!(bridge.is_active());
+        assert!(!bridge.needs_recovery());
+        bridge
+            .process_stimuli(&[0.0; 16])
+            .expect("exchange after explicit recovery");
+        assert_eq!(writes.lock().expect("log").len(), 2);
+    }
+
+    #[test]
+    fn failed_recovery_keeps_ping_and_recovery_latches_set() {
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let mut mock = MockPort::scripted(Arc::clone(&writes));
+        mock.read_chunks.push_back(Ok(Vec::new()));
+        mock.clear_err = Some(serialport::ErrorKind::Unknown);
+        let mut bridge = FpgaBridge::from_port(Box::new(mock));
+
+        assert!(!bridge.ping());
+        assert!(matches!(
+            bridge.recover(),
+            Err(ExchangeError::Recover { .. })
+        ));
+        assert!(!bridge.is_active());
+        assert!(bridge.needs_recovery());
+        assert!(matches!(
+            bridge.process_stimuli(&[0.0; 16]),
+            Err(ExchangeError::NotActive)
+        ));
+        assert_eq!(writes.lock().expect("log").len(), 1);
+    }
+
+    #[test]
     fn scripted_timeout_and_write_errors_propagate() {
         let mut mock = MockPort::scripted(Arc::new(Mutex::new(Vec::new())));
         mock.read_chunks
@@ -1658,5 +1722,6 @@ mod tests {
         ));
         assert!(writes.lock().expect("log").is_empty());
         assert!(!bridge.needs_recovery());
+        assert!(bridge.is_active());
     }
 }

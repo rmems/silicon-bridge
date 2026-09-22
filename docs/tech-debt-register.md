@@ -38,7 +38,7 @@ the file and symbol names are the durable part.
 | 15 | README examples are never compiled | `README.md`, `src/lib.rs` | Low-med | queued |
 | 16 | Report paths are `&str`, not `AsRef<Path>` | `src/fpga_metrics.rs:70` | Low-med | blocked by #33 |
 | 17 | Neuron counts across the three vectors are unchecked | `src/fpga_export.rs` | Low-med | **#48** (this PR) |
-| 18 | `ping()` latches the bridge inactive forever | `src/fpga_bridge.rs:108-117` | Low-med | queued |
+| 18 | `ping()` latches the bridge inactive forever | `src/fpga_bridge.rs` | Low-med | **#93 / RM-1427 (this PR)** |
 | 19 | `LICENSE-MIT` still names the pre-transfer org | `LICENSE-MIT:3` | Low | **#27** (this PR) |
 | 20 | 2.4 MB logo; the `imgbot` branch that shrinks it is unmergeable | `docs/logo.png` | Low | queued |
 | 21 | 12 stale remote branches | remote refs | Low | cleanup |
@@ -293,13 +293,15 @@ touching disk. `ParameterExport::export` remains the infallible legacy wrapper.
 
 ### 18. `ping()` latches the bridge inactive forever
 
-`src/fpga_bridge.rs:108-117` sets `self.active = false` on *any* error, including
-a single 100 ms read timeout, and nothing ever sets it back. One slow reply
-permanently bricks the handle; every later `process_stimuli` returns "FPGA
-bridge not active" without touching the port.
+`ping()` sets `self.active = false` on an I/O error, including a single read
+timeout. Before #93 / RM-1427, nothing set it back, so every later
+`process_stimuli` returned `ExchangeError::NotActive` without touching the
+port.
 
-**Fix scope** — either drop the latch, or add a `reconnect()`. Small,
-`src/fpga_bridge.rs` only. Sequence after #39.
+**Fix (#93 / RM-1427)** — a successful explicit `recover()` clears the serial
+buffers and restores both the recovery and activity latches. Recovery never
+resends the failed stimulus, and a buffer-clear failure leaves both latches
+set so exchanges remain blocked.
 
 ### 19. `LICENSE-MIT` still names the pre-transfer org
 
