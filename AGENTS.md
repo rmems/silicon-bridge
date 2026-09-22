@@ -37,6 +37,13 @@ You are a Rust-focused coding agent. Write idiomatic Rust. Follow the convention
 - One issue per PR — split multi-issue work into separate PRs
 - Link PR to the issue it addresses
 
+## Publishing (mandatory)
+
+`cargo publish` is separately authorized and gated. It requires recorded
+hardware smoke evidence — a passing Basys 3 UART host session recorded in
+`docs/hardware-smoke-note.md` (#84) — plus explicit maintainer authorization.
+Do not run `cargo publish` from an agent session. See `docs/release-readiness.md`.
+
 ## Tools
 
 - `cargo check` — compile check

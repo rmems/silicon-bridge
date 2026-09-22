@@ -86,6 +86,7 @@ named reference, not a multi-board claim.
 | Constraints | `constraints/basys3.xdc`, `basys3_soc.xdc` |
 | Host UART | SiliconBridge **v3.0** (16 in / 16 out) — example layout with golden bytes matching Basys 3 firmware, not “any board” |
 | Prior board smoke | silicon-hdl [#68](https://github.com/rmems/silicon-hdl/issues/68) / [`docs/phase-c-board-smoke.md`](https://github.com/rmems/silicon-hdl/blob/main/docs/phase-c-board-smoke.md) — LED heartbeat **PASS** only; **not** a silicon-bridge UART host session |
+| Host-session evidence | [`docs/hardware-smoke-note.md`](hardware-smoke-note.md) records whether a silicon-bridge UART host session on this board has been run. **Not yet recorded** ([#84](https://github.com/rmems/silicon-bridge/issues/84)); until that note records a `PASS`, no such host-session proof exists |
 
 silicon-hdl also ships `constraints/artix7_trainer.xdc`. That pinout is
 **not** the claimed reference demo (`build_soc.tcl` uses the Basys 3 XDCs

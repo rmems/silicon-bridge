@@ -52,6 +52,14 @@ Code review guidelines for silicon-bridge.
 - [ ] Feature-gated code properly uses `#[cfg(feature = "...")]`
 - [ ] No unnecessary dependencies added
 
+### Publish-related changes
+
+- [ ] For any change touching publish/release, confirm the hardware-evidence
+      gate in [`docs/release-readiness.md`](docs/release-readiness.md) §5 is
+      satisfied before approving: a passing Basys 3 UART host session recorded
+      in `docs/hardware-smoke-note.md` (#84) plus explicit maintainer go-ahead.
+      A green CI run or an in-tree version string is not that proof.
+
 ## Common review comments
 
 ### Edition 2024 is valid

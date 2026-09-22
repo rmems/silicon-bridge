@@ -88,7 +88,10 @@ Artix-7 trainer pinout. That file is **not** the claimed reference demo;
 
 A silicon-bridge UART host session on this board is release evidence for the
 0.3.1 publish path ([#84](https://github.com/rmems/silicon-bridge/issues/84)).
-This crate’s examples and CI do not flash an FPGA. Lab JTAG serials belong
+When run, that session is recorded in
+[`docs/hardware-smoke-note.md`](docs/hardware-smoke-note.md); until that note is
+filled in, no such host-session proof exists. Raw logs may also be linked on
+#84. This crate’s examples and CI do not flash an FPGA. Lab JTAG serials belong
 in smoke logs, not here.
 
 Companion contracts live in silicon-hdl:

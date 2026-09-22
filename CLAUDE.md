@@ -35,6 +35,14 @@ API, feature-gate hardware I/O, and keep Rust edition **2024**.
 - Reimplement NIR (Neuromorphic Intermediate Representation) HDF5 I/O in this
   crate (deferred; future work may depend on `Limen-Neural/nir-rs` instead of a
   local parser)
+- Run `cargo publish` from an agent session
+
+## Publishing
+
+`cargo publish` is separately authorized and gated: it requires recorded
+hardware smoke evidence — a passing Basys 3 UART host session in
+`docs/hardware-smoke-note.md` (#84) — plus explicit maintainer authorization.
+See [`docs/release-readiness.md`](docs/release-readiness.md).
 
 ## Local quality bar
 
