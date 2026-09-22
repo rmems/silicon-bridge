@@ -37,11 +37,19 @@ that host proof.
 
 ## 2. Supported Rust version
 
-- `[package].rust-version` is `1.88.0` (language floor: edition 2024 plus
-  `if`/`let` chains). The dependency graph would compile on 1.85.0.
-  Validated against `rustc 1.88.0 (6b00bc388 2025-06-23)` and
-  `rustc 1.98.1 (48a229cea 2026-09-01)` for the 0.3.1 candidate. CI uses
-  GitHub Actions `stable`, not a dedicated 1.88 job.
+- **MSRV:** `[package].rust-version` is `1.88.0` (language floor: edition 2024
+  plus `if`/`let` chains). The dependency graph would compile on 1.85.0 without
+  those language features. CI enforces this floor with a dedicated **1.88.0**
+  job (`cargo check --all-targets`, `cargo test`, and `--features uart` with
+  `libudev-dev` on Linux). The optional `nir` feature is validated on stable
+  only because `nir-rs` declares a higher MSRV than this crate.
+- **Stable:** CI also runs the moving GitHub Actions `stable` toolchain
+  (formatting, clippy, multi-OS default-feature tests, UART/rustdoc, fuzz
+  compile). That lane tracks current stable; it is not a second MSRV pin.
+- **Raising MSRV:** Do not bump `rust-version` to match the newest stable
+  without an explicit compatibility decision. When MSRV increases, update
+  `Cargo.toml`, README, this section, and add a **Changed** entry under
+  `[Unreleased]` in `CHANGELOG.md` before release.
 - Build and test default features on 1.88.0 or newer stable. The optional
   `nir` feature pins `nir-rs = 0.4.3`; validate it on a toolchain new enough
   for `nir-rs` before claiming that feature.

@@ -127,10 +127,15 @@ The default feature set does not depend on `nir-rs`. The `nir` feature pins
 `nir-rs = 0.4.3`, whose own crate metadata currently raises the effective
 feature-specific toolchain floor above this crate's default `rust-version`.
 
-`[package].rust-version` is **`1.88.0`**: that is the language floor this
-crate actually needs (edition 2024 plus `if`/`let` chains). The dependency
-graph would compile on **1.85.0**. CI uses GitHub Actions `stable`; this
-candidate was also checked on `rustc 1.98.1`. See
+`[package].rust-version` is **`1.88.0`**: the **MSRV** (minimum supported
+Rust version) — the language floor this crate needs (edition 2024 plus
+`if`/`let` chains). The dependency graph would compile on **1.85.0** without
+those language features. CI runs a dedicated **1.88.0** job on every push
+and PR, and separately exercises the moving GitHub Actions **`stable`**
+toolchain (clippy, multi-OS tests, full `--all-features` including `nir`, fuzz
+compile). The optional `nir` feature is not part of the 1.88.0 MSRV job because
+`nir-rs` requires a newer compiler. Raising MSRV requires
+an explicit compatibility decision and a CHANGELOG entry; see
 [docs/release-readiness.md](docs/release-readiness.md).
 
 ### After an authorized crates.io publish

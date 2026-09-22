@@ -46,11 +46,11 @@
 //! silicon-bridge = "0.3.1"
 //! ```
 //!
-//! `rust-version` is `1.88.0` (language floor). See the crate README and
-//! `docs/release-readiness.md` for the authorized `cargo publish` checklist
-//! and the distinction between that floor, the 1.85.0 dependency graph, and
-//! CI `stable`. This rustdoc does **not** claim crates.io or docs.rs are
-//! already live.
+//! MSRV is `1.88.0` (`[package].rust-version`). CI enforces that floor on
+//! Rust 1.88.0 and separately exercises the moving `stable` toolchain. See
+//! the crate README and `docs/release-readiness.md` for the authorized
+//! `cargo publish` checklist. This rustdoc does **not** claim crates.io or
+//! docs.rs are already live.
 //!
 //! ## Reference hardware
 //!
