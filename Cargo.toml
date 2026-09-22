@@ -32,6 +32,7 @@ include = [
     "docs/consumer.md",
     "docs/export-profiles.md",
     "docs/host-hdl-contract.md",
+    "docs/uart-v4-protocol.md",
     "docs/release-readiness.md",
     "README.md",
     "CHANGELOG.md",

@@ -16,3 +16,5 @@ calling `encode_stimuli` / `decode_response` to generate the fixture.
 
 Non-v3 layouts are **host codec** coverage. They do not claim 8/32-neuron
 board support; matching FPGA firmware is required.
+
+UART v4 fixtures live in `v4/` and follow `docs/uart-v4-protocol.md`. They are host-only and do not claim compatibility with current Basys 3 v3.0 firmware.

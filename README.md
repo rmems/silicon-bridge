@@ -254,6 +254,12 @@ firmware; changing the host layout is not enough.
 The checked path requires exactly `input_channels` finite stimuli.
 `process_stimuli` remains the legacy pad/truncate wrapper.
 
+The pure [`UART v4 codec contract`](docs/uart-v4-protocol.md) adds sync,
+version/length, a request id, and CRC-16 to requests and replies. It is
+host-only and opt-in: it is **not compatible** with current Basys 3
+SiliconBridge v3.0 firmware, and `FpgaBridge` does not select it. Hardware use
+requires a separately pinned matching `silicon-hdl` implementation.
+
 `process_stimuli` writes the request frame and then `read_exact`s the reply.
 The configured timeout is the `serialport` **per-I/O** timeout, not a hard
 wall-clock budget for the entire call: filling 36 bytes may take several
