@@ -34,7 +34,7 @@ the file and symbol names are the durable part.
 | 11 | `load_from_project` hard-codes an Eagle-Lander path | `src/fpga_metrics.rs:58` | Medium | blocked by #33 |
 | 12 | No `cargo doc` gate, though docs.rs breakage is a stated concern | `.github/workflows/ci.yml` | Medium | blocked by #31 |
 | 13 | README documents the Linux-only probe list as current | `README.md:29-33` | Medium | blocked by #33 |
-| 14 | No MSRV job, so `rust-version` can rot | `.github/workflows/ci.yml` | Low-med | blocked by #31 + #40 |
+| 14 | ~~No MSRV job, so `rust-version` can rot~~ | `.github/workflows/ci.yml` | Low-med | **Fixed #87** |
 | 15 | README examples are never compiled | `README.md`, `src/lib.rs` | Low-med | queued |
 | 16 | Report paths are `&str`, not `AsRef<Path>` | `src/fpga_metrics.rs:70` | Low-med | blocked by #33 |
 | 17 | Neuron counts across the three vectors are unchecked | `src/fpga_export.rs` | Low-med | **#48** (this PR) |
@@ -235,18 +235,12 @@ today, false the moment #39 lands.
 the two passages around cross-platform discovery and `FpgaBridge::open`. Docs
 only.
 
-### 14. No MSRV job
+### 14. No MSRV job — **resolved (#87)**
 
-`rust-version = "1.85"` (PR #40) is only as good as what checks it. Nothing
-builds on the declared minimum, so the floor silently rises the first time
-someone uses a newer API.
-
-**Fix scope (blocked by #31 and #40)** — one `msrv` job pinning the toolchain to
-the `rust-version` value. `cargo check --all-targets` alone is not enough:
-`--all-targets` selects targets (bins/tests/examples), not features, so it
-skips `fpga_bridge` and `serialport` entirely. Run `--all-targets --features
-uart` (installing the `libudev-dev` prerequisite on the runner) too, or the
-job can pass while UART-only code has already raised the effective MSRV.
+CI now runs an `msrv` job on Rust **1.88.0** with `cargo check --all-targets`,
+`cargo test`, and `--features uart` (with `libudev-dev` on Ubuntu). The
+optional `nir` feature stays on the stable lane only (`nir-rs` MSRV > 1.88.0).
+The moving `stable` lane is unchanged.
 
 ### 15. README examples are never compiled
 

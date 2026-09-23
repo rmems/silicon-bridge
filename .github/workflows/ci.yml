@@ -13,6 +13,54 @@ permissions:
   contents: read
 
 jobs:
+  # Pins the toolchain to `[package].rust-version` so the advertised floor cannot
+  # drift silently. UART (`--features uart`) is included with libudev on Linux.
+  # `--all-features` is intentionally omitted: the optional `nir` feature pins
+  # `nir-rs`, whose own MSRV is above 1.88.0 (see README / release-readiness).
+  msrv:
+    name: msrv (1.88.0, ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install Rust 1.88.0 (MSRV)
+        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # stable
+        with:
+          toolchain: 1.88.0
+
+      - name: Verify MSRV toolchain
+        run: rustc --version | grep -F '1.88.0'
+
+      - name: Install libudev (serialport / uart feature)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libudev-dev
+
+      - name: Cache cargo registry
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-msrv-1.88.0-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-msrv-1.88.0-
+            ${{ runner.os }}-cargo-
+
+      - name: Check (default features)
+        run: cargo check --all-targets
+
+      - name: Test (default features)
+        run: cargo test
+
+      - name: Check (uart feature)
+        run: cargo check --all-targets --features uart
+
+      - name: Test (uart feature)
+        run: cargo test --features uart
+
   # Formatting is OS-independent, so it runs once on Linux to save runner minutes.
   fmt:
     name: fmt (ubuntu-latest)
