@@ -186,7 +186,7 @@ design's correctness properties can reference specific acceptance criteria.
 
 1. THE Smoke_Harness SHALL be gated behind the `uart` feature such that a build invoked without the `uart` feature enabled excludes all Smoke_Harness hardware-path code from compilation.
 2. WHEN a default build is invoked without the `uart` feature enabled, THE Smoke_Harness SHALL produce no attempt to open, flash, or communicate over any hardware or serial interface.
-3. THE `.github/workflows` files SHALL contain zero occurrences of the literal strings `uart_host_smoke` and `smoke-hardware-uart.sh`.
+3. THE `.github/workflows` files SHALL contain zero occurrences of the literal string `smoke-hardware-uart.sh`, and SHALL NOT invoke the Smoke_Script or execute the Smoke_Harness against hardware in CI. Offline execution of the Smoke_Harness's in-example `#[test]` targets via `cargo test --examples` is permitted and MAY reference the literal `uart_host_smoke` only in that test command.
 4. THE Release_Checklist §4 SHALL contain zero occurrences of the terms Smoke_Script and Smoke_Harness.
 5. THE Smoke_Script and Smoke_Harness SHALL be referenced only within the Hardware_Gate section of the Release_Checklist.
 6. IF a `.github/workflows` file or Release_Checklist §4 is found to reference the Smoke_Script or Smoke_Harness, THEN THE verification check SHALL fail and indicate which file and term violated the exclusion.

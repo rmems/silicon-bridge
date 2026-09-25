@@ -119,7 +119,7 @@ designed to be verified offline (no real board needed for the coded tests).
   - Run `cargo test` and `cargo build --examples` under default features to confirm the `#[cfg(not(feature = "uart"))]` no-op `main` compiles and no hardware path is present.
   - Run `cargo test --features uart` to exercise the offline unit tests, and `cargo run --features uart --example uart_host_smoke` with no port/env to confirm the guidance + exit-2 path.
   - Static grep check (Property 1): confirm `examples/uart_host_smoke.rs` contains no `FpgaBridge::new`, `find_fpga_ports`, or `list_serial_ports`.
-  - Static grep check (Property 2): confirm no `.github/workflows/*` file references `uart_host_smoke` or `smoke-hardware-uart.sh`, and that release-readiness §4 does not name the script/example (they appear only in §5).
+  - Static grep check (Property 2): confirm no `.github/workflows/*` file references `smoke-hardware-uart.sh` or runs the Smoke_Script / live Smoke_Harness; `uart_host_smoke` may appear only in an offline `cargo test --examples` step. Confirm release-readiness §4 does not name the script/example (they appear only in §5).
   - Static grep check (Property 6): confirm SPDX headers are present on the three new files (markdown comment first line for the note; `#` line 2 after the shebang for the script; `//!`/`//` for the example).
   - Note: the wired-Basys-3 run is a maintainer-only hardware step and is intentionally NOT part of this task; the harness and script are verified offline here.
   - _Requirements: 3.4, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 5.1, 5.2, 5.3, 5.4, 9.1, 9.2, 9.3, 9.4, 9.5_

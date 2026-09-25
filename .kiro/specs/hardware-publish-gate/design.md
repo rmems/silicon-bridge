@@ -667,8 +667,9 @@ Expressed as assertions/checks a reviewer or a test can verify.
 
 **Validates: Requirements 9.1, 9.2, 9.3, 9.4, 9.5**
 
-   - No `.github/workflows/*` file references `uart_host_smoke` or
-     `smoke-hardware-uart.sh`.
+   - No `.github/workflows/*` file references `smoke-hardware-uart.sh` or runs
+     live hardware smoke. `uart_host_smoke` may appear only in offline
+     `cargo test --examples` invocations.
    - `docs/release-readiness.md` §4 does not name the script/example; they
      appear only in the new §5.
 

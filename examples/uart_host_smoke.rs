@@ -2,9 +2,14 @@
 //! Basys 3 UART host-session smoke harness (GitHub #84).
 //!
 //! Requires the `uart` feature and an **explicit** serial port. It does not
-//! auto-probe or enumerate ports. It opens the caller-selected port, runs one
-//! SiliconBridge v3.0 exchange, and prints a single `PASS`/`FAIL` line to
-//! stdout for a maintainer to copy into `docs/hardware-smoke-note.md`.
+//! auto-probe or enumerate ports. It opens the caller-selected port, drains
+//! any buffered RX bytes, runs one SiliconBridge v3.0 exchange, and prints a
+//! single `PASS`/`FAIL` line to stdout for a maintainer to copy into
+//! `docs/hardware-smoke-note.md`.
+//!
+//! Unlike the other crate examples, this binary opens real hardware when built
+//! with `--features uart`. Do not run it on shared CI runners or without an
+//! attached board and an explicit port.
 //!
 //! This proves a live silicon-bridge UART host session on one named board. It
 //! is distinct from the silicon-hdl LED-heartbeat smoke (#68), which is not a
@@ -110,6 +115,12 @@ fn run(cli_port: Option<String>) -> i32 {
 #[cfg(feature = "uart")]
 fn report_exchange(bridge: &mut silicon_bridge::FpgaBridge) -> Result<String, String> {
     use silicon_bridge::DenseQ88Layout;
+
+    // Drop any complete reply left in the host RX buffer from an aborted prior
+    // run so this exchange cannot PASS on stale same-length bytes alone.
+    bridge
+        .recover()
+        .map_err(|err| format!("pre-exchange RX drain failed: {err}"))?;
 
     let layout = DenseQ88Layout::silicon_bridge_v3();
     let stimuli = vec![0.0_f32; layout.input_channels()];

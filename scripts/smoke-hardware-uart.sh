@@ -10,6 +10,16 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# Match release-readiness §4: hardware evidence must bind to the commit under
+# test, not a dirty worktree of the smoke paths.
+SMOKE_PATHS=(Cargo.toml Cargo.lock examples/uart_host_smoke.rs src/)
+if ! git diff --quiet HEAD -- "${SMOKE_PATHS[@]}" \
+  || ! git diff --cached --quiet HEAD -- "${SMOKE_PATHS[@]}"; then
+  echo "==> refusing: uncommitted changes under ${SMOKE_PATHS[*]}" >&2
+  echo "    commit or stash the publish candidate before recording hardware evidence" >&2
+  exit 1
+fi
+
 if [[ -z "${SILICON_BRIDGE_PORT:-}" ]]; then
   echo "==> SILICON_BRIDGE_PORT is not set (this smoke does not auto-probe)" >&2
   echo "    set an explicit serial port, e.g.:" >&2
@@ -34,7 +44,7 @@ echo "==> cargo run --features uart --example uart_host_smoke"
 # pipeline reflect cargo's status, and we defer aborting until after the notes.
 status=0
 SILICON_BRIDGE_BAUD="$BAUD" \
-  cargo run --features uart --example uart_host_smoke -- "$SILICON_BRIDGE_PORT" \
+  cargo run --locked --features uart --example uart_host_smoke -- "$SILICON_BRIDGE_PORT" \
   | tee "$WORK/smoke.out" || status=$?
 
 if [[ "$status" -eq 0 ]]; then
