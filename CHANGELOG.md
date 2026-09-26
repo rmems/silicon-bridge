@@ -20,6 +20,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   silicon-hdl metadata.
 - The optional `nir` feature now re-exports `nir-rs` as `silicon_bridge::nir`
   for downstream NIR type interop without adding NIR HDF5 graph I/O here.
+- In-repo hardware-evidence publish gate (#84): `docs/hardware-smoke-note.md`
+  (fill-in evidence template), `scripts/smoke-hardware-uart.sh`, and
+  `examples/uart_host_smoke.rs` (`uart` feature) let a maintainer run and
+  record a live silicon-bridge UART host session on the reference Basys 3, and
+  `docs/release-readiness.md` gains a numbered hardware-evidence gate (§5)
+  before the authorized publish. The harness reads an explicit port only (no
+  auto-probe), stays out of default CI, and is distinct from the silicon-hdl
+  LED-heartbeat smoke ([#68](https://github.com/rmems/silicon-hdl/issues/68)),
+  which is not a UART host session. `cargo publish` of the current 0.3.1
+  candidate is held until a recorded Basys 3 UART host session (#84) plus
+  explicit maintainer go-ahead.
 
 ### Changed
 

@@ -88,10 +88,47 @@ CI matrix coverage is GitHub [#24](https://github.com/rmems/silicon-bridge/issue
 issue for this checklist.
 
 Do **not** flash an FPGA or send UART stimuli as part of this checklist.
-The Basys 3 UART host session that gates 0.3.1 publish lives in GitHub
-[#84](https://github.com/rmems/silicon-bridge/issues/84), not here.
+The Basys 3 UART host session that gates 0.3.1 publish is the separate,
+maintainer-run hardware-evidence gate in §5 below, still tracked under GitHub
+[#84](https://github.com/rmems/silicon-bridge/issues/84).
 
-## 5. Packaged-crate smoke test (not registry proof)
+## 5. Hardware-evidence gate (Basys 3 UART host session)
+
+Separate from the §4 checklist, which does **not** flash an FPGA. This is a
+maintainer-run hardware step, still tracked under GitHub
+[#84](https://github.com/rmems/silicon-bridge/issues/84).
+
+Before the authorized `cargo publish` in §7, all of the following must hold:
+
+1. `docs/hardware-smoke-note.md` records a **passing** silicon-bridge UART host
+   session on the reference Basys 3 (Artix-7 `XC7A35T-1CPG236C`, silicon-hdl
+   `spikenaut_soc_basys3_top`), with every session-record field filled in and a
+   `Result` of exactly `PASS`.
+2. The note's recorded **Candidate SHA** is the commit being tagged and
+   published in §7 (not the note's own commit; see the note for why "current
+   `HEAD`" is the wrong reference). A recorded `PASS` whose Candidate SHA is not
+   the publish candidate does **not** satisfy this gate.
+3. The note's Status line and the "Host-session evidence" row in
+   `docs/consumer.md` are updated to agree with the recorded result, so no
+   document claims "not yet recorded" once a `PASS` is on file.
+4. A maintainer records explicit go-ahead in that note.
+
+Produce the evidence with an explicit serial port:
+
+```bash
+SILICON_BRIDGE_PORT=/dev/ttyUSB0 bash scripts/smoke-hardware-uart.sh
+```
+
+That script builds and runs `examples/uart_host_smoke.rs` (`uart` feature)
+against the caller's port and prints a `PASS`/`FAIL` line to copy into
+`docs/hardware-smoke-note.md`.
+
+An empty note does **not** satisfy this gate. The silicon-hdl LED-heartbeat
+smoke ([#68](https://github.com/rmems/silicon-hdl/issues/68)) does **not**
+satisfy it either; #68 is the LED-heartbeat smoke and is not a silicon-bridge
+UART host session. This step is not part of default CI.
+
+## 6. Packaged-crate smoke test (not registry proof)
 
 ```bash
 bash scripts/smoke-packaged-consumer.sh
@@ -100,7 +137,7 @@ bash scripts/smoke-packaged-consumer.sh
 That builds a tiny out-of-tree crate against the **unpacked** `cargo package`
 artifact. It does not prove crates.io or docs.rs.
 
-## 6. After an authorized `cargo publish`
+## 7. After an authorized `cargo publish`
 
 Only then:
 
@@ -112,8 +149,11 @@ Only then:
 Do **not** wait until this step to rewrite README/rustdoc installation;
 that rewrite belongs on the candidate commit in step 1.5 / item 5 above.
 
-## 7. Out of scope here
+## 8. Out of scope here
 
 - NIR HDF5 I/O (GitHub [#15](https://github.com/rmems/silicon-bridge/issues/15))
-- Flashing silicon-hdl / Basys 3 (owned by silicon-hdl + GitHub [#84](https://github.com/rmems/silicon-bridge/issues/84))
+- Flashing silicon-hdl / building the Basys 3 bitstream (owned by silicon-hdl +
+  GitHub [#84](https://github.com/rmems/silicon-bridge/issues/84)). The
+  silicon-bridge UART host session that gates publish is the hardware-evidence
+  gate in §5, not this list.
 - Changing the GitHub Actions matrix (#24 already owns it)

@@ -162,6 +162,12 @@ jobs:
       - name: Test (all features)
         run: cargo test --all-features
 
+      # `cargo test --all-features` builds examples but does not run their
+      # inline `#[test]`s; `--examples` selects those test targets so the
+      # uart_host_smoke offline harness tests actually execute in CI.
+      - name: Test examples (all features)
+        run: cargo test --all-features --examples
+
       # AGENTS.md bans relative links to licence files in doc comments because
       # they break on docs.rs — a rule that exists precisely because nothing
       # rendered the docs. This runs on the uart job because libudev is already

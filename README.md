@@ -88,7 +88,10 @@ Artix-7 trainer pinout. That file is **not** the claimed reference demo;
 
 A silicon-bridge UART host session on this board is release evidence for the
 0.3.1 publish path ([#84](https://github.com/rmems/silicon-bridge/issues/84)).
-This crate’s examples and CI do not flash an FPGA. Lab JTAG serials belong
+When run, that session is recorded in
+[`docs/hardware-smoke-note.md`](docs/hardware-smoke-note.md); until that note is
+filled in, no such host-session proof exists. Raw logs may also be linked on
+#84. This crate’s examples and CI do not flash an FPGA. Lab JTAG serials belong
 in smoke logs, not here.
 
 Companion contracts live in silicon-hdl:
@@ -153,7 +156,10 @@ is not a registry test.
 ## Quick Start
 
 Runnable copies live in [`examples/`](examples/README.md). They compile
-against the public crate API and run offline (no FPGA, no serial device).
+against the public crate API and run offline (no FPGA, no serial device),
+except [`uart_host_smoke`](examples/uart_host_smoke.rs), which opens an
+explicit serial port when built with `--features uart` (maintainer hardware
+evidence only; see [release-readiness §5](docs/release-readiness.md)).
 
 ### Bring your own floats (generic-dense-q88)
 
@@ -343,7 +349,7 @@ silently. UART `encode_q88_signed(-128.0)` is `8003`; parameter `.mem` is
 |---|---|---|---|
 | Export-only | default | yes | no |
 | Pure codec (`encode_stimuli` / `decode_response`) | default | yes (`dense_codec` example) | no |
-| Optional synchronous UART | `uart` + native `serialport` | compile + unit tests on Linux CI (#24) | **explicit device only**; not in examples |
+| Optional synchronous UART | `uart` + native `serialport` | compile + unit tests on Linux CI (#24) | **explicit device only**; live I/O only in `uart_host_smoke` (`--features uart`) |
 
 Evidence classes: **OS compilation** (CI #24: Linux/macOS/Windows; Linux `uart`
 job with `libudev-dev`), **HDL simulation** (`tests/golden/hdl/run.sh`, Icarus,

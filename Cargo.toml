@@ -30,6 +30,7 @@ include = [
     "examples/README.md",
     "docs/consumer.md",
     "docs/export-profiles.md",
+    "docs/hardware-smoke-note.md",
     "docs/host-hdl-contract.md",
     "docs/uart-v4-protocol.md",
     "docs/release-readiness.md",
