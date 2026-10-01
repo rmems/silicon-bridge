@@ -1,0 +1,40 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# Draft CodeRabbit config for rmems/silicon-bridge (generated locally, not pushed).
+language: en-US
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  fail_commit_status: false
+  auto_review:
+    enabled: true
+    drafts: false
+  path_filters:
+  - '!**/target/**'
+  - '!fuzz/corpus/**'
+  - '!fuzz/artifacts/**'
+  path_instructions:
+  - path: '{src,tests,examples}/**/*.rs'
+    instructions: 'Rust edition 2024; `rust-version = "1.88.0"` (MSRV job) plus stable; nightly only for `fuzz/`. Edition 2024 is valid (REVIEW.md). Do not suggest downgrading the edition or using std/language APIs newer than the pinned toolchain/MSRV. CI gate: `cargo clippy --all-targets [--all-features] -- -D warnings`, `cargo test [--features uart|--all-features]`, `cargo doc --no-deps --features uart`. Flag anything that would fail `cargo fmt --check` or clippy `-D warnings`. `src/lib.rs` has `#![forbid(unsafe_code)]`: never suggest `unsafe`. UART code must stay behind `#[cfg(feature = "uart")]` (it needs libudev). Hardware `.mem` images must be produced by `encode_q88_signed_full`; don''t use relative license links in doc comments (they break on docs.rs).'
+  - path: tests/golden/**
+    instructions: Golden fixtures are pinned by LF SHA-256 (`.gitattributes`); changes require the regenerating code change and updated hashes in the same PR.
+  - path: tests/golden/hdl/*.sv
+    instructions: SystemVerilog contract testbenches mirroring silicon-hdl `$readmemh` layout; keep them in sync with the Rust encoder.
+  - path: '**/Cargo.toml'
+    instructions: Cargo manifest. Call out new dependencies and feature changes, and keep `rust-version` / `edition` consistent with CI.
+  - path: .github/workflows/**
+    instructions: GitHub Actions workflows. Keep `permissions:` least-privilege and job commands in sync with the local gates documented in the repo. Every `uses:` is pinned to a full commit SHA today; new or bumped actions must be too.
+  tools:
+    clippy:
+      enabled: true
+    verilator:
+      enabled: true
+    shellcheck:
+      enabled: true
+    actionlint:
+      enabled: true
+    yamllint:
+      enabled: true
+    markdownlint:
+      enabled: true
+    biome:
+      enabled: false
