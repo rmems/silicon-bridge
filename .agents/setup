@@ -6,7 +6,7 @@
 # be safe to run more than once. See https://ampcode.com/docs/orbs/customizing
 #
 # Installs only what this repo's CI and manifests need:
-#   - apt: build-essential, pkg-config, libudev-dev
+#   - apt: build-essential, pkg-config, libudev-dev, curl, ca-certificates
 #   - Rust stable (+rustfmt, clippy, llvm-tools-preview) [default]
 #   - Rust 1.88.0
 #   - cargo fetch
@@ -35,8 +35,8 @@ apt_install() {
   fi
 }
 
-# --- System packages (libudev-dev for the uart feature (ci.yml, quality.yml)) ---
-apt_install build-essential pkg-config libudev-dev
+# --- System packages (libudev-dev for the uart feature (ci.yml, quality.yml); curl for the installers) ---
+apt_install build-essential pkg-config libudev-dev curl ca-certificates
 
 # --- Rust (rustup) ---
 export PATH="$HOME/.cargo/bin:$PATH"
