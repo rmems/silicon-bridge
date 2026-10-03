@@ -1,5 +1,5 @@
 # yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
-# Draft CodeRabbit config for rmems/silicon-bridge (generated locally, not pushed).
+# CodeRabbit review configuration for rmems/silicon-bridge.
 language: en-US
 reviews:
   profile: chill
@@ -13,12 +13,33 @@ reviews:
   - '!fuzz/corpus/**'
   - '!fuzz/artifacts/**'
   path_instructions:
-  - path: '{src,tests,examples}/**/*.rs'
-    instructions: 'Rust edition 2024; `rust-version = "1.88.0"` (MSRV job) plus stable; nightly only for `fuzz/`. Edition 2024 is valid (REVIEW.md). Do not suggest downgrading the edition or using std/language APIs newer than the pinned toolchain/MSRV. CI gate: `cargo clippy --all-targets [--all-features] -- -D warnings`, `cargo test [--features uart|--all-features]`, `cargo doc --no-deps --features uart`. Flag anything that would fail `cargo fmt --check` or clippy `-D warnings`. `src/lib.rs` has `#![forbid(unsafe_code)]`: never suggest `unsafe`. UART code must stay behind `#[cfg(feature = "uart")]` (it needs libudev). Hardware `.mem` images must be produced by `encode_q88_signed_full`; don''t use relative license links in doc comments (they break on docs.rs).'
+  - path: '{build.rs,src/**/*.rs,tests/**/*.rs,examples/**/*.rs,fuzz/fuzz_targets/*.rs}'
+    instructions: >-
+      Rust edition 2024 is valid (REVIEW.md); do not suggest downgrading it.
+      The Rust 1.88.0 MSRV lane checks default features and `uart` only with
+      `cargo check --all-targets`, `cargo test`, and their `--features uart`
+      variants. Apply the 1.88.0 std/language API floor to default and UART
+      code. Preserve the documented exception for `#[cfg(feature = "nir")]`
+      code: `nir-rs` has a higher MSRV, so NIR is validated on a sufficiently
+      new stable toolchain instead. Stable CI separately runs clippy and tests,
+      including `cargo clippy --all-targets --all-features -- -D warnings` and
+      `cargo test --all-features`; nightly is only for `fuzz/`. Flag anything
+      that would fail `cargo fmt --check` or clippy `-D warnings`.
+      `src/lib.rs` has `#![forbid(unsafe_code)]`: never suggest `unsafe`. UART
+      transport/bridge code that depends on `serialport` or libudev must stay
+      behind `#[cfg(feature = "uart")]`; the `fpga_codec` and `fpga_codec_v4`
+      protocol codecs must remain available under default features. Do not use
+      relative license links in doc comments because they break on docs.rs.
   - path: tests/golden/**
-    instructions: Golden fixtures are pinned by LF SHA-256 (`.gitattributes`); changes require the regenerating code change and updated hashes in the same PR.
+    instructions: >-
+      Golden contract fixtures are independently maintained expected output,
+      not output generated from encoder code. Non-document fixture changes must
+      preserve that independent derivation and update the LF SHA-256 hashes;
+      require corresponding implementation changes only when the contract
+      change warrants them. Documentation-only changes do not require fixture
+      or source regeneration.
   - path: tests/golden/hdl/*.sv
-    instructions: SystemVerilog contract testbenches mirroring silicon-hdl `$readmemh` layout; keep them in sync with the Rust encoder.
+    instructions: SystemVerilog contract testbenches mirroring silicon-hdl `$readmemh` layout; keep them in sync with the independently maintained golden contract.
   - path: '**/Cargo.toml'
     instructions: Cargo manifest. Call out new dependencies and feature changes, and keep `rust-version` / `edition` consistent with CI.
   - path: .github/workflows/**
