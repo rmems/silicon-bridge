@@ -36,12 +36,15 @@ reviews:
   - path: tests/golden/**
     instructions: >-
       Golden contract fixtures are independently maintained expected output,
-      not output generated from encoder code. Every edit to a file listed in
-      `checksums.sha256`, including documentation, must update its LF-normalized
-      SHA-256 entry. Non-document fixture changes must preserve their independent
-      derivation; require corresponding implementation changes only when the
-      contract change warrants them. Documentation-only changes require the
-      checksum update but do not require fixture or source regeneration.
+      not output generated from encoder code. Every newly added golden fixture
+      or contract artifact under this path must be added to `checksums.sha256`
+      with its LF-normalized SHA-256 entry. Every edit to a file already listed
+      in `checksums.sha256`, including documentation, must update its
+      LF-normalized SHA-256 entry. Non-document fixture changes must preserve
+      their independent derivation; require corresponding implementation changes
+      only when the contract change warrants them. Documentation-only changes
+      require the checksum update but do not require fixture or source
+      regeneration.
   - path: tests/golden/hdl/tb_readmemh_contract.sv
     instructions: SystemVerilog contract testbenches mirroring silicon-hdl `$readmemh` layout; keep them in sync with the independently maintained golden contract.
   - path: tests/golden/hdl/WeightRam.sv
