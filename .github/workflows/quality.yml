@@ -33,7 +33,7 @@ jobs:
           sudo apt-get install -y libudev-dev
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@4076c08d76dba979c11a7285295b0716c1d67908 # v2
+        uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2
         with:
           tool: cargo-llvm-cov
 
@@ -52,7 +52,7 @@ jobs:
 
       - name: Upload coverage to Qlty
         if: ${{ github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
-        uses: qltysh/qlty-action/coverage@08a0a862c159eae9b9003081da6663d96efef637 # v2
+        uses: qltysh/qlty-action/coverage@c9b09987143d1e4ac955f4803c7bea742102feb5 # v2
         with:
           oidc: true
           files: lcov.info
