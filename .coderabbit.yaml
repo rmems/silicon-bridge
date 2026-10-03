@@ -10,7 +10,7 @@ reviews:
     drafts: false
   path_filters:
   - '!**/target/**'
-  - '!fuzz/corpus/**'
+  - '!fuzz/corpus/**/????????????????????????????????????????'
   - '!fuzz/artifacts/**'
   path_instructions:
   - path: '{build.rs,src/**/*.rs,tests/**/*.rs,examples/**/*.rs,fuzz/fuzz_targets/*.rs}'
@@ -30,20 +30,33 @@ reviews:
       behind `#[cfg(feature = "uart")]`; the `fpga_codec` and `fpga_codec_v4`
       protocol codecs must remain available under default features. Do not use
       relative license links in doc comments because they break on docs.rs.
+      Hardware `.mem` images must use `encode_q88_signed_full`, never the UART
+      helper `encode_q88_signed` or `encode_q88_unsigned`; UART frames keep
+      using `encode_q88_signed`.
   - path: tests/golden/**
     instructions: >-
       Golden contract fixtures are independently maintained expected output,
-      not output generated from encoder code. Non-document fixture changes must
-      preserve that independent derivation and update the LF SHA-256 hashes;
-      require corresponding implementation changes only when the contract
-      change warrants them. Documentation-only changes do not require fixture
-      or source regeneration.
-  - path: tests/golden/hdl/*.sv
+      not output generated from encoder code. Every edit to a file listed in
+      `checksums.sha256`, including documentation, must update its LF-normalized
+      SHA-256 entry. Non-document fixture changes must preserve their independent
+      derivation; require corresponding implementation changes only when the
+      contract change warrants them. Documentation-only changes require the
+      checksum update but do not require fixture or source regeneration.
+  - path: tests/golden/hdl/tb_readmemh_contract.sv
     instructions: SystemVerilog contract testbenches mirroring silicon-hdl `$readmemh` layout; keep them in sync with the independently maintained golden contract.
+  - path: tests/golden/hdl/WeightRam.sv
+    instructions: This is vendored production RTL from the silicon-hdl commit pinned in `VENDOR.txt`; do not fix it locally. Changes require a coordinated upstream silicon-hdl change, a vendor pin bump, and an updated golden checksum.
   - path: '**/Cargo.toml'
-    instructions: Cargo manifest. Call out new dependencies and feature changes, and keep `rust-version` / `edition` consistent with CI.
+    instructions: Cargo manifest. Call out new dependencies and feature changes. Rust edition 2024 is mandatory and must not be downgraded; keep `rust-version` consistent with CI.
   - path: .github/workflows/**
-    instructions: GitHub Actions workflows. Keep `permissions:` least-privilege and job commands in sync with the local gates documented in the repo. Every `uses:` is pinned to a full commit SHA today; new or bumped actions must be too.
+    instructions: >-
+      GitHub Actions workflows. Keep `permissions:` least-privilege and job
+      commands in sync with the local gates documented in the repo. Every
+      `uses:` is pinned to a full commit SHA today; new or bumped actions must
+      be too. Any publish or release change must preserve the mandatory gate:
+      `cargo publish` requires a passing Basys 3 UART host session recorded in
+      `docs/hardware-smoke-note.md` plus explicit maintainer authorization, and
+      must never run from an agent session.
   tools:
     clippy:
       enabled: true
