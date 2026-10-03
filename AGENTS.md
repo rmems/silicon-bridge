@@ -1,5 +1,7 @@
 # AGENTS.md
 
+See @CLAUDE.md for additional repository context. The @-mention makes Amp load it; Amp reads `CLAUDE.md` on its own only when no `AGENTS.md` exists.
+
 > **Priority order**: Constraints > Code style > PR instructions > Testing > Dev environment.
 > Items marked mandatory must never be violated. Conventions should be followed unless there's a good reason not to. Workflows are recommended.
 
