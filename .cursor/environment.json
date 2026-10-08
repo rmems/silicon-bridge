@@ -1,0 +1,4 @@
+{
+  "name": "silicon-bridge",
+  "install": "bash .cursor/install.sh"
+}

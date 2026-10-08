@@ -11,7 +11,10 @@ Cargo.lock
 .codex/
 .ai/
 .junie/state/
-.cursor/
+.cursor/*
+# Cursor Cloud Agent environment: committed on purpose.
+!.cursor/environment.json
+!.cursor/install.sh
 .cline/
 .swarm/
 .worktrees/
