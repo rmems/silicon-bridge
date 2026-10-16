@@ -8,7 +8,7 @@
 # Installs only what this repo's CI and manifests need:
 #   - apt: build-essential, pkg-config, libudev-dev, curl, ca-certificates
 #   - Rust stable (+rustfmt, clippy, llvm-tools-preview) [default]
-#   - Rust 1.88.0
+#   - Rust 1.99.0 (MSRV)
 #   - cargo check --all-targets --all-features
 #   - tool directories exposed to later shells (/etc/profile.d + /usr/local/bin links)
 #
@@ -48,8 +48,8 @@ fi
 # ci.yml lint/test/feature jobs use stable.
 rustup toolchain install stable --profile minimal --component rustfmt --component clippy --component llvm-tools-preview
 rustup default stable
-# ci.yml MSRV job pins 1.88.0 (rust-version).
-rustup toolchain install 1.88.0 --profile minimal
+# ci.yml MSRV job pins 1.99.0 (rust-version).
+rustup toolchain install 1.99.0 --profile minimal
 
 # --- Prefetch and prebuild crates (no tests) ---
 # Cargo fetch has no feature-selection flags, so check every target with every

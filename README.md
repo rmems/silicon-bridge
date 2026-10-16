@@ -127,17 +127,17 @@ silicon-bridge = { git = "https://github.com/rmems/silicon-bridge", features = [
 ```
 
 The default feature set does not depend on `nir-rs`. The `nir` feature pins
-`nir-rs = 0.4.3`, whose own crate metadata currently raises the effective
+`nir-rs = 0.4.5`, whose own crate metadata currently raises the effective
 feature-specific toolchain floor above this crate's default `rust-version`.
 
-`[package].rust-version` is **`1.88.0`**: the **MSRV** (minimum supported
-Rust version) — the language floor this crate needs (edition 2024 plus
-`if`/`let` chains). The dependency graph would compile on **1.85.0** without
-those language features. CI runs a dedicated **1.88.0** job on every push
-and PR, and separately exercises the moving GitHub Actions **`stable`**
-toolchain (clippy, multi-OS tests, full `--all-features` including `nir`, fuzz
-compile). The optional `nir` feature is not part of the 1.88.0 MSRV job because
-`nir-rs` requires a newer compiler. Raising MSRV requires
+`[package].rust-version` is **`1.99.0`**: the **MSRV** (minimum supported
+Rust version), raised from 1.88.0 by explicit decision. The language features
+in use (edition 2024 plus `if`/`let` chains) only need 1.88.0, and the
+dependency graph would compile on **1.85.0** without them. CI runs a dedicated
+**1.99.0** job on every push and PR, and separately exercises the moving GitHub
+Actions **`stable`** toolchain (clippy, multi-OS tests, full `--all-features`
+including `nir`, fuzz compile). The optional `nir` feature is not part of the
+1.99.0 MSRV job. Raising MSRV requires
 an explicit compatibility decision and a CHANGELOG entry; see
 [docs/release-readiness.md](docs/release-readiness.md).
 

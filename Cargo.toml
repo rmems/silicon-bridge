@@ -3,11 +3,11 @@ name = "silicon-bridge"
 version = "0.3.1"
 authors = ["Raul Cardenas Montoya <montoyaraul34@gmail.com>"]
 edition = "2024"
-# Language floor, not a “track latest stable” policy pin.
-# Edition 2024 / `getrandom` 0.4 (via `tempfile`) need 1.85.0. This crate
-# also uses `if`/`let` chains, which need 1.88.0. CI enforces this floor via
-# a dedicated 1.88.0 job and separately exercises GitHub Actions `stable`.
-rust-version = "1.88.0"
+# Raised to 1.99.0 (stable at 2026-10-01) by explicit decision; the language
+# features in use (edition 2024, `if`/`let` chains) only need 1.88.0. CI
+# enforces this floor via a dedicated 1.99.0 job and separately exercises
+# GitHub Actions `stable`.
+rust-version = "1.99.0"
 license = "MIT OR Apache-2.0"
 description = "Deploy spiking neural networks to FPGAs: Q8.8 fixed-point export, optional UART spike I/O, and Vivado timing-report parsing for CI gating"
 repository = "https://github.com/rmems/silicon-bridge"

@@ -16,22 +16,22 @@ jobs:
   # Pins the toolchain to `[package].rust-version` so the advertised floor cannot
   # drift silently. UART (`--features uart`) is included with libudev on Linux.
   # `--all-features` is intentionally omitted: the optional `nir` feature pins
-  # `nir-rs`, whose own MSRV is above 1.88.0 (see README / release-readiness).
+  # `nir-rs`, whose own MSRV is above 1.99.0 (see README / release-readiness).
   msrv:
-    name: msrv (1.88.0, ubuntu-latest)
+    name: msrv (1.99.0, ubuntu-latest)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
-      - name: Install Rust 1.88.0 (MSRV)
+      - name: Install Rust 1.99.0 (MSRV)
         uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # stable
         with:
-          toolchain: 1.88.0
+          toolchain: 1.99.0
 
       - name: Verify MSRV toolchain
-        run: rustc --version | grep -F '1.88.0'
+        run: rustc --version | grep -F '1.99.0'
 
       - name: Install libudev (serialport / uart feature)
         run: |
@@ -44,9 +44,9 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ runner.os }}-cargo-msrv-1.88.0-${{ hashFiles('**/Cargo.toml') }}
+          key: ${{ runner.os }}-cargo-msrv-1.99.0-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-msrv-1.88.0-
+            ${{ runner.os }}-cargo-msrv-1.99.0-
             ${{ runner.os }}-cargo-
 
       - name: Check (default features)

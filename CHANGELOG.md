@@ -6,9 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **MSRV** raised from 1.88.0 to **1.99.0** (`rust-version`, CI `msrv` job,
+  docs). No code change requires it; consumers on older toolchains must stay on
+  0.3.0.
+
 ### Added
 
-- CI **MSRV** job on Rust **1.88.0** (`cargo check --all-targets`, `cargo test`,
+- CI **MSRV** job on Rust **1.99.0** (`cargo check --all-targets`, `cargo test`,
   and `--features uart` with `libudev-dev` on Linux) so the declared
   `rust-version` floor is continuously enforced alongside the moving `stable`
   lane. The optional `nir` feature is excluded from MSRV CI because `nir-rs`
