@@ -34,6 +34,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **Breaking:** `FpgaMetrics::load_from_project()` is removed. It read fixed
+  `fpga-project/ship_ssn_logic.runs/impl_1/Basys3_Top_*.rpt` paths from one
+  private project layout. Use `FpgaMetrics::load_from_impl_run(impl_dir,
+  top_module)`, which reads `<top_module>_timing_summary_routed.rpt` and
+  `<top_module>_utilization_placed.rpt` from any Vivado run directory, or
+  `load_from_reports(timing, utilization)` for arbitrary paths. The old call is
+  `load_from_impl_run("fpga-project/ship_ssn_logic.runs/impl_1", "Basys3_Top")`
+  (#105).
+- `FpgaMetrics::load_from_path` and `load_from_reports` take
+  `impl AsRef<Path>` instead of `&str`, matching `fpga_export`; existing `&str`
+  callers compile unchanged and `Path`/`PathBuf` (including non-UTF-8 paths)
+  now work (#105).
 - The silicon-hdl reference manifest is versioned as
   `silicon-bridge-silicon-hdl-v3-contract-v2` /
   `silicon-hdl-v3-profile-v2` because compatibility metadata now replaces

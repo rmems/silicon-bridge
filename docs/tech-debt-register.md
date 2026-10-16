@@ -31,12 +31,12 @@ the file and symbol names are the durable part.
 | 8 | Doc and `unsafe` conventions unenforced | `src/lib.rs`, `src/fpga_export.rs:104` | Medium | PR #42 |
 | 9 | A library writes 20 lines to stdout on every export | `src/fpga_export.rs`, `src/fpga_bridge.rs` | Medium | **#50** (export report; bridge already silent in #51) |
 | 10 | No dependency automation | repo-wide | Medium | PR #43 |
-| 11 | `load_from_project` hard-codes an Eagle-Lander path | `src/fpga_metrics.rs:58` | Medium | blocked by #33 |
+| 11 | `load_from_project` hard-codes an Eagle-Lander path | `src/fpga_metrics.rs:58` | Medium | **#105** (this PR) |
 | 12 | No `cargo doc` gate, though docs.rs breakage is a stated concern | `.github/workflows/ci.yml` | Medium | blocked by #31 |
 | 13 | README documents the Linux-only probe list as current | `README.md:29-33` | Medium | blocked by #33 |
 | 14 | ~~No MSRV job, so `rust-version` can rot~~ | `.github/workflows/ci.yml` | Low-med | **Fixed #87** |
 | 15 | README examples are never compiled | `README.md`, `src/lib.rs` | Low-med | queued |
-| 16 | Report paths are `&str`, not `AsRef<Path>` | `src/fpga_metrics.rs:70` | Low-med | blocked by #33 |
+| 16 | Report paths are `&str`, not `AsRef<Path>` | `src/fpga_metrics.rs:70` | Low-med | **#105** (this PR) |
 | 17 | Neuron counts across the three vectors are unchecked | `src/fpga_export.rs` | Low-med | **#48** (this PR) |
 | 18 | `ping()` latches the bridge inactive forever | `src/fpga_bridge.rs` | Low-med | **#93 / RM-1427 (this PR)** |
 | 19 | `LICENSE-MIT` still names the pre-transfer org | `LICENSE-MIT:3` | Low | **#27** (this PR) |
@@ -202,9 +202,9 @@ most likely to rot precisely because nothing nudges it.
 That is one specific private project's directory layout baked into a
 general-purpose crate: it can only ever succeed inside Eagle-Lander's tree.
 
-**Fix scope (blocked by #33, which rewrites the loaders)** — take the project
-root and top-module name as parameters, keeping the current string as a
-documented default. One PR, `src/fpga_metrics.rs`.
+**Fix (#105)** — `load_from_project` is removed in favour of
+`load_from_impl_run(impl_dir, top_module)`, which derives both report names
+from the caller's run directory and top module.
 
 ### 12. No `cargo doc` gate
 
@@ -270,8 +270,8 @@ rejects non-UTF-8 paths and forces callers holding a `Path` or `PathBuf` to
 convert. `fpga_export.rs` already uses `impl AsRef<Path>` — the two modules
 disagree with each other.
 
-**Fix scope (blocked by #33)** — widen to `impl AsRef<Path>`. Source-compatible
-for every `&str` caller.
+**Fix (#105)** — `load_from_path` and `load_from_reports` take
+`impl AsRef<Path>`. Source-compatible for every `&str` caller.
 
 ### 17. Neuron counts across the three vectors are unchecked
 

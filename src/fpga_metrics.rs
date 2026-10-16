@@ -12,21 +12,17 @@
 //!
 //! Extracted from Eagle-Lander's SpikingInferenceEngine (engine.rs).
 
+use std::path::Path;
+
 use serde::{Deserialize, Serialize};
-
-/// Canonical post-route timing summary path inside the Vivado project tree.
-const PROJECT_TIMING_REPORT: &str =
-    "fpga-project/ship_ssn_logic.runs/impl_1/Basys3_Top_timing_summary_routed.rpt";
-
-/// Canonical post-place utilization report path inside the Vivado project tree.
-const PROJECT_UTILIZATION_REPORT: &str =
-    "fpga-project/ship_ssn_logic.runs/impl_1/Basys3_Top_utilization_placed.rpt";
 
 /// FPGA synthesis and implementation metrics parsed from Vivado reports.
 ///
-/// Timing fields come from `Basys3_Top_timing_summary_routed.rpt` and
-/// [`lut_utilization`](FpgaMetrics::lut_utilization) from
-/// `Basys3_Top_utilization_placed.rpt`, both in `ship_ssn_logic.runs/impl_1/`.
+/// Timing fields come from the post-route timing summary
+/// (`<top>_timing_summary_routed.rpt`) and
+/// [`lut_utilization`](FpgaMetrics::lut_utilization) from the post-place
+/// utilization report (`<top>_utilization_placed.rpt`), both written to a
+/// Vivado implementation run directory such as `<project>.runs/impl_1/`.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct FpgaMetrics {
     /// Worst Negative Slack in nanoseconds.
@@ -157,14 +153,26 @@ impl FpgaMetrics {
         None
     }
 
-    /// Attempt to load metrics from the canonical implementation report paths.
+    /// Load metrics from a Vivado implementation run directory.
     ///
-    /// Reads the post-route timing summary for WNS/TNS and the post-place
-    /// utilization report for LUT utilization. Returns `None` only when the
-    /// timing summary is missing or unparsable; a missing utilization report
-    /// leaves `lut_utilization` at `0.0`.
-    pub fn load_from_project() -> Option<Self> {
-        Self::load_from_reports(PROJECT_TIMING_REPORT, PROJECT_UTILIZATION_REPORT)
+    /// Reads `<impl_dir>/<top_module>_timing_summary_routed.rpt` for WNS/TNS
+    /// and `<impl_dir>/<top_module>_utilization_placed.rpt` for LUT
+    /// utilization — the names Vivado's default implementation strategy writes
+    /// into a run directory such as `<project>.runs/impl_1`. Returns `None`
+    /// only when the timing summary is missing or unparsable; a missing
+    /// utilization report leaves `lut_utilization` at `0.0`.
+    ///
+    /// ```no_run
+    /// use silicon_bridge::FpgaMetrics;
+    ///
+    /// let metrics = FpgaMetrics::load_from_impl_run("my_proj.runs/impl_1", "Basys3_Top");
+    /// ```
+    pub fn load_from_impl_run(impl_dir: impl AsRef<Path>, top_module: &str) -> Option<Self> {
+        let impl_dir = impl_dir.as_ref();
+        Self::load_from_reports(
+            impl_dir.join(format!("{top_module}_timing_summary_routed.rpt")),
+            impl_dir.join(format!("{top_module}_utilization_placed.rpt")),
+        )
     }
 
     /// Load metrics from a custom timing summary report path.
@@ -173,7 +181,7 @@ impl FpgaMetrics {
     /// column. LUT utilization is read from this same file only if it also
     /// contains a `report_utilization` table (concatenated reports) — use
     /// [`FpgaMetrics::load_from_reports`] to read it from its own file.
-    pub fn load_from_path(report_path: &str) -> Option<Self> {
+    pub fn load_from_path(report_path: impl AsRef<Path>) -> Option<Self> {
         let text = std::fs::read_to_string(report_path).ok()?;
         Self::from_report_texts(&text, None)
     }
@@ -184,8 +192,8 @@ impl FpgaMetrics {
     /// row, `lut_utilization` stays `0.0` and the timing metrics are still
     /// returned.
     pub fn load_from_reports(
-        timing_report_path: &str,
-        utilization_report_path: &str,
+        timing_report_path: impl AsRef<Path>,
+        utilization_report_path: impl AsRef<Path>,
     ) -> Option<Self> {
         let timing_text = std::fs::read_to_string(timing_report_path).ok()?;
         let utilization_text = std::fs::read_to_string(utilization_report_path).ok();
@@ -287,10 +295,6 @@ Design Timing Summary
         file.write_all(contents.as_bytes()).expect("write");
         file.flush().expect("flush");
         file
-    }
-
-    fn path_of(file: &tempfile::NamedTempFile) -> &str {
-        file.path().to_str().expect("utf-8 path")
     }
 
     #[test]
@@ -418,7 +422,7 @@ Design Timing Summary
     #[test]
     fn load_from_path_returns_none_for_unparsable_report() {
         let file = report_file("no timing summary here\n");
-        assert!(FpgaMetrics::load_from_path(path_of(&file)).is_none());
+        assert!(FpgaMetrics::load_from_path(file.path()).is_none());
     }
 
     #[test]
@@ -485,7 +489,7 @@ Design Timing Summary
     #[test]
     fn load_from_path_populates_tns_and_defaults_lut_to_zero() {
         let file = report_file(TIMING_SUMMARY_WITH_RULE);
-        let metrics = FpgaMetrics::load_from_path(path_of(&file)).expect("metrics not loaded");
+        let metrics = FpgaMetrics::load_from_path(file.path()).expect("metrics not loaded");
         assert_close(metrics.wns_ns, 2.345);
         assert_close(metrics.tns_ns, -1.882);
         assert_close(metrics.lut_utilization, 0.0);
@@ -496,7 +500,7 @@ Design Timing Summary
     fn load_from_path_reads_lut_from_a_combined_report() {
         let combined = format!("{TIMING_SUMMARY_WITH_RULE}\n{UTILIZATION_REPORT}");
         let file = report_file(&combined);
-        let metrics = FpgaMetrics::load_from_path(path_of(&file)).expect("metrics not loaded");
+        let metrics = FpgaMetrics::load_from_path(file.path()).expect("metrics not loaded");
         assert_close(metrics.wns_ns, 2.345);
         assert_close(metrics.lut_utilization, 0.153);
     }
@@ -505,7 +509,7 @@ Design Timing Summary
     fn load_from_reports_populates_all_fields() {
         let timing = report_file(TIMING_SUMMARY_WITH_RULE);
         let utilization = report_file(UTILIZATION_REPORT);
-        let metrics = FpgaMetrics::load_from_reports(path_of(&timing), path_of(&utilization))
+        let metrics = FpgaMetrics::load_from_reports(timing.path(), utilization.path())
             .expect("metrics not loaded");
         assert_close(metrics.wns_ns, 2.345);
         assert_close(metrics.tns_ns, -1.882);
@@ -516,7 +520,7 @@ Design Timing Summary
     #[test]
     fn load_from_reports_tolerates_a_missing_utilization_report() {
         let timing = report_file(TIMING_SUMMARY_WITH_RULE);
-        let metrics = FpgaMetrics::load_from_reports(path_of(&timing), "does/not/exist.rpt")
+        let metrics = FpgaMetrics::load_from_reports(timing.path(), "does/not/exist.rpt")
             .expect("timing metrics should survive a missing utilization report");
         assert_close(metrics.wns_ns, 2.345);
         assert_close(metrics.tns_ns, -1.882);
@@ -526,9 +530,45 @@ Design Timing Summary
     #[test]
     fn load_from_reports_returns_none_without_a_timing_report() {
         let utilization = report_file(UTILIZATION_REPORT);
-        assert!(
-            FpgaMetrics::load_from_reports("does/not/exist.rpt", path_of(&utilization)).is_none()
-        );
+        assert!(FpgaMetrics::load_from_reports("does/not/exist.rpt", utilization.path()).is_none());
+    }
+
+    #[test]
+    fn load_from_impl_run_reads_both_reports_for_the_top_module() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        std::fs::write(
+            dir.path().join("Top_timing_summary_routed.rpt"),
+            TIMING_SUMMARY_WITH_RULE,
+        )
+        .expect("write timing report");
+        std::fs::write(
+            dir.path().join("Top_utilization_placed.rpt"),
+            UTILIZATION_REPORT,
+        )
+        .expect("write utilization report");
+
+        let metrics =
+            FpgaMetrics::load_from_impl_run(dir.path(), "Top").expect("metrics not loaded");
+        assert_close(metrics.wns_ns, 2.345);
+        assert_close(metrics.tns_ns, -1.882);
+        assert_close(metrics.lut_utilization, 0.153);
+        assert!(FpgaMetrics::load_from_impl_run(dir.path(), "Other").is_none());
+    }
+
+    // macOS (APFS) rejects non-UTF-8 file names with EILSEQ, so this only runs on Linux.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn load_from_path_accepts_a_non_utf8_path() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join(OsStr::from_bytes(b"timing_\xff.rpt"));
+        assert!(path.to_str().is_none());
+        std::fs::write(&path, TIMING_SUMMARY_WITH_RULE).expect("write timing report");
+
+        let metrics = FpgaMetrics::load_from_path(&path).expect("metrics not loaded");
+        assert_close(metrics.wns_ns, 2.345);
     }
 
     #[test]
