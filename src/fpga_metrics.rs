@@ -555,6 +555,21 @@ Design Timing Summary
         assert!(FpgaMetrics::load_from_impl_run(dir.path(), "Other").is_none());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn load_from_path_accepts_a_non_utf8_path() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join(OsStr::from_bytes(b"timing_\xff.rpt"));
+        assert!(path.to_str().is_none());
+        std::fs::write(&path, TIMING_SUMMARY_WITH_RULE).expect("write timing report");
+
+        let metrics = FpgaMetrics::load_from_path(&path).expect("metrics not loaded");
+        assert_close(metrics.wns_ns, 2.345);
+    }
+
     #[test]
     fn default_metrics_are_zeroed() {
         let metrics = FpgaMetrics::default();
