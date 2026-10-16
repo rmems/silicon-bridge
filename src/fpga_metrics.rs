@@ -555,7 +555,8 @@ Design Timing Summary
         assert!(FpgaMetrics::load_from_impl_run(dir.path(), "Other").is_none());
     }
 
-    #[cfg(unix)]
+    // macOS (APFS) rejects non-UTF-8 file names with EILSEQ, so this only runs on Linux.
+    #[cfg(target_os = "linux")]
     #[test]
     fn load_from_path_accepts_a_non_utf8_path() {
         use std::ffi::OsStr;
