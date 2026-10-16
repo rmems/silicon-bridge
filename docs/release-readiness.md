@@ -37,9 +37,10 @@ that host proof.
 
 ## 2. Supported Rust version
 
-- **MSRV:** `[package].rust-version` is `1.88.0` (language floor: edition 2024
-  plus `if`/`let` chains). The dependency graph would compile on 1.85.0 without
-  those language features. CI enforces this floor with a dedicated **1.88.0**
+- **MSRV:** `[package].rust-version` is `1.99.0`, raised from 1.88.0 by
+  explicit decision (language features in use: edition 2024 plus `if`/`let`
+  chains, which need only 1.88.0; the dependency graph would compile on 1.85.0
+  without them). CI enforces this floor with a dedicated **1.99.0**
   job (`cargo check --all-targets`, `cargo test`, and `--features uart` with
   `libudev-dev` on Linux). The optional `nir` feature is validated on stable
   only because `nir-rs` declares a higher MSRV than this crate.
@@ -50,8 +51,8 @@ that host proof.
   without an explicit compatibility decision. When MSRV increases, update
   `Cargo.toml`, README, this section, and add a **Changed** entry under
   `[Unreleased]` in `CHANGELOG.md` before release.
-- Build and test default features on 1.88.0 or newer stable. The optional
-  `nir` feature pins `nir-rs = 0.4.4`; validate it on a toolchain new enough
+- Build and test default features on 1.99.0 or newer stable. The optional
+  `nir` feature pins `nir-rs = 0.4.5`; validate it on a toolchain new enough
   for `nir-rs` before claiming that feature.
 - Record the toolchain and enabled features in the release notes.
 

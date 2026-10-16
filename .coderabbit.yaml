@@ -16,9 +16,9 @@ reviews:
   - path: '{build.rs,src/**/*.rs,tests/**/*.rs,examples/**/*.rs,fuzz/fuzz_targets/*.rs}'
     instructions: >-
       Rust edition 2024 is valid (REVIEW.md); do not suggest downgrading it.
-      The Rust 1.88.0 MSRV lane checks default features and `uart` only with
+      The Rust 1.99.0 MSRV lane checks default features and `uart` only with
       `cargo check --all-targets`, `cargo test`, and their `--features uart`
-      variants. Apply the 1.88.0 std/language API floor to default and UART
+      variants. Apply the 1.99.0 std/language API floor to default and UART
       code. Preserve the documented exception for `#[cfg(feature = "nir")]`
       code: `nir-rs` has a higher MSRV, so NIR is validated on a sufficiently
       new stable toolchain instead. Stable CI separately runs clippy and tests,
