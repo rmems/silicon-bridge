@@ -96,6 +96,7 @@ Tests live inline in source files, plus the #53 golden-contract suite:
 | `tests/q88_properties.rs` | integration / proptest | Exhaustive signed/unsigned Q8.8 word round-trips, UART clamp, saturation, non-finite inputs (RM-1352) |
 | `tests/codec_properties.rs` | integration / proptest | Dense-layout encode→decode, truncation, garbage prefix/suffix, chunk-split decoder stability (RM-1352) |
 | `tests/fuzz_regressions.rs` | integration | Deterministic cases promoted from fuzz boundaries / artifacts (RM-1352) |
+| `tests/vivado_report_fixtures.rs` | integration / proptest | Artix-7 Vivado report fixtures in `tests/fixtures/vivado/` (met, failed, empty, truncated, CRLF, missing utilization); derived `synthesis_ok`; arbitrary text never panics the parsers (#104) |
 | `fuzz/` | libFuzzer (opt-in run) | Pure codec targets; CI compiles only (`cargo fuzz build`). Seeds from `tests/golden/` |
 
 `tests/golden/` is the committed expected output (not encoder-generated).

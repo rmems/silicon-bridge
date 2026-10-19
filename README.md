@@ -418,6 +418,12 @@ assert!(
 );
 ```
 
+`synthesis_ok` is derived from the timing summary, not assumed: it is `true`
+only when the design summary row parses in full, WNS is finite and `>= 0`, TNS
+(when present) is `0`, and the report lacks Vivado's
+`Timing constraints are not met.` banner. `FpgaMetrics::synthesis_ok_from_report`
+applies the same rule to report text you already hold.
+
 WNS is required. Optional fields (a gate must treat `0.0` as "not reported",
 not as "clean"):
 

@@ -24,7 +24,7 @@ the file and symbol names are the durable part.
 | 1 | Project-board sync targets the pre-transfer org and fails every run | `.github/workflows/project-hardware.yml` | High | PR #38 |
 | 2 | `uart` feature is unusable off Linux | `src/fpga_bridge.rs` | High | PR #39 |
 | 3 | Ragged weight rows silently produce a misaligned `.mem` | `src/fpga_export.rs` | High | PR #41 |
-| 4 | `FpgaMetrics::synthesis_ok` is hard-coded `true` | `src/fpga_metrics.rs:65,76` | High | blocked by #33 |
+| 4 | ~~`FpgaMetrics::synthesis_ok` is hard-coded `true`~~ | `src/fpga_metrics.rs` | High | **Fixed #104** |
 | 5 | No required status checks — a red PR can merge | branch protection on `main` | High | settings change |
 | 6 | CI never runs on a stacked PR | `.github/workflows/ci.yml:6-7` | High | PR #46 |
 | 7 | Published crate shipped agent instructions; no MSRV | `Cargo.toml` | Medium | PR #40 |
@@ -110,6 +110,11 @@ lie, and is what #33 fixes.
 `synthesis_ok` from the report (an implementation run that errored says so), or
 remove the field rather than ship a value that is always `true`. One PR,
 `src/fpga_metrics.rs` only.
+
+**Fixed (#104 / RM-2037)** — `synthesis_ok` is now
+`FpgaMetrics::synthesis_ok_from_report(timing_text)`: full summary row, finite
+WNS `>= 0`, TNS `== 0` when present, no `Timing constraints are not met.`
+banner. Covered by `tests/fixtures/vivado/` and `tests/vivado_report_fixtures.rs`.
 
 ### 5. No required status checks — a red PR can merge
 

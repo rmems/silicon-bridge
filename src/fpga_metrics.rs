@@ -10,6 +10,9 @@
 //! yields `None`. TNS and LUT utilization are optional: when a report omits
 //! them the corresponding field stays at `0.0` instead of failing the parse.
 //!
+//! [`FpgaMetrics::synthesis_ok`] is derived from the timing summary, never
+//! assumed: see [`FpgaMetrics::synthesis_ok_from_report`] for the rule.
+//!
 //! Extracted from Eagle-Lander's SpikingInferenceEngine (engine.rs).
 
 use std::path::Path;
@@ -38,7 +41,16 @@ pub struct FpgaMetrics {
     /// LUT resource utilization (0.0–1.0).
     /// `0.0` when no utilization report was available.
     pub lut_utilization: f32,
-    /// `true` if the last synthesis/implementation run completed without errors
+    /// `true` only when the timing summary parsed completely and timing is
+    /// met: WNS is finite and `>= 0`, TNS (when the column is present) is
+    /// exactly `0`, and the report does not carry Vivado's
+    /// `Timing constraints are not met.` banner.
+    ///
+    /// Derived by [`FpgaMetrics::synthesis_ok_from_report`]; `false` for a
+    /// truncated data row or a failed run. A missing or unparsable report
+    /// makes the loaders return `None` rather than metrics with this field
+    /// set. This is a timing-closure verdict read from the routed timing
+    /// summary — it does not inspect Vivado run logs.
     pub synthesis_ok: bool,
 }
 
@@ -92,6 +104,68 @@ impl FpgaMetrics {
             return None;
         }
         data_row.split_whitespace().nth(1)?.parse::<f32>().ok()
+    }
+
+    /// Derive the [`synthesis_ok`](FpgaMetrics::synthesis_ok) verdict from a
+    /// Vivado timing summary report text. Fails closed: returns `true` only
+    /// when every check below passes, and never panics.
+    ///
+    /// 1. The `Design Timing Summary` block parses: a `WNS(ns)` header row
+    ///    followed by a data row. When Vivado's column rule (`-------  ...`)
+    ///    is present, the data row must have at least one value per column —
+    ///    a row cut short by a truncated file is rejected.
+    /// 2. WNS is finite and `>= 0.0`. An unconstrained design, which Vivado
+    ///    reports as `inf`, is not a pass.
+    /// 3. If the second header column is `TNS(ns)`, its value parses, is
+    ///    finite, and equals `0.0`. A report without a TNS column is judged
+    ///    on WNS alone.
+    /// 4. The text does not contain `Timing constraints are not met.`, which
+    ///    Vivado prints when any setup, hold, or pulse-width check fails.
+    ///
+    /// ```
+    /// use silicon_bridge::FpgaMetrics;
+    ///
+    /// let met = "\
+    ///     WNS(ns)      TNS(ns)
+    ///     -------      -------
+    ///       1.873        0.000
+    /// ";
+    /// assert!(FpgaMetrics::synthesis_ok_from_report(met));
+    ///
+    /// let failed = "\
+    ///     WNS(ns)      TNS(ns)
+    ///     -------      -------
+    ///      -0.427      -12.906
+    /// ";
+    /// assert!(!FpgaMetrics::synthesis_ok_from_report(failed));
+    /// assert!(!FpgaMetrics::synthesis_ok_from_report(""));
+    /// ```
+    pub fn synthesis_ok_from_report(report_text: &str) -> bool {
+        let Some(block) = timing_summary_block(report_text) else {
+            return false;
+        };
+        let mut values = block.data_row.split_whitespace();
+        if let Some(rule) = block.rule {
+            let columns = rule.split_whitespace().count();
+            if block.data_row.split_whitespace().count() < columns {
+                return false;
+            }
+        }
+        let Some(Ok(wns)) = values.next().map(str::parse::<f32>) else {
+            return false;
+        };
+        if !(wns.is_finite() && wns >= 0.0) {
+            return false;
+        }
+        if block.header.split_whitespace().nth(1) == Some("TNS(ns)") {
+            let Some(Ok(tns)) = values.next().map(str::parse::<f32>) else {
+                return false;
+            };
+            if !(tns.is_finite() && tns == 0.0) {
+                return false;
+            }
+        }
+        !report_text.contains(TIMING_NOT_MET_BANNER)
     }
 
     /// Parse LUT utilization (0.0–1.0) from a Vivado **utilization** report.
@@ -213,9 +287,25 @@ impl FpgaMetrics {
             wns_ns,
             tns_ns,
             lut_utilization,
-            synthesis_ok: true,
+            synthesis_ok: Self::synthesis_ok_from_report(timing_text),
         })
     }
+}
+
+/// Banner Vivado's `report_timing_summary` prints under the design summary
+/// when any timing check fails (`All user specified timing constraints are
+/// met.` otherwise).
+const TIMING_NOT_MET_BANNER: &str = "Timing constraints are not met.";
+
+/// The `Design Timing Summary` rows, each trimmed.
+struct TimingSummaryBlock<'a> {
+    /// The `WNS(ns)  TNS(ns)  ...` column header row.
+    header: &'a str,
+    /// The rule of dashes under the header, when Vivado printed one; it has
+    /// exactly one dash group per column.
+    rule: Option<&'a str>,
+    /// The first data row beneath the header.
+    data_row: &'a str,
 }
 
 /// Locate the header and data rows of a Vivado timing summary, both trimmed.
@@ -223,7 +313,14 @@ impl FpgaMetrics {
 /// Scans for the `WNS(ns)` column header, then pairs it with the first line
 /// beneath it that is neither blank nor a column rule.
 fn timing_summary_rows(report_text: &str) -> Option<(&str, &str)> {
+    timing_summary_block(report_text).map(|block| (block.header, block.data_row))
+}
+
+/// Locate the header, optional column rule, and data row of a Vivado timing
+/// summary. The first rule after the header is kept; blank lines are skipped.
+fn timing_summary_block(report_text: &str) -> Option<TimingSummaryBlock<'_>> {
     let mut header = None;
+    let mut rule = None;
     for line in report_text.lines() {
         let trimmed = line.trim();
         let Some(header) = header else {
@@ -232,10 +329,18 @@ fn timing_summary_rows(report_text: &str) -> Option<(&str, &str)> {
             }
             continue;
         };
-        if trimmed.is_empty() || is_column_rule(trimmed) {
+        if trimmed.is_empty() {
             continue;
         }
-        return Some((header, trimmed));
+        if is_column_rule(trimmed) {
+            rule.get_or_insert(trimmed);
+            continue;
+        }
+        return Some(TimingSummaryBlock {
+            header,
+            rule,
+            data_row: trimmed,
+        });
     }
     None
 }
@@ -493,7 +598,8 @@ Design Timing Summary
         assert_close(metrics.wns_ns, 2.345);
         assert_close(metrics.tns_ns, -1.882);
         assert_close(metrics.lut_utilization, 0.0);
-        assert!(metrics.synthesis_ok);
+        // Negative TNS fails timing even though WNS is positive (#104).
+        assert!(!metrics.synthesis_ok);
     }
 
     #[test]
@@ -514,7 +620,7 @@ Design Timing Summary
         assert_close(metrics.wns_ns, 2.345);
         assert_close(metrics.tns_ns, -1.882);
         assert_close(metrics.lut_utilization, 0.153);
-        assert!(metrics.synthesis_ok);
+        assert!(!metrics.synthesis_ok, "TNS -1.882 must not report a pass");
     }
 
     #[test]
@@ -569,6 +675,77 @@ Design Timing Summary
 
         let metrics = FpgaMetrics::load_from_path(&path).expect("metrics not loaded");
         assert_close(metrics.wns_ns, 2.345);
+    }
+
+    #[test]
+    fn synthesis_ok_requires_non_negative_wns_and_zero_tns() {
+        let met = "    WNS(ns)      TNS(ns)\n    -------      -------\n      0.000        0.000\n";
+        assert!(FpgaMetrics::synthesis_ok_from_report(met));
+        let negative_zero = "    WNS(ns)      TNS(ns)\n      0.125       -0.000\n";
+        assert!(FpgaMetrics::synthesis_ok_from_report(negative_zero));
+        let wns_only = "    WNS(ns)\n      0.125\n";
+        assert!(FpgaMetrics::synthesis_ok_from_report(wns_only));
+
+        assert!(!FpgaMetrics::synthesis_ok_from_report(
+            TIMING_SUMMARY_WITH_RULE
+        ));
+        let negative_wns = "    WNS(ns)      TNS(ns)\n     -0.001        0.000\n";
+        assert!(!FpgaMetrics::synthesis_ok_from_report(negative_wns));
+        let negative_wns_alone = "    WNS(ns)\n     -0.001\n";
+        assert!(!FpgaMetrics::synthesis_ok_from_report(negative_wns_alone));
+    }
+
+    #[test]
+    fn synthesis_ok_rejects_non_finite_and_unparsable_values() {
+        for row in [
+            "inf 0.000",
+            "NaN 0.000",
+            "-inf 0.000",
+            "1.0 NaN",
+            "1.0 N/A",
+            "N/A 0.0",
+        ] {
+            let report = format!("    WNS(ns)      TNS(ns)\n      {row}\n");
+            assert!(
+                !FpgaMetrics::synthesis_ok_from_report(&report),
+                "row {row:?} must not pass"
+            );
+        }
+        // TNS header present but the value is missing.
+        assert!(!FpgaMetrics::synthesis_ok_from_report(
+            "    WNS(ns)      TNS(ns)\n      1.000\n"
+        ));
+    }
+
+    #[test]
+    fn synthesis_ok_rejects_a_data_row_shorter_than_the_column_rule() {
+        let report = "\
+    WNS(ns)      TNS(ns)  TNS Failing Endpoints  TNS Total Endpoints
+    -------      -------  ---------------------  -------------------
+      1.873        0.000
+";
+        // The parsers still read WNS/TNS, but the verdict fails closed.
+        assert_close(FpgaMetrics::parse_from_report(report).expect("WNS"), 1.873);
+        assert!(!FpgaMetrics::synthesis_ok_from_report(report));
+    }
+
+    #[test]
+    fn synthesis_ok_rejects_the_timing_not_met_banner() {
+        // Hold violation: setup columns clean, Vivado still flags the run.
+        let report = "    WNS(ns)      TNS(ns)\n      1.873        0.000\n\n\nTiming constraints are not met.\n";
+        assert!(!FpgaMetrics::synthesis_ok_from_report(report));
+    }
+
+    #[test]
+    fn synthesis_ok_is_false_without_a_timing_summary() {
+        assert!(!FpgaMetrics::synthesis_ok_from_report(""));
+        assert!(!FpgaMetrics::synthesis_ok_from_report(
+            "not a vivado report"
+        ));
+        assert!(!FpgaMetrics::synthesis_ok_from_report(
+            "    WNS(ns)      TNS(ns)\n"
+        ));
+        assert!(!FpgaMetrics::synthesis_ok_from_report(UTILIZATION_REPORT));
     }
 
     #[test]

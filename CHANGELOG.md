@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `FpgaMetrics::synthesis_ok` is now derived from the timing summary instead of
+  being hard-coded `true` whenever WNS parsed (#104, RM-2037). It is `true`
+  only when the `Design Timing Summary` row parses in full, WNS is finite and
+  `>= 0`, TNS (when the column is present) is `0`, and the report lacks
+  Vivado's `Timing constraints are not met.` banner. **Behavior change:** a
+  routed report with negative WNS/TNS, an `inf` (unconstrained) WNS, or a data
+  row truncated short of its column rule now yields `synthesis_ok: false`. No
+  public signature changed.
+
+### Added
+
+- `FpgaMetrics::synthesis_ok_from_report(&str) -> bool` exposes the verdict
+  rule for callers that hold the report text.
+- `tests/fixtures/vivado/` Artix-7 (xc7a35t, Basys 3) timing-summary and
+  utilization fixtures — timing met, timing failed, empty, truncated, CRLF,
+  missing utilization section — and `tests/vivado_report_fixtures.rs`,
+  including a proptest that arbitrary text never panics the report parsers.
+
 ### Changed
 
 - **MSRV** raised from 1.88.0 to **1.99.0** (`rust-version`, CI `msrv` job,
