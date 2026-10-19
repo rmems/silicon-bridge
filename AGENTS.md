@@ -104,3 +104,16 @@ Ordinary `cargo test` does not run HDL simulation. Optional Icarus evidence:
 (`cargo fuzz run <target>`); see `fuzz/README.md`.
 
 Run `cargo test` and ensure all tests pass before pushing. Add tests for any new code you write.
+
+## CI jobs (reference)
+
+`.github/workflows/ci.yml` runs on every push to `main` and every pull request.
+Keep this table and the README CI table in sync with that file.
+
+| Job | Toolchain | What it runs |
+|-----|-----------|--------------|
+| `msrv (1.99.0, ubuntu-latest)` | Rust 1.99.0 (`[package].rust-version`) | `libudev-dev`; `cargo check --all-targets`, `cargo test`, `cargo check --all-targets --features uart`, `cargo test --features uart` (no `nir`) |
+| `fmt (ubuntu-latest)` | stable | `cargo fmt --check`, plus `--manifest-path fuzz/Cargo.toml` |
+| `test (ubuntu-latest / macos-latest / windows-latest)` | stable | `cargo clippy --all-targets -- -D warnings`, `cargo build`, `cargo test` (default features, `fail-fast: false`) |
+| `uart (ubuntu-latest)` | stable | `libudev-dev`; `cargo clippy --all-targets --all-features -- -D warnings`, `cargo check --features uart`, `cargo test --all-features`, `cargo test --all-features --examples`, `RUSTDOCFLAGS=-D warnings cargo doc --no-deps --features uart` |
+| `fuzz-build (ubuntu-latest)` | nightly | `cargo fuzz build --dev --sanitizer none` (compile only) |

@@ -12,6 +12,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   docs). No code change requires it; consumers on older toolchains must stay on
   0.3.0.
 
+### Fixed
+
+- Docs now match the registry and CI (#121): README, crate rustdoc,
+  `docs/consumer.md`, and `docs/release-readiness.md` say crates.io serves
+  **0.3.0** and that **0.3.1** is the unpublished candidate; the README
+  `nir-rs` pin matches `Cargo.toml` (`=0.4.5`); README and `AGENTS.md` CI job
+  tables list every `ci.yml` job, including `msrv (1.99.0, ubuntu-latest)`;
+  the crate rustdoc MSRV line says 1.99.0. The `[0.3.1]` heading is marked
+  Unreleased because 0.3.1 was never published.
+
 ### Added
 
 - CI **MSRV** job on Rust **1.99.0** (`cargo check --all-targets`, `cargo test`,
@@ -68,7 +78,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   non-overwriting defaults even if a caller chooses an id that matches a
   predefined legacy profile.
 
-## [0.3.1] - 2026-09-17
+## [0.3.1] - Unreleased
+
+Never published: crates.io `max_version` is 0.3.0 (checked 2026-10-19). The
+date previously on this heading was the in-tree version bump, not a release.
 
 ### Added
 
@@ -98,6 +111,12 @@ snippets currently use git/path because the crate is unpublished;
 Registry lookup for `silicon-bridge` returned 404 at packaging time.
 `cargo publish` of 0.3.0 is held until the Basys 3 UART host session
 (#84) plus explicit maintainer go-ahead.
+
+> **Registry note (added 2026-10-19, #121):** the paragraph above was true
+> at packaging time. 0.3.0 was subsequently published to crates.io
+> (2026-09-17T17:16:13Z, tag `v0.3.0` / `bf5b20d`) and docs.rs builds it.
+> The published tarball is immutable, so its own README/rustdoc still carry
+> the pre-publish wording.
 
 ### Added
 

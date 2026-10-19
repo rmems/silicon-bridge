@@ -10,7 +10,7 @@
   <a href="https://app.codecov.io/gh/rmems/silicon-bridge"><img src="https://codecov.io/gh/rmems/silicon-bridge/branch/main/graph/badge.svg" alt="Codecov coverage"></a>
   <a href="https://qlty.sh/gh/rmems/projects/silicon-bridge"><img src="https://qlty.sh/gh/rmems/projects/silicon-bridge/coverage.svg" alt="Qlty coverage"></a>
   <a href="https://github.com/rmems/silicon-bridge/actions/workflows/quality.yml"><img src="https://github.com/rmems/silicon-bridge/actions/workflows/quality.yml/badge.svg" alt="Quality services"></a>
-  <img src="https://img.shields.io/badge/crates.io-not%20published-lightgrey" alt="crates.io not published">
+  <a href="https://crates.io/crates/silicon-bridge"><img src="https://img.shields.io/crates/v/silicon-bridge" alt="crates.io"></a>
   <img src="https://img.shields.io/badge/license-MIT%2FApache--2.0-blue" alt="MIT/Apache-2.0">
 </p>
 
@@ -101,10 +101,17 @@ Companion contracts live in silicon-hdl:
 
 ## Installation
 
-`silicon-bridge` is **not published on crates.io**. A version badge or an
-in-tree version string is not a live registry crate. `[package].version`
-is `0.3.1`; an authorized `cargo publish` is a separate maintainer action.
-Until then, depend on git or a path:
+crates.io serves **0.3.0** only (published 2026-09-17, tag `v0.3.0` /
+`bf5b20d`; docs.rs builds it). That release has MSRV 1.88.0 and features
+`uart` only (no `nir`):
+
+```toml
+silicon-bridge = "0.3.0"
+```
+
+`main` is the **0.3.1** candidate (`[package].version` is `0.3.1`), which is
+**not published**. An authorized `cargo publish` is a separate maintainer
+action. For unreleased 0.3.1 APIs, depend on git or a path:
 
 ```toml
 silicon-bridge = { git = "https://github.com/rmems/silicon-bridge" }
@@ -127,8 +134,10 @@ silicon-bridge = { git = "https://github.com/rmems/silicon-bridge", features = [
 ```
 
 The default feature set does not depend on `nir-rs`. The `nir` feature pins
-`nir-rs = 0.4.5`, whose own crate metadata currently raises the effective
-feature-specific toolchain floor above this crate's default `rust-version`.
+`nir-rs = "=0.4.5"` (exactly as in `Cargo.toml`; git/path only, since the
+published 0.3.0 has no `nir` feature), whose own crate metadata currently
+raises the effective feature-specific toolchain floor above this crate's
+default `rust-version`.
 
 `[package].rust-version` is **`1.99.0`**: the **MSRV** (minimum supported
 Rust version), raised from 1.88.0 by explicit decision. The language features
@@ -141,10 +150,9 @@ including `nir`, fuzz compile). The optional `nir` feature is not part of the
 an explicit compatibility decision and a CHANGELOG entry; see
 [docs/release-readiness.md](docs/release-readiness.md).
 
-### After an authorized crates.io publish
+### After an authorized 0.3.1 publish
 
-Only once `https://crates.io/crates/silicon-bridge` serves a version
-(current candidate: **0.3.1**):
+Only once `https://crates.io/api/v1/crates/silicon-bridge` lists `0.3.1`:
 
 ```toml
 silicon-bridge = "0.3.1"
@@ -388,11 +396,12 @@ list other revisions without fixtures.
 
 ## Public-release readiness
 
-See [docs/release-readiness.md](docs/release-readiness.md). This tree is the
-**0.3.1** package candidate (`[package].version` is `0.3.1`). An authorized
-human `cargo publish` is still required before crates.io / docs.rs are live.
-Do not treat the README badge or future crates.io install snippets as a live
-registry crate.
+See [docs/release-readiness.md](docs/release-readiness.md). crates.io and
+docs.rs serve **0.3.0** only. This tree is the unpublished **0.3.1** package
+candidate (`[package].version` is `0.3.1`); an authorized human
+`cargo publish` is still required before 0.3.1 is on crates.io / docs.rs.
+Do not treat the in-tree version string or the `silicon-bridge = "0.3.1"`
+snippet as a live registry release.
 Packaged-crate smoke (`bash scripts/smoke-packaged-consumer.sh`) is not
 registry proof. CI matrix remains
 [#24](https://github.com/rmems/silicon-bridge/issues/24).
@@ -468,16 +477,17 @@ org — this tree is the source of truth.
 
 ## CI
 
-GitHub Actions (`.github/workflows/ci.yml`) runs four job groups on every push
+GitHub Actions (`.github/workflows/ci.yml`) runs five job groups on every push
 to `main` and every pull request. No secrets are required.
 
 | Job | Runner | What it runs |
 |-----|--------|--------------|
-| `fmt (ubuntu-latest)` | Linux | `cargo fmt --check` (once — formatting is OS-independent) |
+| `msrv (1.99.0, ubuntu-latest)` | Linux | Rust **1.99.0** (`[package].rust-version`), installs `libudev-dev`, then `cargo check --all-targets`, `cargo test`, `cargo check --all-targets --features uart`, `cargo test --features uart` (no `nir`: `nir-rs` declares a higher MSRV) |
+| `fmt (ubuntu-latest)` | Linux | `cargo fmt --check` and `cargo fmt --check --manifest-path fuzz/Cargo.toml` (once — formatting is OS-independent) |
 | `test (ubuntu-latest)` | Linux | `cargo clippy --all-targets -- -D warnings`, `cargo build`, `cargo test` |
 | `test (macos-latest)` | macOS | same as above |
 | `test (windows-latest)` | Windows | same as above |
-| `uart (ubuntu-latest)` | Linux | installs `libudev-dev`, then `cargo clippy --all-targets --all-features -- -D warnings`, `cargo check --features uart`, `cargo test --all-features`, and `cargo doc --no-deps --features uart` with `RUSTDOCFLAGS: -D warnings` |
+| `uart (ubuntu-latest)` | Linux | installs `libudev-dev`, then `cargo clippy --all-targets --all-features -- -D warnings`, `cargo check --features uart`, `cargo test --all-features`, `cargo test --all-features --examples`, and `cargo doc --no-deps --features uart` with `RUSTDOCFLAGS: -D warnings` |
 | `fuzz-build (ubuntu-latest)` | Linux | nightly + `cargo fuzz build --dev --sanitizer none` (compile only; no campaign, no serial I/O) |
 
 The `test` matrix uses default features and has `fail-fast: false`, so one OS

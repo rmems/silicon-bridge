@@ -24,11 +24,15 @@ explicitly authorized that exact version.
    crates.io tarballs and the docs.rs build for that version are immutable;
    a later git commit cannot correct them.
 
-The current crates.io-intended semver is **0.3.1**. Registry state must still
-be checked immediately before publication. README and crate rustdoc keep
-git/path install lines until a maintainer authorizes the exact registry
-publish. Do not treat a crates.io badge or an in-tree `0.3.1` string as a
-live registry crate.
+Registry state (checked 2026-10-19): crates.io `max_version` is **0.3.0**
+(published 2026-09-17T17:16:13Z, not yanked, tag `v0.3.0` /
+`bf5b20d46fb815c014daf94dce31ff3aa639b542`), and docs.rs builds it.
+**0.3.1** was never published; it is the next crates.io-intended semver and
+the in-tree candidate. Registry state must still be checked immediately
+before publication. README and crate rustdoc show `silicon-bridge = "0.3.0"`
+as the live registry line and keep git/path install lines for unreleased
+0.3.1 APIs until a maintainer authorizes the exact 0.3.1 publish. Do not
+treat an in-tree `0.3.1` string as a live registry release.
 
 The reference FPGA named in README / `docs/consumer.md` is Digilent Basys 3
 (Artix-7 `XC7A35T-1CPG236C`, `xc7a35tcpg236-1`) with silicon-hdl

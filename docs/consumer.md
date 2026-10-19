@@ -6,10 +6,18 @@ How to use `silicon-bridge` without Spikenaut, a sibling checkout, or the
 author's workstation. This is the packaged **public** API. Implementation
 modules under `src/` are not part of the contract.
 
-The crate is **not on crates.io or docs.rs**. `[package].version` is
-`0.3.1`, but an authorized `cargo publish` is still a separate maintainer
-action. Until then, depend on git or a path. A README badge is not
-publication. See [release-readiness.md](release-readiness.md).
+crates.io and docs.rs serve **0.3.0** only (published 2026-09-17, tag
+`v0.3.0`; MSRV 1.88.0; `uart` feature only):
+
+```toml
+silicon-bridge = "0.3.0"
+```
+
+This tree is the unpublished **0.3.1** candidate (`[package].version` is
+`0.3.1`); an authorized `cargo publish` is still a separate maintainer
+action. For unreleased 0.3.1 APIs, depend on git or a path. An in-tree
+version string is not publication. See
+[release-readiness.md](release-readiness.md).
 
 ```toml
 silicon-bridge = { git = "https://github.com/rmems/silicon-bridge" }
@@ -213,7 +221,8 @@ Publication is a **separately authorized** action. This guide and the
 examples do not run `cargo publish`, flash an FPGA, or implement NIR (see
 GitHub [#15](https://github.com/rmems/silicon-bridge/issues/15)).
 
-This tree is packaged as **0.3.1**, but crates.io / docs.rs are **not** live
-until a maintainer runs a real `cargo publish`. After a real publish, confirm
+crates.io / docs.rs serve **0.3.0** only. This tree is packaged as
+**0.3.1**, which is **not** on crates.io / docs.rs until a maintainer runs a
+real `cargo publish`. After a real publish, confirm
 the registry and repeat the packaged-crate smoke test against the **registry**
 version. A path/`cargo package` test does **not** prove crates.io publication.

@@ -26,9 +26,16 @@
 //!
 //! ## Installation
 //!
-//! This crate is **not on crates.io or docs.rs**. `[package].version` is
-//! `0.3.1`; an authorized `cargo publish` is a separate maintainer action.
-//! Until then, depend on git or a path:
+//! crates.io and docs.rs serve **0.3.0** only (MSRV 1.88.0, `uart` feature
+//! only):
+//!
+//! ```toml
+//! silicon-bridge = "0.3.0"
+//! ```
+//!
+//! This tree is the unpublished **0.3.1** candidate (`[package].version` is
+//! `0.3.1`); an authorized `cargo publish` is a separate maintainer action.
+//! For unreleased 0.3.1 APIs, depend on git or a path:
 //!
 //! ```toml
 //! silicon-bridge = { git = "https://github.com/rmems/silicon-bridge" }
@@ -46,11 +53,11 @@
 //! silicon-bridge = "0.3.1"
 //! ```
 //!
-//! MSRV is `1.88.0` (`[package].rust-version`). CI enforces that floor on
-//! Rust 1.88.0 and separately exercises the moving `stable` toolchain. See
+//! MSRV is `1.99.0` (`[package].rust-version`). CI enforces that floor on
+//! Rust 1.99.0 and separately exercises the moving `stable` toolchain. See
 //! the crate README and `docs/release-readiness.md` for the authorized
-//! `cargo publish` checklist. This rustdoc does **not** claim crates.io or
-//! docs.rs are already live.
+//! `cargo publish` checklist. This rustdoc does **not** claim 0.3.1 is on
+//! crates.io or docs.rs.
 //!
 //! ## Reference hardware
 //!
