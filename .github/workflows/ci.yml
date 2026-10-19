@@ -215,3 +215,27 @@ jobs:
           CXX: g++
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: g++
         run: cargo +nightly fuzz build --dev --sanitizer none
+
+  # Rust↔HDL golden contract (#53): Icarus simulation of the vendored
+  # silicon-hdl WeightRam (pinned in tests/golden/provenance.json) loading the
+  # committed .mem images with $readmemh. run.sh generates word checks from
+  # tests/golden/*/expected.json, so a drift between the expected words and the
+  # images fails this job. No Rust toolchain needed. Not board evidence.
+  hdl-golden:
+    name: hdl-golden (ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install Icarus Verilog
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y iverilog
+
+      - name: Record simulator version
+        run: iverilog -V 2>/dev/null | sed -n 1p
+
+      - name: Run $readmemh golden contract simulation
+        run: bash tests/golden/hdl/run.sh

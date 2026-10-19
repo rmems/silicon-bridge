@@ -353,7 +353,7 @@ silently. UART `encode_q88_signed(-128.0)` is `8003`; parameter `.mem` is
 
 Evidence classes: **OS compilation** (CI #24: Linux/macOS/Windows; Linux `uart`
 job with `libudev-dev`), **HDL simulation** (`tests/golden/hdl/run.sh`, Icarus,
-optional), **board testing** (not this crate's default examples or CI). The
+`hdl-golden` CI job; not part of `cargo test`), **board testing** (not this crate's default examples or CI). The
 only captured physical Basys 3 evidence so far is silicon-hdl’s LED heartbeat
 smoke, not a silicon-bridge UART host session (that is [#84](https://github.com/rmems/silicon-bridge/issues/84)).
 
@@ -468,7 +468,7 @@ org — this tree is the source of truth.
 
 ## CI
 
-GitHub Actions (`.github/workflows/ci.yml`) runs four job groups on every push
+GitHub Actions (`.github/workflows/ci.yml`) runs six job groups on every push
 to `main` and every pull request. No secrets are required.
 
 | Job | Runner | What it runs |
@@ -479,6 +479,7 @@ to `main` and every pull request. No secrets are required.
 | `test (windows-latest)` | Windows | same as above |
 | `uart (ubuntu-latest)` | Linux | installs `libudev-dev`, then `cargo clippy --all-targets --all-features -- -D warnings`, `cargo check --features uart`, `cargo test --all-features`, and `cargo doc --no-deps --features uart` with `RUSTDOCFLAGS: -D warnings` |
 | `fuzz-build (ubuntu-latest)` | Linux | nightly + `cargo fuzz build --dev --sanitizer none` (compile only; no campaign, no serial I/O) |
+| `hdl-golden (ubuntu-latest)` | Linux | installs `iverilog`, then `bash tests/golden/hdl/run.sh`: `$readmemh` golden contract sim against the vendored silicon-hdl `WeightRam` (pin in `tests/golden/provenance.json`), with word checks generated from `tests/golden/*/expected.json` |
 
 The `test` matrix uses default features and has `fail-fast: false`, so one OS
 failing does not cancel the others. The `uart` job is Linux-only because

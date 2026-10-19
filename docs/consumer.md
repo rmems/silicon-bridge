@@ -163,7 +163,7 @@ Distinguish three evidence classes:
 | Class | Where | Ordinary `cargo test` |
 |---|---|---|
 | OS compilation | CI matrix (#24): Linux/macOS/Windows default features; Linux `uart` job | yes |
-| HDL simulation | `bash tests/golden/hdl/run.sh` (Icarus, optional) | **no** |
+| HDL simulation | `bash tests/golden/hdl/run.sh` (Icarus; `hdl-golden` CI job) | **no** |
 | Board testing | Not part of this crate's examples or CI. silicon-hdl LED heartbeat smoke is not a UART host session | **no** |
 
 Native serial prerequisites (only if you enable `uart` and open a port):

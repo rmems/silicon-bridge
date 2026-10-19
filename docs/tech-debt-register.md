@@ -44,6 +44,7 @@ the file and symbol names are the durable part.
 | 21 | 12 stale remote branches | remote refs | Low | cleanup |
 | 22 | No `CONTRIBUTING`, `SECURITY`, templates, or `CODEOWNERS` | `.github/` | Low | queued |
 | 23 | No vulnerability audit in CI | `.github/workflows/ci.yml` | Low | blocked by #31 |
+| 24 | Readout layout mismatch: bridge writes K×N, silicon-hdl `OutputLayer` reads N×K | `tests/golden/provenance.json`, `tests/golden/spikenaut_16/` | Medium | open, documented only |
 
 ---
 
@@ -362,3 +363,29 @@ and `nix`, so the `uart` feature has real native surface area.
 `rustsec/audit-check`, or `cargo deny check advisories` if licence checking is
 wanted too. Note that with `Cargo.lock` uncommitted, an audit inspects freshly
 resolved versions rather than what a consumer pins.
+
+### 24. Readout layout mismatch: bridge writes K×N, silicon-hdl reads N×K
+
+The legacy export writes the readout block as `K` class rows × `N` hidden
+columns, row-major (class-major: `addr = class * N + neuron`). silicon-hdl
+`OutputLayer` at the pinned peer commit `d45163f38ac1cd88f8a3918e3793a08ace85e132`
+indexes the same 48 words as `addr = neuron * NUM_CLASSES + class`
+(neuron-major). Load a legacy `parameters_output_weights.mem` straight into
+`OutputLayer` and every class reads the wrong neuron's weight. Both `.mem` files
+are valid and nothing errors; it shows up only as wrong classifications.
+
+The gap is recorded, not hidden. `tests/golden/provenance.json`
+(`peer_hdl.readout_mismatch`) states it. `tests/golden/spikenaut_16/` commits
+both images (`parameters_output_weights.mem` K×N and
+`hdl_readout_neuron_major.mem` N×K). `tb_readmemh_contract.sv` (run in CI by
+the `hdl-golden` job) and `readout_exporter_kx_n_is_not_hdl_neuron_major` in
+`tests/golden_export_contract.rs` both require the two images to differ.
+The `silicon_hdl_v3` export profile can already emit the neuron-major file
+explicitly. The default legacy layout and the pinned HDL still disagree.
+
+**Fix scope (not in this entry)**: pick one owner for the readout layout and
+change it in a coordinated pair. Either silicon-hdl `OutputLayer` adopts
+class-major, or the bridge's default profile emits neuron-major. Then bump the
+pin in `provenance.json`, `hdl/VENDOR.txt` and `hdl/SIMULATION.md`, regenerate
+`checksums.sha256`, and update the tests that currently assert the mismatch.
+Do not edit expected hex on one side to make the two agree.

@@ -31,6 +31,16 @@ A passing run prints `TB_READMEMH_CONTRACT: ALL TESTS PASSED` and the peer
 commit. Ordinary `cargo test` does **not** invoke this script and does not
 require Vivado, Icarus, Verilator, or a board.
 
+CI runs the script in the `hdl-golden` job (`.github/workflows/ci.yml`,
+ubuntu-latest, `apt-get install iverilog`). Before compiling, `run.sh` calls
+`gen_expected_checks.py` (python3, standard library only) to turn
+`generic_4x6/expected.json` (all 24 `row_major_weight_hex` words) and
+`spikenaut_16/expected.json` (the 5 `pinned_hidden_addresses`) into
+`check_hex` calls on the words `$readmemh` loaded. The testbench pulls them in
+under `-DEXPECTED_JSON_CHECKS`. A drift between `expected.json` and the
+committed `.mem` images fails the run, and so does a missing pass marker or
+any `FAIL` line, even on an Icarus build whose `vvp` exits 0 after `$fatal`.
+
 ## Result recorded with this contract
 
 Icarus Verilog 12.0 (`iverilog -g2012` / `vvp`) on 2026-09-15, repo root
@@ -41,6 +51,20 @@ TB_READMEMH_CONTRACT: ALL TESTS PASSED
 peer silicon-hdl commit d45163f38ac1cd88f8a3918e3793a08ace85e132
 evidence: HDL simulation (Icarus/Verilator), not board-measured parity
 ```
+
+Re-recorded with the `expected.json` checks on 2026-10-19 (Icarus Verilog
+12.0, same pin):
+
+```text
+gen_expected_checks: 29 word checks from expected.json
+TB_READMEMH_CONTRACT: ALL TESTS PASSED (29 expected.json word checks)
+peer silicon-hdl commit d45163f38ac1cd88f8a3918e3793a08ace85e132
+```
+
+Negative control: with `generic_4x6/expected.json` `row_major_weight_hex[7]`
+changed from `7FFF` to `7FFE` in a scratch copy, the run prints
+`FAIL: expected.json generic_4x6 row_major_weight_hex[7] (got 0x7fff, expected 0x7ffe)`
+and exits 1.
 
 `$readmemh` warns when the image is shorter than `2**ADDR_WIDTH` (24 words
 into a 32-deep generic bank; 48 words into a 64-deep readout bank). That is
@@ -60,4 +84,5 @@ committed (`parameters_output_weights.mem` vs
 `hdl_readout_neuron_major.mem`). The testbench checks both and requires
 them to differ for this fixture. Neither file is rewritten to hide the
 gap. A coordinated silicon-hdl or #50 profile repair should bump the pin,
-not silently edit expected hex.
+not silently edit expected hex. Tracked as item 24 in
+[`docs/tech-debt-register.md`](../../../docs/tech-debt-register.md).
