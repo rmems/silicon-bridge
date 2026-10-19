@@ -11,6 +11,7 @@ open a serial port and do not enable the `uart` feature.
 | `encode_stimuli` | `encode_stimuli` and `encode_stimuli_legacy_v3` |
 | `decode_response` | `decode_response` for arbitrary dense layouts and payloads |
 | `chunked_frames` | decoder stability across chunk splits, truncation, and suffixes |
+| `decode_v4` | `decode_response_v4` framing/CRC checks; every bit flip of a decoded frame is rejected (RM-1430) |
 
 Seed corpora under `corpus/` are the committed `tests/golden/` UART frames and
 Q8.8 extrema, not encoder-generated.
@@ -29,6 +30,7 @@ cargo fuzz run q88_codecs
 cargo fuzz run encode_stimuli
 cargo fuzz run decode_response
 cargo fuzz run chunked_frames
+cargo fuzz run decode_v4
 ```
 
 Promote any crash from `fuzz/artifacts/<target>/` into

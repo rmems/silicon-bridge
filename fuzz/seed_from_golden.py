@@ -99,6 +99,27 @@ def main() -> None:
             ]
         )
 
+    for v4_path in sorted((UART / "v4").glob("*.json")):
+        v4 = json.loads(v4_path.read_text())
+        if not v4.get("include_switches", True):
+            # decode_v4 builds layouts with DenseQ88Layout::dense (switches on).
+            continue
+        v4_rx = parse_hex(v4["rx_hex"])
+        planned.extend(
+            [
+                (
+                    CORPUS / "decode_v4" / f"golden_v4_{v4_path.stem}_rx",
+                    dim_prefix(v4["input_channels"], v4["output_neurons"], v4_rx),
+                ),
+                (
+                    CORPUS / "decode_v4" / f"golden_v4_{v4_path.stem}_rx_truncated",
+                    dim_prefix(
+                        v4["input_channels"], v4["output_neurons"], v4_rx[:-1]
+                    ),
+                ),
+            ]
+        )
+
     signed = json.loads((GOLDEN / "q88_signed.json").read_text())
     unsigned = json.loads((GOLDEN / "q88_unsigned.json").read_text())
     values = [float(case["value"]) for case in signed["cases"]]
