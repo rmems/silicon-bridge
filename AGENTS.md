@@ -116,4 +116,5 @@ Keep this table and the README CI table in sync with that file.
 | `fmt (ubuntu-latest)` | stable | `cargo fmt --check`, plus `--manifest-path fuzz/Cargo.toml` |
 | `test (ubuntu-latest / macos-latest / windows-latest)` | stable | `cargo clippy --all-targets -- -D warnings`, `cargo build`, `cargo test` (default features, `fail-fast: false`) |
 | `uart (ubuntu-latest)` | stable | `libudev-dev`; `cargo clippy --all-targets --all-features -- -D warnings`, `cargo check --features uart`, `cargo test --all-features`, `cargo test --all-features --examples`, `RUSTDOCFLAGS=-D warnings cargo doc --no-deps --features uart` |
+| `cargo-deny (ubuntu-latest)` | action image | `cargo deny --all-features check` per `deny.toml` (advisories, licences, bans, sources); findings fail the build |
 | `fuzz-build (ubuntu-latest)` | nightly | `cargo fuzz build --dev --sanitizer none` (compile only) |

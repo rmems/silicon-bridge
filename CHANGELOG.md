@@ -24,6 +24,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `deny.toml` and a `cargo-deny (ubuntu-latest)` CI job
+  (`EmbarkStudios/cargo-deny-action`, `cargo deny --all-features check`):
+  RustSec advisories (including yanked), a licence allow-list matching the
+  resolved tree (MIT, Apache-2.0, MPL-2.0 for `serialport`, Unicode-3.0 for
+  `unicode-ident`), wildcard bans, and crates.io-only sources. Findings fail
+  the build. `Cargo.lock` stays uncommitted, so each run checks freshly
+  resolved versions (#107).
+
 - CI **MSRV** job on Rust **1.99.0** (`cargo check --all-targets`, `cargo test`,
   and `--features uart` with `libudev-dev` on Linux) so the declared
   `rust-version` floor is continuously enforced alongside the moving `stable`

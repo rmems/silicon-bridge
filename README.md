@@ -477,7 +477,7 @@ org — this tree is the source of truth.
 
 ## CI
 
-GitHub Actions (`.github/workflows/ci.yml`) runs five job groups on every push
+GitHub Actions (`.github/workflows/ci.yml`) runs six job groups on every push
 to `main` and every pull request. No secrets are required.
 
 | Job | Runner | What it runs |
@@ -488,6 +488,7 @@ to `main` and every pull request. No secrets are required.
 | `test (macos-latest)` | macOS | same as above |
 | `test (windows-latest)` | Windows | same as above |
 | `uart (ubuntu-latest)` | Linux | installs `libudev-dev`, then `cargo clippy --all-targets --all-features -- -D warnings`, `cargo check --features uart`, `cargo test --all-features`, `cargo test --all-features --examples`, and `cargo doc --no-deps --features uart` with `RUSTDOCFLAGS: -D warnings` |
+| `cargo-deny (ubuntu-latest)` | Linux | `EmbarkStudios/cargo-deny-action` running `cargo deny --all-features check` against [`deny.toml`](deny.toml): RustSec advisories, licence allow-list, bans, crates.io-only sources. Findings fail the build. `Cargo.lock` is not committed, so it checks freshly resolved versions each run |
 | `fuzz-build (ubuntu-latest)` | Linux | nightly + `cargo fuzz build --dev --sanitizer none` (compile only; no campaign, no serial I/O) |
 
 The `test` matrix uses default features and has `fail-fast: false`, so one OS

@@ -177,6 +177,25 @@ jobs:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --no-deps --features uart
 
+  # RustSec advisories, licence allow-list, bans, and source registries, per
+  # deny.toml (#107). `--all-features` covers the `uart` (serialport ->
+  # libudev-sys, nix) and `nir` trees. Cargo.lock is not committed, so this
+  # checks freshly resolved versions each run: a new advisory can turn it red
+  # without a commit here. Findings fail the build; see deny.toml for policy.
+  cargo-deny:
+    name: cargo-deny (ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: cargo deny check
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check
+          arguments: --all-features
+
   # Compile libFuzzer targets only. Long campaigns stay opt-in via
   # `cargo fuzz run <target>` (see fuzz/README.md). No serialport / FPGA.
   fuzz:

@@ -25,6 +25,7 @@ API, feature-gate hardware I/O, and keep Rust edition **2024**.
 | `cargo check --features uart` | UART feature compile (needs `serialport` / `libudev` on Linux) |
 | `cargo fuzz build --dev --sanitizer none` | Compile-only fuzz targets (opt-in campaign via `cargo fuzz run`) |
 | `cargo build --release` | Optimized library build |
+| `cargo deny --all-features check` | Advisories, licences, bans, sources per `deny.toml` (needs `cargo install --locked cargo-deny`) |
 
 ## Do not
 

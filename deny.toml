@@ -1,0 +1,54 @@
+# cargo-deny configuration (#107, Linear RM-2040).
+#
+# CI runs `cargo deny --all-features check` (the `cargo-deny` job in
+# .github/workflows/ci.yml) so the optional `uart` (serialport -> libudev-sys,
+# nix) and `nir` (nir-rs) dependency trees are covered. `Cargo.lock` is
+# intentionally not committed (see .github/dependabot.yml), so every run checks
+# freshly resolved versions, not a pinned snapshot: a new RustSec advisory or a
+# new transitive licence can turn this job red without a commit here.
+#
+# Policy: advisories, licences, bans, and sources all FAIL the build. Warnings
+# (duplicate versions, unused licence allowances) are informational.
+
+[graph]
+# Check every platform's dependency graph: the `uart` feature pulls different
+# native crates on Linux, macOS, and Windows.
+all-features = true
+
+[advisories]
+# Vulnerability, unmaintained, unsound, and yanked advisories are errors.
+# Add an `ignore` entry only with an advisory ID, a reason, and a tracking
+# issue, e.g. { id = "RUSTSEC-0000-0000", reason = "... (#NNN)" }.
+yanked = "deny"
+ignore = []
+
+[licenses]
+# The licences the resolved dependency tree actually needs (checked
+# 2026-10-19 with `cargo metadata --all-features`). An SPDX `A OR B`
+# expression passes if either side is allowed, so most crates resolve to
+# MIT or Apache-2.0. The two that need more:
+#   - serialport (`uart` feature): MPL-2.0 (file-level copyleft; using it
+#     unmodified as a dependency is compatible with MIT OR Apache-2.0).
+#   - unicode-ident: (MIT OR Apache-2.0) AND Unicode-3.0.
+# Adding a licence here is a deliberate review step, not a CI fix-up.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "MPL-2.0",
+    "Unicode-3.0",
+]
+confidence-threshold = 0.93
+
+[bans]
+# Duplicate major versions are common in the transitive tree and not a
+# correctness problem; surface them without failing.
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+# Only crates.io. A git or alternate-registry dependency must be added here
+# on purpose.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
