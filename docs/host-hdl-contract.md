@@ -46,6 +46,54 @@ readout for `silicon-hdl` is `hdl_readout_neuron_major.mem`. These files are
 intentionally different for an asymmetric readout; do not relabel one as the
 other.
 
+## Q8.8 encode/decode sites
+
+Every place in the crate that turns an `f32` into a Q8.8 word, or a word back
+into an `f32`. All encoders compute `value × 256` and truncate toward zero; no
+site rounds to nearest, and no site wraps (saturation always preserves sign).
+`tests/q88_cross_path.rs` checks all of them against each other and against an
+independent `f64` reference model. It covers every one of the 65,536 words
+(decode agreement and decode→encode identity) and a dense `f32` grid of
+about 730,000 points: ±0, ±1 LSB, ±127.99, ±128, values one ulp past each
+saturation edge, `f32::MIN`/`MAX`, NaN payloads, ±∞, and a strided walk over
+all 2³² bit patterns.
+
+### Encoders
+
+| Site | Family | Rounding | Saturation (finite out-of-range) | NaN | ±∞ |
+|---|---|---|---|---|---|
+| `encode_q88_signed_full` | signed parameter | trunc toward 0 | `i16::MIN`/`MAX` (`8000`/`7FFF`), i.e. `[-128, 127.99609375]` | `0` | saturates to `8000`/`7FFF` |
+| `FixedPointEncode::encode_q88` / `FpgaParameterExporter::to_q88` | signed parameter | = `encode_q88_signed_full` | same | `0` | saturates |
+| `format_q88_hex` | signed parameter (hex text) | = `encode_q88_signed_full` | same | `"0000"` | saturates |
+| `ParameterExport::export` (legacy, infallible) | signed parameter, ignores `set_encoding` | = `encode_q88_signed_full` | same, silent | `0` | saturates |
+| `try_export` / `CheckedParameterExport::try_export` (`RangePolicy::Reject`, default) | per-block `Q88Encoding` | trunc toward 0 | **rejected** (`OutOfRange`) | **rejected** (`NonFinite`) | **rejected** (`NonFinite`) |
+| `try_export_with_report` (`RangePolicy::Saturate`) | per-block `Q88Encoding` | trunc toward 0 | clamped to the encoding range, each clamp recorded in `SaturationReport` (same words as the legacy path) | **rejected** | **rejected** |
+| `MemFileWriter::write_mem_files` / `write_generic` / `write_with_config` | signed only (`Unsigned` refused) | via `try_export` | **rejected**, no partial files | **rejected** | **rejected** |
+| `encode_q88_signed` | legacy UART clamp | trunc toward 0 | unscaled clamp to `±127.99` → raw `±32765` (`7FFD`/`8003`) | `0` | saturates to `±32765` |
+| `encode_stimuli_legacy_v3` | legacy UART clamp | = `encode_q88_signed` | same | `0` | saturates |
+| `encode_stimuli` (checked) | legacy UART clamp | = `encode_q88_signed` | same (clamped, not rejected) | **rejected** (`CodecError::NonFinite`) | **rejected** |
+| `encode_request_v4` (checked) | legacy UART clamp | = `encode_stimuli` | same | **rejected** | **rejected** |
+| `encode_q88_unsigned` | unsigned magnitude | trunc toward 0 | `0`/`65535`, i.e. `[0, 255.99609375]`; negatives → `0` | `0` | saturates to `0`/`FFFF` |
+| `try_export` with `Q88Encoding::Unsigned` | unsigned magnitude | = `encode_q88_unsigned`, stored `u16 as i16` | **rejected** | **rejected** | **rejected** |
+
+The signed parameter and UART families agree bit-for-bit whenever
+`|v| <= 127.99`. They differ only in the last three words on each side
+(`±32766`, `±32767`, `-32768`), which the UART helper never emits.
+
+### Decoders
+
+| Site | Interpretation | Agreement |
+|---|---|---|
+| `q88_signed_to_f32` | signed, `raw / 256` | exact for every `i16` |
+| `decode_response` (v3 / dense) | signed, big-endian | bit-identical to `q88_signed_to_f32` for all 65,536 words |
+| `decode_response_v4` | signed, big-endian, after CRC/id checks | bit-identical to `q88_signed_to_f32` for all 65,536 words |
+| `q88_to_f32` | unsigned, `raw / 256` | equals the signed decode for `raw >= 0` and is exactly `+256.0` for `raw < 0` (by design) |
+
+Decode→`f32`→re-encode is the identity on every signed parameter path for all
+65,536 words, on the UART paths for `-32765..=32765` (outside that, the word
+saturates to `±32765`), and on the unsigned paths for all 65,536 `u16`
+patterns.
+
 ## Emitted files
 
 | File | Use |

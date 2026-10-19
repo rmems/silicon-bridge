@@ -14,6 +14,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `tests/q88_cross_path.rs`: exhaustive cross-path Q8.8 agreement test over
+  all 65,536 words and a dense `f32` grid, covering every encode/decode site,
+  plus an encode-site table in `docs/host-hdl-contract.md`. No behavior change.
 - CI **MSRV** job on Rust **1.99.0** (`cargo check --all-targets`, `cargo test`,
   and `--features uart` with `libudev-dev` on Linux) so the declared
   `rust-version` floor is continuously enforced alongside the moving `stable`
