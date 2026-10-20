@@ -38,7 +38,9 @@ pub struct FpgaMetrics {
     /// LUT resource utilization (0.0–1.0).
     /// `0.0` when no utilization report was available.
     pub lut_utilization: f32,
-    /// `true` if the last synthesis/implementation run completed without errors
+    /// `true` when the timing report shows a completed routed summary and no
+    /// Vivado failure markers; `false` when the text reports errors or lacks
+    /// the post-route `Design Timing Summary` section.
     pub synthesis_ok: bool,
 }
 
@@ -213,9 +215,44 @@ impl FpgaMetrics {
             wns_ns,
             tns_ns,
             lut_utilization,
-            synthesis_ok: true,
+            synthesis_ok: synthesis_ok_from_timing_report(timing_text),
         })
     }
+}
+
+/// `true` when `timing_text` looks like a successful post-route timing summary.
+///
+/// Fails closed: explicit Vivado `ERROR:` lines and documented implementation
+/// failure strings mark the run as not OK. A parsable `WNS(ns)` row alone is
+/// insufficient — routed reports include a `Design Timing Summary` heading.
+fn synthesis_ok_from_timing_report(timing_text: &str) -> bool {
+    if timing_report_has_failure_markers(timing_text) {
+        return false;
+    }
+    timing_text
+        .lines()
+        .any(|line| line.trim() == "Design Timing Summary")
+}
+
+/// Vivado failure lines that can appear in timing or run logs co-located with WNS.
+fn timing_report_has_failure_markers(timing_text: &str) -> bool {
+    const FAILURE_PHRASES: &[&str] = &[
+        "implementation failed",
+        "place_design failed",
+        "route_design failed",
+        "opt_design failed",
+        "synth_design failed",
+        "write_bitstream failed",
+    ];
+
+    timing_text.lines().any(|line| {
+        let trimmed = line.trim();
+        if trimmed.starts_with("ERROR:") || trimmed.starts_with("ERROR [") {
+            return true;
+        }
+        let lower = trimmed.to_ascii_lowercase();
+        FAILURE_PHRASES.iter().any(|phrase| lower.contains(phrase))
+    })
 }
 
 /// Locate the header and data rows of a Vivado timing summary, both trimmed.
@@ -484,6 +521,42 @@ Design Timing Summary
     fn out_of_range_lut_percentage_returns_none() {
         let report = "| Slice LUTs | 3182 | 0 | 20800 | 20800 |\n";
         assert!(FpgaMetrics::parse_lut_utilization(report).is_none());
+    }
+
+    /// Minimal excerpt from a failed implementation run: WNS still parses but
+    /// Vivado emitted an explicit route failure above the timing table.
+    const FAILED_RUN_WITH_WNS: &str = "\
+ERROR: [Vivado 12-1365] Route Design failed.
+    WNS(ns)      TNS(ns)
+      2.345        0.000
+";
+
+    /// WNS-only fragment without the post-route summary heading (not a routed report).
+    const WNS_FRAGMENT_WITHOUT_SUMMARY: &str = "\
+    WNS(ns)      TNS(ns)
+      2.345        0.000
+";
+
+    #[test]
+    fn failed_run_with_wns_does_not_set_synthesis_ok() {
+        let file = report_file(FAILED_RUN_WITH_WNS);
+        let metrics = FpgaMetrics::load_from_path(file.path()).expect("WNS still parses");
+        assert_close(metrics.wns_ns, 2.345);
+        assert!(!metrics.synthesis_ok);
+    }
+
+    #[test]
+    fn wns_without_design_timing_summary_is_not_synthesis_ok() {
+        let file = report_file(WNS_FRAGMENT_WITHOUT_SUMMARY);
+        let metrics = FpgaMetrics::load_from_path(file.path()).expect("WNS still parses");
+        assert_close(metrics.wns_ns, 2.345);
+        assert!(!metrics.synthesis_ok);
+    }
+
+    #[test]
+    fn routed_summary_without_errors_is_synthesis_ok() {
+        assert!(synthesis_ok_from_timing_report(TIMING_SUMMARY_WITH_RULE));
+        assert!(!timing_report_has_failure_markers(TIMING_SUMMARY_WITH_RULE));
     }
 
     #[test]
