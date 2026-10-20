@@ -27,10 +27,12 @@ explicitly authorized that exact version.
 Registry state (checked 2026-10-20): crates.io serves **0.3.0** only
 (published 2026-09-17, tag `v0.3.0` / `bf5b20d`, not yanked; the docs.rs
 build succeeded). The next crates.io-intended semver is **0.3.1**. Registry
-state must still be re-checked immediately before publication. README and
-crate rustdoc describe 0.3.0 as the live release and 0.3.1 as the
-unpublished candidate; rewrite them to `silicon-bridge = "0.3.1"` on the
-exact candidate commit before `cargo package` (step 5 above). Do not treat a
+state must still be re-checked immediately before publication. README,
+crate rustdoc, and `docs/consumer.md` describe 0.3.0 as the live release and
+0.3.1 as the unpublished candidate; rewrite all three to
+`silicon-bridge = "0.3.1"` on the exact candidate commit before
+`cargo package` (step 5 above), and update this paragraph too, since
+`docs/consumer.md` and this file both ship in the tarball. Do not treat a
 crates.io badge or an in-tree `0.3.1` string as proof of a live registry
 version.
 
