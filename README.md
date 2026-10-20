@@ -120,7 +120,9 @@ silicon-bridge = { version = "0.3.0", features = ["uart"] }
 ```
 
 0.3.0 has no `nir` feature and none of the changes listed under
-`[Unreleased]` / `[0.3.1]` in [CHANGELOG.md](CHANGELOG.md). To use
+`[Unreleased]` / `[0.3.1]` in [CHANGELOG.md](CHANGELOG.md). `"0.3.0"` is a
+caret requirement: once 0.3.1 is published it also accepts 0.3.1, which
+needs Rust 1.99.0. On an older toolchain, pin `"=0.3.0"`. To use
 unreleased `main`, depend on git or a path:
 
 ```toml
