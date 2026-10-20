@@ -99,6 +99,12 @@ Registry lookup for `silicon-bridge` returned 404 at packaging time.
 `cargo publish` of 0.3.0 is held until the Basys 3 UART host session
 (#84) plus explicit maintainer go-ahead.
 
+> **Publication update (added after release):** 0.3.0 was published to
+> crates.io on 2026-09-17 (tag `v0.3.0`, commit `bf5b20d`), ahead of the #84
+> hardware gate. The paragraph above is kept as it read at packaging time:
+> the registry returned 404 then and install snippets used git/path. The
+> published 0.3.0 tarball and docs.rs build are immutable.
+
 ### Added
 
 - **Reference hardware** in README and `docs/consumer.md` (#83): Digilent
