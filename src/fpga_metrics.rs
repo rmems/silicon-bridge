@@ -231,7 +231,15 @@ fn synthesis_ok_from_timing_report(timing_text: &str) -> bool {
     }
     timing_text
         .lines()
-        .any(|line| line.trim() == "Design Timing Summary")
+        .any(line_is_design_timing_summary_heading)
+}
+
+/// Vivado section headers are pipe-prefixed (`| Design Timing Summary`); accept bare
+/// headings too for trimmed excerpts.
+fn line_is_design_timing_summary_heading(line: &str) -> bool {
+    let trimmed = line.trim();
+    let heading = trimmed.strip_prefix('|').map(str::trim).unwrap_or(trimmed);
+    heading == "Design Timing Summary"
 }
 
 /// Vivado failure lines that can appear in timing or run logs co-located with WNS.
@@ -295,8 +303,10 @@ mod tests {
 | Design       : Basys3_Top
 ------------------------------------------------------------------
 
-Design Timing Summary
----------------------
+------------------------------------------------------------------------------------------------
+| Design Timing Summary
+| ---------------------
+------------------------------------------------------------------------------------------------
 
     WNS(ns)      TNS(ns)  TNS Failing Endpoints  TNS Total Endpoints
     -------      -------  ---------------------  -------------------
@@ -557,6 +567,12 @@ ERROR: [Vivado 12-1365] Route Design failed.
     fn routed_summary_without_errors_is_synthesis_ok() {
         assert!(synthesis_ok_from_timing_report(TIMING_SUMMARY_WITH_RULE));
         assert!(!timing_report_has_failure_markers(TIMING_SUMMARY_WITH_RULE));
+    }
+
+    #[test]
+    fn bare_design_timing_summary_heading_is_accepted() {
+        let report = "Design Timing Summary\n    WNS(ns)      TNS(ns)\n      2.345        0.000\n";
+        assert!(synthesis_ok_from_timing_report(report));
     }
 
     #[test]
