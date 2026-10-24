@@ -1,0 +1,63 @@
+name: Bug report
+description: Defect in export, timing-report parsing, the UART bridge, or CI
+title: "fix: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For a vulnerability, use GitHub private vulnerability reporting
+        described in SECURITY.md. This form is for non-security bugs.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened
+      description: What you ran and what went wrong.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Crate version or commit
+      description: Published crates.io release is 0.3.0. `main` is the unpublished 0.3.1 candidate.
+      placeholder: 0.3.0
+    validations:
+      required: true
+  - type: input
+    id: rustc
+    attributes:
+      label: rustc version
+      description: Output of `rustc --version`. MSRV on `main` is 1.99.0 (edition 2024).
+      placeholder: rustc 1.99.0
+    validations:
+      required: true
+  - type: dropdown
+    id: features
+    attributes:
+      label: Features enabled
+      multiple: true
+      options:
+        - default (no uart, no nir)
+        - uart
+        - nir
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, and on Linux whether `pkg-config` and `libudev-dev` are installed when `uart` is involved.
+    validations:
+      required: false

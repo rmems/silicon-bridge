@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/rmems/silicon-bridge/security/advisories/new
+    about: Report a vulnerability with GitHub private vulnerability reporting. See SECURITY.md.
