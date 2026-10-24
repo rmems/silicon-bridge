@@ -9,8 +9,10 @@
 
 ## Checklist
 
-Quality bar from `CLAUDE.md`. On Linux, the `uart` / `--all-features` lines
-need `pkg-config` and `libudev-dev`.
+Quality bar from `CLAUDE.md`, plus the example-target tests the `uart`
+CI job runs. On Linux, the `uart` / `--all-features` lines need
+`pkg-config` and `libudev-dev`. `cargo test --all-features` does not run
+inline tests inside examples.
 
 - [ ] `cargo fmt --check`
 - [ ] `cargo fmt --check --manifest-path fuzz/Cargo.toml`
@@ -18,6 +20,7 @@ need `pkg-config` and `libudev-dev`.
 - [ ] `cargo test`
 - [ ] `cargo clippy --all-targets --all-features -- -D warnings`
 - [ ] `cargo test --all-features`
+- [ ] `cargo test --all-features --examples`
 - [ ] `cargo check --features uart`
 
 ## Notes

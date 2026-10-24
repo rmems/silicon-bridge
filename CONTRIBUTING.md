@@ -47,6 +47,7 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 cargo clippy --all-targets --all-features -- -D warnings   # needs libudev on Linux
 cargo test --all-features                                  # needs libudev on Linux
+cargo test --all-features --examples                       # example #[test]s; uart job
 cargo check --features uart   # needs serialport / libudev on Linux
 ```
 
