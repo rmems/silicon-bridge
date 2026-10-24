@@ -41,6 +41,10 @@ pub struct FpgaMetrics {
     /// `true` when the timing report shows a completed routed summary and no
     /// Vivado failure markers; `false` when the text reports errors or lacks
     /// the post-route `Design Timing Summary` section.
+    ///
+    /// `#[serde(default)]` so metrics serialized before this field existed
+    /// still deserialize (`false`).
+    #[serde(default)]
     pub synthesis_ok: bool,
 }
 
@@ -694,5 +698,16 @@ ERROR: [Vivado 12-1365] Route Design failed.
         assert_close(decoded.tns_ns, 0.0);
         assert_close(decoded.lut_utilization, 0.153);
         assert!(decoded.synthesis_ok);
+    }
+
+    #[test]
+    fn legacy_json_without_synthesis_ok_still_deserializes() {
+        // Payloads serialized before `synthesis_ok` existed must keep loading.
+        let legacy = r#"{"wns_ns":2.345,"tns_ns":-1.882,"lut_utilization":0.153}"#;
+        let decoded: FpgaMetrics = serde_json::from_str(legacy).expect("legacy payload rejected");
+        assert_close(decoded.wns_ns, 2.345);
+        assert_close(decoded.tns_ns, -1.882);
+        assert_close(decoded.lut_utilization, 0.153);
+        assert!(!decoded.synthesis_ok);
     }
 }
