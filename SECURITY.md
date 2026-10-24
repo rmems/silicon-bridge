@@ -7,12 +7,13 @@ vulnerability reporting:
 
 <https://github.com/rmems/silicon-bridge/security/advisories/new>
 
+GitHub accepts a report on that form only after an admin enables private
+vulnerability reporting (Settings → Advanced Security → Private
+vulnerability reporting). That is the reporting route for this
+repository.
+
 Include the crate version or git commit, the feature set (`default`,
 `uart`, `nir`), and enough detail to reproduce the issue.
-
-That form is the reporting route for this repository. GitHub shows it to
-reporters after an admin enables private vulnerability reporting under
-Settings → Advanced Security.
 
 File non-security bugs as public issues. See
 [CONTRIBUTING.md](CONTRIBUTING.md).

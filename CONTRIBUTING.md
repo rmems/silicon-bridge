@@ -56,6 +56,12 @@ The `fmt` CI job also checks the fuzz manifest:
 cargo fmt --check --manifest-path fuzz/Cargo.toml
 ```
 
+CI lints with `cargo clippy --all-targets` (and `--all-features` on the
+`uart` job). The root `Cargo.toml` has no `[workspace]` table, so
+`cargo clippy --workspace` covers this package only and is not its own CI
+job. `fuzz/Cargo.toml` is a separate workspace; CI formats that manifest
+and compiles the targets with `cargo fuzz build`.
+
 Ordinary `cargo test` does not run HDL simulation. Optional Icarus evidence:
 `bash tests/golden/hdl/run.sh`.
 
