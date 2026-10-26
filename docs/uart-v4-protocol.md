@@ -49,6 +49,18 @@ leftover reply when ids are not reused, but neither it nor CRC provides
 cryptographic authentication, replay security, or protection from a malicious
 peer.
 
+## Opt-in bridge path
+
+With the `uart` feature, `FpgaBridge::exchange_v4` runs one v4 request/reply
+transaction. It is refused with `ExchangeError::UartV4NotEnabled`, before any
+write, until the caller invokes `FpgaBridge::enable_uart_v4`. That call is the
+caller's assertion that the peer runs matching, separately pinned `silicon-hdl`
+v4 firmware; the crate cannot detect firmware. The default `exchange`,
+`exchange_legacy`, `process_stimuli`, and `ping` paths always send v3 frames.
+The request is never resent, and a reply that fails v4 validation latches the
+handle for `recover()` since the byte stream may be desynchronized. This does
+not provide board parity or replace the Basys 3 v3 host proof.
+
 The pure codec performs no UART I/O and never automatically resends a request.
 Runtime transport selection and resynchronizing a byte stream are outside this
 host-only contract.

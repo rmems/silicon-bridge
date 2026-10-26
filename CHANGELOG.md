@@ -14,6 +14,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Opt-in `FpgaBridge::exchange_v4` (after `enable_uart_v4`) using the UART v4
+  codec. Refused before any write unless enabled; default v3 paths unchanged.
+  Requires separately pinned matching `silicon-hdl` firmware; no board parity
+  claim.
 - CI **MSRV** job on Rust **1.99.0** (`cargo check --all-targets`, `cargo test`,
   and `--features uart` with `libudev-dev` on Linux) so the declared
   `rust-version` floor is continuously enforced alongside the moving `stable`
