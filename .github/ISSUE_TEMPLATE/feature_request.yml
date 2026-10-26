@@ -1,0 +1,43 @@
+name: Feature request
+description: Propose a change to silicon-bridge
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Conventions for accepted changes are in AGENTS.md. This crate exports
+        Q8.8 parameters, parses Vivado timing reports, and optionally talks
+        UART. It does not train a network.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What you cannot do with the crate today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - fpga-export
+        - fpga-metrics
+        - fpga-bridge (uart)
+        - ci
+        - docs
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+    validations:
+      required: false
