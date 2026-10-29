@@ -156,6 +156,47 @@ fn if_neuron_is_a_perfect_integrator() {
 }
 
 #[test]
+fn underflowing_gain_or_threshold_fails_loudly() {
+    // IF with the NIR default R = 1 at dt = 1 ms folds a gain of 0.001: the
+    // weight 1.0 would export as 0 and the layer would be dead.
+    let dead = NirNode::If(If {
+        r: t(&[1], &[1.0]),
+        v_threshold: t(&[1], &[1.0]),
+        v_reset: None,
+        metadata: Default::default(),
+    });
+    let g = layer(1, 1, &[1.0], dead.clone());
+    match refused(FpgaParameterExporter::from_nir(&g)) {
+        MapError::InvalidParameter { node, field, .. } => {
+            assert_eq!((node.as_str(), field), ("fc", "weight"));
+        }
+        other => panic!("expected InvalidParameter, got {other:?}"),
+    }
+    // A larger step restores the gain: 1.0 * 1 * 0.1 = 0.1 -> 25.
+    let options = NirMapOptions::default().with_dt(0.1);
+    let exporter = FpgaParameterExporter::from_nir_with(&g, &options).unwrap();
+    assert_eq!(exporter.try_export().unwrap().weights, vec![25]);
+
+    // One tiny weight among usable ones is ordinary Q8.8 behaviour.
+    let g = layer(2, 1, &[1.0, 0.001], dead);
+    let options = NirMapOptions::default().with_dt(0.1);
+    let exporter = FpgaParameterExporter::from_nir_with(&g, &options).unwrap();
+    assert_eq!(exporter.try_export().unwrap().weights, vec![25, 0]);
+
+    // A non-zero threshold below 1/256 would make the neuron always fire.
+    let node = NirNode::Threshold(Threshold {
+        threshold: t(&[1], &[0.001]),
+        metadata: Default::default(),
+    });
+    match refused(FpgaParameterExporter::from_nir(&layer(1, 1, &[1.0], node))) {
+        MapError::InvalidParameter { node, field, .. } => {
+            assert_eq!((node.as_str(), field), ("neuron", "threshold"));
+        }
+        other => panic!("expected InvalidParameter, got {other:?}"),
+    }
+}
+
+#[test]
 fn threshold_is_stateless() {
     let node = NirNode::Threshold(Threshold {
         threshold: t(&[1], &[0.75]),

@@ -39,6 +39,16 @@
 //!
 //! `LIF` requires `dt ≤ τ` (otherwise the decay would be negative).
 //!
+//! # Precision
+//!
+//! Q8.8 truncates toward zero with a step of 1/256, so a small folded gain
+//! (for example `IF` with `R = 1` at `dt = 1 ms` gives `0.001`) can underflow.
+//! Individual small weights quantizing to zero is ordinary Q8.8 behaviour and
+//! is not an error, but the mapping fails with [`MapError::InvalidParameter`]
+//! when a neuron's whole non-zero weight row, or a non-zero threshold,
+//! quantizes to zero, because the exported neuron would be dead or always
+//! firing. Raise [`NirMapOptions::dt`] or rescale the network in that case.
+//!
 //! # Refused parameters
 //!
 //! The dense hardware model has no bias, leak-voltage, or reset-voltage
@@ -61,7 +71,7 @@
 //! | `Conv1d`, `Conv2d`, `SumPool2d`, `AvgPool2d` | `Unsupported` until an FPGA path exists |
 //! | `NIRGraph` (nested) | `Unsupported` |
 
-use crate::FpgaParameterExporter;
+use crate::{FpgaParameterExporter, encode_q88_signed_full};
 use nir_rs::nodes::{Lif, NirNode};
 use nir_rs::types::Tensor;
 use nir_rs::{NirError, NirGraph, TensorData};
@@ -263,6 +273,7 @@ impl FpgaParameterExporter {
         let neurons = map_neuron(layers.neuron.0, layers.neuron.1, neuron_count, dt)?;
         let weights = scale_rows(&hidden, &neurons.gain, layers.weights.0)?;
         let thresholds = to_f32_vec(layers.neuron.0, "threshold", &neurons.thresholds)?;
+        check_thresholds(layers.neuron.0, &thresholds)?;
         let decay = to_f32_vec(layers.neuron.0, "decay", &neurons.decay)?;
 
         let mut exporter = Self::from_params(thresholds, weights, decay);
@@ -632,16 +643,46 @@ fn require_zero_reset(
 }
 
 /// Multiply weight row `i` by `gain[i]` and narrow to the public `f32` API.
+///
+/// Fails when a row with non-zero weights quantizes entirely to Q8.8 zero.
 fn scale_rows(weights: &Matrix, gain: &[f64], name: &str) -> Result<Vec<Vec<f32>>, MapError> {
     weights
         .values
         .chunks(weights.cols)
         .zip(gain)
-        .map(|(row, gain)| {
+        .enumerate()
+        .map(|(neuron, (row, gain))| {
             let scaled: Vec<f64> = row.iter().map(|w| w * gain).collect();
-            to_f32_vec(name, "weight", &scaled)
+            let scaled = to_f32_vec(name, "weight", &scaled)?;
+            let any_nonzero = row.iter().any(|w| *w != 0.0);
+            if any_nonzero && scaled.iter().all(|w| encode_q88_signed_full(*w) == 0) {
+                return Err(invalid(
+                    name,
+                    "weight",
+                    &format!(
+                        "every non-zero weight of neuron {neuron} quantizes to 0 in Q8.8 after \
+                         folding the input gain {gain:e}; raise NirMapOptions::dt or rescale \
+                         the network"
+                    ),
+                ));
+            }
+            Ok(scaled)
         })
         .collect()
+}
+
+/// Reject a non-zero threshold that Q8.8 truncates to 0 (always-firing neuron).
+fn check_thresholds(name: &str, thresholds: &[f32]) -> Result<(), MapError> {
+    for (neuron, threshold) in thresholds.iter().enumerate() {
+        if *threshold != 0.0 && encode_q88_signed_full(*threshold) == 0 {
+            return Err(invalid(
+                name,
+                "threshold",
+                &format!("threshold {threshold:e} of neuron {neuron} quantizes to 0 in Q8.8"),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn to_f32_vec(name: &str, field: &'static str, values: &[f64]) -> Result<Vec<f32>, MapError> {

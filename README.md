@@ -342,7 +342,10 @@ Supported shape: one chain `Input → [Flatten] → Linear|Affine → LIF|IF|Thr
 forward Euler at `dt` (`α = dt/τ`): `LIF` gives `decay = 1 − α` and folds
 `R·α` into each weight row; `IF` gives `decay = 1` and folds `R·dt`;
 `Threshold` is stateless (`decay = 0`). Values are then quantized by the normal
-signed Q8.8 path, so out-of-range results are rejected, not clamped.
+signed Q8.8 path, so out-of-range results are rejected, not clamped. A neuron
+whose whole non-zero weight row, or a non-zero threshold, underflows to zero
+(for example `IF` with `R = 1` at the default `dt`) is rejected too; raise
+`dt` or rescale the network.
 
 Every NIR node type is handled. The rest return `MapError::Unsupported` naming
 the node:
