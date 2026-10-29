@@ -70,7 +70,7 @@ training / runtime crates
 | SystemVerilog RTL, Vivado project trees | **`silicon-hdl`** (formerly informal “Spikenaut-Hardware”) |
 | Domain adapters (trading, mining telemetry) | Out of org core; must not leak into this crate |
 | Full SNN simulator | Out of scope |
-| NIR HDF5 graph I/O | Deferred; optional `nir` feature shares `nir-rs` type surface only — no local HDF5 reader here |
+| NIR graph / HDF5 `.nir` I/O | **`nir-rs`** (`nir_rs::io`). silicon-bridge depends on it (`nir` / `nir-io` features) and owns only the NIR → Q8.8 parameter mapping and the unsupported-node policy; no local HDF5 reader |
 
 ## Allowed dependencies
 
@@ -81,13 +81,13 @@ Current and intentional:
 | `serde` / `serde_json` | Parameter metadata JSON |
 | `chrono` | Export timestamps |
 | `serialport` (optional) | UART feature only |
-| `nir-rs` (optional, `nir` feature; [Limen-Neural/nir-rs](https://github.com/Limen-Neural/nir-rs)) | Shared NIR type surface for downstream interop without reimplementing HDF5 graph I/O |
+| `nir-rs` (optional, `nir` / `nir-io` features; [Limen-Neural/nir-rs](https://github.com/Limen-Neural/nir-rs)) | NIR graph types for `FpgaParameterExporter::from_nir`; with `nir-io`, its `hdf5` feature supplies `.nir` file I/O. There is deliberately no direct `hdf5` dependency here |
 
 Do **not** list unused crates as allowed. `rand` was previously in `Cargo.toml` with
 no `src/` imports; it is not an intentional dependency (see REVIEW.md).
 
-The default feature set does not enable `serialport` or `nir-rs`. The `nir`
-feature may require a newer Rust toolchain than the crate's default MSRV
+The default feature set does not enable `serialport` or `nir-rs`. `nir-io`
+additionally links native libhdf5 (through `nir-rs`). The `nir` feature may require a newer Rust toolchain than the crate's default MSRV
 because `nir-rs` carries its own `rust-version`.
 
 ## Forbidden dependencies / content
@@ -128,7 +128,7 @@ because `nir-rs` carries its own `rust-version`.
 |------|------------|
 | Old “Spikenaut-Hardware” naming | Prefer **silicon-hdl** in all new docs |
 | Trait drift vs HDL RAM layout | Define export traits in silicon-bridge; HDL alignment issues track parity |
-| NIR reimplementation per crate | Keep NIR parsing out of this crate; optional `nir` feature shares `nir-rs` types only |
+| NIR reimplementation per crate | Keep NIR parsing and HDF5 out of this crate; `nir` / `nir-io` consume `nir-rs` and only map the graph to Q8.8 parameters |
 | CI with `uart` / serialport | Feature-gate; avoid requiring `libudev` on all runners |
 | Cargo `docs/` exclude | Boundary doc lives in git under `docs/` for humans; crate package may exclude it |
 

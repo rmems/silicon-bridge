@@ -59,7 +59,8 @@ that host proof.
   `[Unreleased]` in `CHANGELOG.md` before release.
 - Build and test default features on 1.99.0 or newer stable. The optional
   `nir` feature pins `nir-rs = 0.4.5`; validate it on a toolchain new enough
-  for `nir-rs` before claiming that feature.
+  for `nir-rs` before claiming that feature. `nir-io` also needs native
+  libhdf5 and stays out of the default and MSRV jobs.
 - Record the toolchain and enabled features in the release notes.
 
 ## 3. License and package contents
@@ -79,6 +80,8 @@ cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test
 cargo check --features nir
+# Needs libhdf5-dev:
+cargo test --features nir-io
 # Linux with libudev-dev:
 cargo check --features uart
 cargo test --features uart
@@ -158,7 +161,8 @@ that rewrite belongs on the candidate commit in step 1.5 / item 5 above.
 
 ## 8. Out of scope here
 
-- NIR HDF5 I/O (GitHub [#15](https://github.com/rmems/silicon-bridge/issues/15))
+- A local NIR HDF5 decoder (GitHub [#15](https://github.com/rmems/silicon-bridge/issues/15)):
+  `.nir` reading is delegated to `nir-rs` via the opt-in `nir-io` feature
 - Flashing silicon-hdl / building the Basys 3 bitstream (owned by silicon-hdl +
   GitHub [#84](https://github.com/rmems/silicon-bridge/issues/84)). The
   silicon-bridge UART host session that gates publish is the hardware-evidence
