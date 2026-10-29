@@ -151,6 +151,11 @@ no HDF5 decoder in this crate:
 
 ```toml
 silicon-bridge = { git = "https://github.com/rmems/silicon-bridge", features = ["nir"] }
+```
+
+or, with `.nir` file loading:
+
+```toml
 silicon-bridge = { git = "https://github.com/rmems/silicon-bridge", features = ["nir-io"] }
 ```
 
