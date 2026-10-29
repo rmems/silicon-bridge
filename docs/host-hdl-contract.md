@@ -2,7 +2,7 @@
 
 # Host/HDL contract
 
-This document pins the `silicon-bridge 0.3.1` host export contract for the
+This document pins the `silicon-bridge 0.4.0` host export contract for the
 reference `silicon-hdl` profile. It is a reproducible host-to-HDL interface,
 not a physical-board claim and not a statement that arbitrary dense shapes are
 FPGA-compatible.
@@ -15,7 +15,7 @@ FPGA-compatible.
 | Profile id | `silicon-hdl-v3-compatible` |
 | Contract id | `silicon-bridge-silicon-hdl-v3-contract-v2` |
 | Metadata schema | `silicon-hdl-v3-profile-v2` |
-| `silicon-bridge` version | `0.3.1` |
+| `silicon-bridge` version | `0.4.0` |
 | Supported `silicon-hdl` revision | `d45163f38ac1cd88f8a3918e3793a08ace85e132` |
 | Supported dimensions | 16 input channels, 16 hidden neurons, 3 output classes |
 
@@ -135,7 +135,7 @@ This profile does not prove:
 - a new UART command, checksum, retry policy, or output-class byte;
 - NIR import support or a crate split.
 
-A release note for `0.3.1` may safely say: `Adds a simulation-validated,
+A release note for `0.4.0` may safely say: `Adds a simulation-validated,
 version-pinned silicon-hdl v3 compatibility export profile that preserves the
 generic dense Q8.8 default while emitting an explicit HDL-native neuron-major
 readout image for the pinned reference contract. Physical-board replay remains

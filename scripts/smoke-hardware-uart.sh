@@ -11,8 +11,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 # Match release-readiness §4: hardware evidence must bind to the commit under
-# test, not a dirty worktree of the smoke paths.
-SMOKE_PATHS=(Cargo.toml Cargo.lock examples/uart_host_smoke.rs src/)
+# test, not a dirty worktree of the smoke paths. `Cargo.lock` is gitignored, so
+# it is not part of the commit and is not listed here.
+SMOKE_PATHS=(Cargo.toml examples/uart_host_smoke.rs src/)
 if ! git diff --quiet HEAD -- "${SMOKE_PATHS[@]}" \
   || ! git diff --cached --quiet HEAD -- "${SMOKE_PATHS[@]}"; then
   echo "==> refusing: uncommitted changes under ${SMOKE_PATHS[*]}" >&2
@@ -42,9 +43,13 @@ echo "==> cargo run --features uart --example uart_host_smoke"
 # Capture the example's exit status while still printing the disclaimer below,
 # even on FAIL (the maintainer records a FAIL result too). `pipefail` makes the
 # pipeline reflect cargo's status, and we defer aborting until after the notes.
+# No `--locked`: `Cargo.lock` is gitignored, so on a fresh checkout that flag
+# makes cargo abort ("cannot create the lock file") before the harness builds.
+# The dependency set is pinned by Cargo.toml requirements, and the Candidate
+# SHA recorded in docs/hardware-smoke-note.md is what binds the evidence.
 status=0
 SILICON_BRIDGE_BAUD="$BAUD" \
-  cargo run --locked --features uart --example uart_host_smoke -- "$SILICON_BRIDGE_PORT" \
+  cargo run --features uart --example uart_host_smoke -- "$SILICON_BRIDGE_PORT" \
   | tee "$WORK/smoke.out" || status=$?
 
 if [[ "$status" -eq 0 ]]; then

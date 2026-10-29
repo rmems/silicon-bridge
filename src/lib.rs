@@ -27,7 +27,7 @@
 //! ## Installation
 //!
 //! `silicon-bridge` **0.3.0** is published on crates.io, with API docs on
-//! docs.rs. This tree's `[package].version` is `0.3.1`, an unpublished
+//! docs.rs. This tree's `[package].version` is `0.4.0`, an unpublished
 //! candidate; an authorized `cargo publish` is a separate maintainer action.
 //! For the registry release:
 //!
@@ -36,8 +36,10 @@
 //! ```
 //!
 //! 0.3.0 has no `nir` feature and none of the changes listed in
-//! `CHANGELOG.md` under `[Unreleased]` / `[0.3.1]`. To use unreleased `main`,
-//! depend on git or a path:
+//! `CHANGELOG.md` under `[Unreleased]`. The candidate is a minor bump because
+//! it removes and retypes public API that 0.3.0 exports; a caret `"0.3.0"`
+//! requirement does not pick it up. To use unreleased `main`, depend on git or
+//! a path:
 //!
 //! ```toml
 //! silicon-bridge = { git = "https://github.com/rmems/silicon-bridge" }
@@ -49,17 +51,17 @@
 //! silicon-bridge = { git = "https://github.com/rmems/silicon-bridge", features = ["uart"] }
 //! ```
 //!
-//! After an authorized publish makes crates.io serve version 0.3.1:
+//! After an authorized publish makes crates.io serve version 0.4.0:
 //!
 //! ```toml
-//! silicon-bridge = "0.3.1"
+//! silicon-bridge = "0.4.0"
 //! ```
 //!
 //! MSRV on this tree is `1.99.0` (`[package].rust-version`; the published
 //! 0.3.0 declares `1.88.0`). CI enforces the floor with a dedicated 1.99.0
 //! job and separately exercises the moving `stable` toolchain. See the crate
 //! README and `docs/release-readiness.md` for the authorized `cargo publish`
-//! checklist for 0.3.1. This rustdoc does **not** claim 0.3.1 is on
+//! checklist for 0.4.0. This rustdoc does **not** claim 0.4.0 is on
 //! crates.io or docs.rs.
 //!
 //! ## Reference hardware
@@ -161,11 +163,15 @@
 //! silicon-bridge = { git = "https://github.com/rmems/silicon-bridge", features = ["uart"] }
 //! ```
 //!
-//! Prefer [`FpgaBridge::open_with_config`] or [`FpgaBridge::builder`] with an
-//! explicit port, baud rate, and per-I/O timeout. [`FpgaBridge::new`] remains
+//! Prefer `FpgaBridge::open_with_config` or `FpgaBridge::builder` with an
+//! explicit port, baud rate, and per-I/O timeout. `FpgaBridge::new` remains
 //! as a legacy probe helper and is not the recommended path. Opening a named
 //! port does not require `libudev`; Linux enumeration via
-//! [`list_serial_ports`] typically does.
+//! `list_serial_ports` typically does. These items exist only with the `uart`
+//! feature, so they are written as plain code here rather than intra-doc
+//! links: a default-feature `cargo doc` has no target for them, and docs.rs
+//! (which builds this crate with `features = ["uart"]`) lists them in the
+//! sidebar.
 //!
 //! Frame encode/decode is [`encode_stimuli`] / [`decode_response`] and does
 //! not need this feature. [`DenseQ88Layout::silicon_bridge_v3`] is the

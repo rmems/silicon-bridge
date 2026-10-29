@@ -87,7 +87,7 @@ Artix-7 trainer pinout. That file is **not** the claimed reference demo;
 `scripts/build_soc.tcl` reads `basys3.xdc` + `basys3_soc.xdc` only.
 
 A silicon-bridge UART host session on this board is release evidence for the
-0.3.1 publish path ([#84](https://github.com/rmems/silicon-bridge/issues/84)).
+0.4.0 publish path ([#84](https://github.com/rmems/silicon-bridge/issues/84)).
 When run, that session is recorded in
 [`docs/hardware-smoke-note.md`](docs/hardware-smoke-note.md); until that note is
 filled in, no such host-session proof exists. Raw logs may also be linked on
@@ -105,9 +105,12 @@ Companion contracts live in silicon-hdl:
 [crates.io](https://crates.io/crates/silicon-bridge) (2026-09-17, git tag
 `v0.3.0` / `bf5b20d`; API docs on
 [docs.rs](https://docs.rs/silicon-bridge/0.3.0/silicon_bridge/)). It is the
-only registry version. `main` is the unpublished **0.3.1** candidate
-(`[package].version = "0.3.1"`); an authorized `cargo publish` is a
-separate maintainer action.
+only registry version. `main` is the unpublished **0.4.0** candidate
+(`[package].version = "0.4.0"`); an authorized `cargo publish` is a
+separate maintainer action. The candidate is a minor bump, not 0.3.1, because
+it removes `FpgaMetrics::load_from_project`, changes the types of
+`ExportConfig::profile()` / `ExportReport::profile` and three `ExportError`
+variants, and raises the MSRV; see [CHANGELOG.md](CHANGELOG.md).
 
 ```toml
 silicon-bridge = "0.3.0"
@@ -120,9 +123,9 @@ silicon-bridge = { version = "0.3.0", features = ["uart"] }
 ```
 
 0.3.0 has no `nir` feature and none of the changes listed under
-`[Unreleased]` / `[0.3.1]` in [CHANGELOG.md](CHANGELOG.md). `"0.3.0"` is a
-caret requirement: once 0.3.1 is published it also accepts 0.3.1, which
-needs Rust 1.99.0. On an older toolchain, pin `"=0.3.0"`. To use
+`[Unreleased]` in [CHANGELOG.md](CHANGELOG.md). `"0.3.0"` is a caret
+requirement that stops below 0.4.0, so publishing 0.4.0 does not move
+existing consumers; they opt in by changing the requirement. To use
 unreleased `main`, depend on git or a path:
 
 ```toml
@@ -160,14 +163,17 @@ including `nir`, fuzz compile). The optional `nir` feature is not part of the
 an explicit compatibility decision and a CHANGELOG entry; see
 [docs/release-readiness.md](docs/release-readiness.md).
 
-### After an authorized 0.3.1 publish
+### After an authorized 0.4.0 publish
 
-Only once `https://crates.io/crates/silicon-bridge` serves **0.3.1** (the
+Only once `https://crates.io/crates/silicon-bridge` serves **0.4.0** (the
 registry currently serves 0.3.0 only):
 
 ```toml
-silicon-bridge = "0.3.1"
+silicon-bridge = "0.4.0"
 ```
+
+0.4.0 needs Rust 1.99.0 and contains the breaking changes listed under
+`[Unreleased]` in [CHANGELOG.md](CHANGELOG.md).
 
 Verify docs.rs **after** that publish. A `cargo package` / path smoke test
 is not a registry test.
@@ -408,9 +414,9 @@ list other revisions without fixtures.
 ## Public-release readiness
 
 See [docs/release-readiness.md](docs/release-readiness.md). This tree is the
-**0.3.1** package candidate (`[package].version` is `0.3.1`). 0.3.0 is already
+**0.4.0** package candidate (`[package].version` is `0.4.0`). 0.3.0 is already
 live on crates.io / docs.rs; an authorized human `cargo publish` is still
-required before 0.3.1 is. Do not treat an in-tree version string or a future
+required before 0.4.0 is. Do not treat an in-tree version string or a future
 install snippet as a published version.
 Packaged-crate smoke (`bash scripts/smoke-packaged-consumer.sh`) is not
 registry proof. CI matrix remains
@@ -497,7 +503,7 @@ to `main` and every pull request. No secrets are required.
 | `test (ubuntu-latest)` | Linux | `cargo clippy --all-targets -- -D warnings`, `cargo build`, `cargo test` |
 | `test (macos-latest)` | macOS | same as above |
 | `test (windows-latest)` | Windows | same as above |
-| `uart (ubuntu-latest)` | Linux | installs `libudev-dev`, then `cargo clippy --all-targets --all-features -- -D warnings`, `cargo check --features uart`, `cargo test --all-features`, `cargo test --all-features --examples`, and `cargo doc --no-deps --features uart` with `RUSTDOCFLAGS: -D warnings` |
+| `uart (ubuntu-latest)` | Linux | installs `libudev-dev`, then `cargo clippy --all-targets --all-features -- -D warnings`, `cargo check --features uart`, `cargo test --all-features`, `cargo test --all-features --examples`, and `cargo doc --no-deps` both with `--features uart` and with default features, each under `RUSTDOCFLAGS: -D warnings` (docs.rs builds with `features = ["uart"]`; the default-feature pass keeps the root docs link-clean without it) |
 | `fuzz-build (ubuntu-latest)` | Linux | nightly + `cargo fuzz build --dev --sanitizer none` (compile only; no campaign, no serial I/O) |
 
 The `test` matrix uses default features and has `fail-fast: false`, so one OS

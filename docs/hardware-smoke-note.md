@@ -3,7 +3,7 @@
 # Basys 3 UART host-session smoke note
 
 This note records a live **silicon-bridge UART host session** on one named
-reference board. It is the recorded evidence for the 0.3.1 publish gate tracked
+reference board. It is the recorded evidence for the 0.4.0 publish gate tracked
 in GitHub [#84](https://github.com/rmems/silicon-bridge/issues/84).
 
 **Status: not yet recorded.** No silicon-bridge UART host session has been run

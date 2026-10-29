@@ -1193,6 +1193,12 @@ impl FpgaParameterExporter {
     /// only for Spikenaut compatibility. Generic consumers typically leave
     /// this unset; disk writes use [`ExportConfig`] profile / schema fields
     /// instead.
+    ///
+    /// This affects [`CheckedParameterExport::try_export`] and
+    /// [`Self::try_export_with_report`] only. The disk writers
+    /// ([`Self::write_generic`], [`Self::write_with_config`],
+    /// [`MemFileWriter::write_mem_files`]) rebuild `parameters.json` from
+    /// their [`ExportConfig`] contract and ignore this value.
     pub fn set_format_version(&mut self, version: impl Into<String>) {
         self.format_version = version.into();
     }
@@ -1205,6 +1211,16 @@ impl FpgaParameterExporter {
     /// [`MetadataTimestampError`]. The default is to **omit** the timestamp.
     /// Call [`Self::use_wall_clock_timestamp`] to record `chrono::Utc::now`
     /// at export time (legacy behaviour).
+    ///
+    /// This affects the in-memory [`FpgaParameters`] returned by
+    /// [`CheckedParameterExport::try_export`] and
+    /// [`Self::try_export_with_report`] only. The disk writers take their
+    /// timestamp policy from the [`ExportConfig`] they are given:
+    /// [`Self::write_generic`] omits it, and
+    /// [`MemFileWriter::write_mem_files`] records wall-clock time
+    /// ([`ExportConfig::legacy_spikenaut_v2`]). To pin the timestamp in
+    /// `parameters.json`, pass [`ExportConfig::with_timestamp`] to
+    /// [`Self::write_with_config`].
     pub fn set_timestamp(
         &mut self,
         timestamp: impl AsRef<str>,
@@ -1222,7 +1238,8 @@ impl FpgaParameterExporter {
     /// Record a wall-clock timestamp (`chrono::Utc::now` at export time).
     ///
     /// This is opt-in. The default checked path omits timestamps so repeats
-    /// stay byte-identical.
+    /// stay byte-identical. Like [`Self::set_timestamp`], this shapes
+    /// `try_export*` output only; disk writers follow their [`ExportConfig`].
     pub fn use_wall_clock_timestamp(&mut self) {
         self.timestamp = TimestampPolicy::Now;
     }
