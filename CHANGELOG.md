@@ -8,8 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 The next registry release is **0.4.0**, not 0.3.1. Relative to the published
 0.3.0 this cycle removes `FpgaMetrics::load_from_project`, changes the types of
-`ExportConfig::profile()`, `ExportReport::profile`, and three `ExportError`
-variants, and raises the MSRV (see **Removed** / **Changed** below). Cargo
+`ExportConfig::profile()` and `ExportReport::profile`, turns
+`ExportError::MissingRequiredReadout` from a unit into a struct variant, and
+raises the MSRV (see **Removed** / **Changed** below). Cargo
 treats `silicon-bridge = "0.3.0"` as a caret requirement, so shipping those
 changes as 0.3.1 would break every existing consumer on their next
 `cargo update`; a minor bump keeps them on 0.3.0 until they opt in. Earlier
@@ -89,11 +90,14 @@ candidate that was never published; its entries are folded in here.
 - **Breaking:** `ExportReport::profile` is now a `String` profile id, and
   `ExportConfig::profile()` now returns `&str`, so custom contracts are not
   forced through the closed `ExportProfile` enum.
-- **Breaking:** `ExportError::ImmutableFileLayout`,
-  `ExportError::MissingRequiredReadout`, and
-  `ExportError::UnsupportedCompatibilityShape` now carry `String` profile
-  ids. Callers constructing or matching those variants must update their
-  patterns; string literals need `.into()` or `.to_owned()`.
+- **Breaking:** `ExportError::MissingRequiredReadout` is now a struct variant
+  carrying the `profile: String` that required the readout. 0.3.0 code that
+  matches the bare unit variant must change to
+  `ExportError::MissingRequiredReadout { .. }`. The new
+  `ExportError::ImmutableFileLayout` and
+  `ExportError::UnsupportedCompatibilityShape` variants carry `String` profile
+  ids as well; `ExportError` is `#[non_exhaustive]`, so adding them is not
+  itself a break.
 - `ExportContract::custom` rejects blank profile/schema ids and keeps
   non-overwriting defaults even if a caller chooses an id that matches a
   predefined legacy profile.

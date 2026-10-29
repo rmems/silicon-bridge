@@ -47,6 +47,7 @@ not against the note's commit.
 |---|---|
 | silicon-bridge Candidate SHA | _<fill in: the commit to be tagged/published, i.e. `git -C silicon-bridge rev-parse HEAD` taken before committing this note>_ |
 | silicon-hdl HEAD SHA | _<fill in: `git -C silicon-hdl rev-parse HEAD`>_ |
+| `Cargo.lock` SHA-256 | _<fill in: the `Cargo.lock sha256 …` line printed by `scripts/smoke-hardware-uart.sh`; `Cargo.lock` is gitignored, so the Candidate SHA alone does not fix dependency versions>_ |
 | Serial port | _<fill in: e.g. `/dev/ttyUSB0`>_ |
 | Baud rate | _<fill in: e.g. `115200`>_ |
 | Exact commands run | _<fill in: copied verbatim>_ |

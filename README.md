@@ -109,8 +109,9 @@ only registry version. `main` is the unpublished **0.4.0** candidate
 (`[package].version = "0.4.0"`); an authorized `cargo publish` is a
 separate maintainer action. The candidate is a minor bump, not 0.3.1, because
 it removes `FpgaMetrics::load_from_project`, changes the types of
-`ExportConfig::profile()` / `ExportReport::profile` and three `ExportError`
-variants, and raises the MSRV; see [CHANGELOG.md](CHANGELOG.md).
+`ExportConfig::profile()` / `ExportReport::profile`, turns
+`ExportError::MissingRequiredReadout` into a struct variant, and raises the
+MSRV; see [CHANGELOG.md](CHANGELOG.md).
 
 ```toml
 silicon-bridge = "0.3.0"

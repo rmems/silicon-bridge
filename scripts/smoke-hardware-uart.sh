@@ -43,13 +43,21 @@ echo "==> cargo run --features uart --example uart_host_smoke"
 # Capture the example's exit status while still printing the disclaimer below,
 # even on FAIL (the maintainer records a FAIL result too). `pipefail` makes the
 # pipeline reflect cargo's status, and we defer aborting until after the notes.
-# No `--locked`: `Cargo.lock` is gitignored, so on a fresh checkout that flag
-# makes cargo abort ("cannot create the lock file") before the harness builds.
-# The dependency set is pinned by Cargo.toml requirements, and the Candidate
-# SHA recorded in docs/hardware-smoke-note.md is what binds the evidence.
+# `Cargo.lock` is gitignored, so a fresh checkout has none and a bare
+# `--locked` aborts ("cannot create the lock file") before the harness builds.
+# Resolve the graph once if needed, then build `--locked` against it and print
+# the lockfile digest: the Candidate SHA alone does not fix dependency
+# versions, so record the digest next to it in docs/hardware-smoke-note.md.
+if [[ ! -f Cargo.lock ]]; then
+  echo "==> no Cargo.lock in this checkout; resolving dependencies once"
+  cargo generate-lockfile
+fi
+LOCK_SHA256="$(sha256sum Cargo.lock | cut -d' ' -f1)"
+echo "==> Cargo.lock sha256 ${LOCK_SHA256} (record with the Candidate SHA)"
+
 status=0
 SILICON_BRIDGE_BAUD="$BAUD" \
-  cargo run --features uart --example uart_host_smoke -- "$SILICON_BRIDGE_PORT" \
+  cargo run --locked --features uart --example uart_host_smoke -- "$SILICON_BRIDGE_PORT" \
   | tee "$WORK/smoke.out" || status=$?
 
 if [[ "$status" -eq 0 ]]; then
@@ -61,6 +69,7 @@ echo "==> A PASS proves only a live UART host session on ONE named board. It is"
 echo "    distinct from the silicon-hdl LED-heartbeat smoke (#68), which is NOT a"
 echo "    silicon-bridge UART host session, and is NOT a crates.io / docs.rs"
 echo "    publication proof."
-echo "==> Record the PASS/FAIL line above in docs/hardware-smoke-note.md (#84)."
+echo "==> Record the PASS/FAIL line above and Cargo.lock sha256 ${LOCK_SHA256} in"
+echo "    docs/hardware-smoke-note.md (#84)."
 
 exit "$status"

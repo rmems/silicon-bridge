@@ -1194,8 +1194,11 @@ impl FpgaParameterExporter {
     /// this unset; disk writes use [`ExportConfig`] profile / schema fields
     /// instead.
     ///
-    /// This affects [`CheckedParameterExport::try_export`] and
-    /// [`Self::try_export_with_report`] only. The disk writers
+    /// This affects the in-memory exports only:
+    /// [`CheckedParameterExport::try_export`],
+    /// [`Self::try_export_with_report`], and the legacy
+    /// [`ParameterExport::export`] (which falls back to
+    /// [`EXPORT_FORMAT_VERSION`] when this is empty). The disk writers
     /// ([`Self::write_generic`], [`Self::write_with_config`],
     /// [`MemFileWriter::write_mem_files`]) rebuild `parameters.json` from
     /// their [`ExportConfig`] contract and ignore this value.
@@ -1213,9 +1216,12 @@ impl FpgaParameterExporter {
     /// at export time (legacy behaviour).
     ///
     /// This affects the in-memory [`FpgaParameters`] returned by
-    /// [`CheckedParameterExport::try_export`] and
-    /// [`Self::try_export_with_report`] only. The disk writers take their
-    /// timestamp policy from the [`ExportConfig`] they are given:
+    /// [`CheckedParameterExport::try_export`],
+    /// [`Self::try_export_with_report`], and the legacy
+    /// [`ParameterExport::export`] only (the legacy path honours a supplied
+    /// value but records wall-clock time instead of omitting it). The disk
+    /// writers take their timestamp policy from the [`ExportConfig`] they
+    /// are given:
     /// [`Self::write_generic`] omits it, and
     /// [`MemFileWriter::write_mem_files`] records wall-clock time
     /// ([`ExportConfig::legacy_spikenaut_v2`]). To pin the timestamp in
@@ -1238,8 +1244,10 @@ impl FpgaParameterExporter {
     /// Record a wall-clock timestamp (`chrono::Utc::now` at export time).
     ///
     /// This is opt-in. The default checked path omits timestamps so repeats
-    /// stay byte-identical. Like [`Self::set_timestamp`], this shapes
-    /// `try_export*` output only; disk writers follow their [`ExportConfig`].
+    /// stay byte-identical. Like [`Self::set_timestamp`], this shapes the
+    /// in-memory exports (`try_export*` and the legacy
+    /// [`ParameterExport::export`]) only; disk writers follow their
+    /// [`ExportConfig`].
     pub fn use_wall_clock_timestamp(&mut self) {
         self.timestamp = TimestampPolicy::Now;
     }

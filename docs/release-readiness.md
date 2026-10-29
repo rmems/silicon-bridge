@@ -28,8 +28,9 @@ Registry state (checked 2026-10-29): crates.io serves **0.3.0** only
 (published 2026-09-17, tag `v0.3.0` / `bf5b20d`, not yanked; the docs.rs
 build succeeded). The next crates.io-intended semver is **0.4.0**, not 0.3.1:
 since 0.3.0 the tree removed `FpgaMetrics::load_from_project`, changed the
-types of `ExportConfig::profile()`, `ExportReport::profile`, and three
-`ExportError` variants, and raised the MSRV to 1.99.0. Cargo resolves
+types of `ExportConfig::profile()` and `ExportReport::profile`, turned
+`ExportError::MissingRequiredReadout` from a unit into a struct variant, and
+raised the MSRV to 1.99.0. Cargo resolves
 `silicon-bridge = "0.3.0"` as `>=0.3.0, <0.4.0`, so a 0.3.1 carrying those
 changes would reach every existing consumer on their next `cargo update` and
 break their build; 0.4.0 keeps them on 0.3.0 until they opt in. Apply the same
