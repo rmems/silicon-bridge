@@ -210,6 +210,47 @@ fn flatten_is_transparent() {
 }
 
 #[test]
+fn multi_axis_input_requires_flatten() {
+    let build = |flatten: bool| {
+        let mut nodes = vec![(
+            "in",
+            NirNode::Input(Input {
+                shape: vec![2, 3],
+                metadata: Default::default(),
+            }),
+        )];
+        if flatten {
+            nodes.push((
+                "flat",
+                NirNode::Flatten(Flatten {
+                    start_dim: 0,
+                    end_dim: -1,
+                    input_type: None,
+                    metadata: Default::default(),
+                }),
+            ));
+        }
+        nodes.push(("fc", affine(1, 6, &[1.0; 6], 0.0)));
+        nodes.push((
+            "neuron",
+            NirNode::Threshold(Threshold {
+                threshold: t(&[1], &[1.0]),
+                metadata: Default::default(),
+            }),
+        ));
+        nodes.push(("out", output(1)));
+        chain(nodes)
+    };
+    match refused(FpgaParameterExporter::from_nir(&build(false))) {
+        MapError::InvalidParameter { node, field, .. } => {
+            assert_eq!((node.as_str(), field), ("in", "shape"));
+        }
+        other => panic!("expected InvalidParameter, got {other:?}"),
+    }
+    assert_eq!(export(&build(true)).weights, vec![256; 6]);
+}
+
+#[test]
 fn zero_bias_and_zero_reset_are_accepted() {
     let mut neuron = lif(&[0.0025], &[1.0], &[1.0]);
     neuron.v_reset = Some(t(&[1], &[0.0]));

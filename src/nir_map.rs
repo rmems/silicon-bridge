@@ -18,6 +18,9 @@
 //!                                        decay)
 //! ```
 //!
+//! A multi-axis `Input` shape is accepted only with a `Flatten` before the
+//! weights (dense layers act on the last axis).
+//!
 //! Anything else that is valid NIR is reported as [`MapError::Unsupported`]
 //! naming the offending node, never silently approximated.
 //!
@@ -242,12 +245,20 @@ impl FpgaParameterExporter {
 
         let (hidden, input_count) = hidden_weights(layers.weights.0, layers.weights.1)?;
         let neuron_count = hidden.rows;
-        check_endpoint_shape(
-            layers.input.0,
-            input_shape(layers.input.1),
-            input_count,
-            "input size",
-        )?;
+        // `Linear`/`Affine` act on the last axis, so a multi-axis input only
+        // feeds one dense layer after a `Flatten`.
+        let input_shape = input_shape(layers.input.1);
+        if !layers.flattened && input_shape.len() > 1 {
+            return Err(invalid(
+                layers.input.0,
+                "shape",
+                &format!(
+                    "multi-axis input {input_shape:?} needs a Flatten before the weights; \
+                     Linear/Affine would otherwise act per row"
+                ),
+            ));
+        }
+        check_endpoint_shape(layers.input.0, input_shape, input_count, "input size")?;
 
         let neurons = map_neuron(layers.neuron.0, layers.neuron.1, neuron_count, dt)?;
         let weights = scale_rows(&hidden, &neurons.gain, layers.weights.0)?;
@@ -416,6 +427,8 @@ fn walk_chain(graph: &NirGraph) -> Result<Vec<Named<'_>>, MapError> {
 
 struct Layers<'a> {
     input: Named<'a>,
+    /// A `Flatten` sits between `Input` and the first weights.
+    flattened: bool,
     weights: Named<'a>,
     neuron: Named<'a>,
     readout: Option<Named<'a>>,
@@ -426,6 +439,10 @@ struct Layers<'a> {
 fn split_layers<'a>(chain: &[Named<'a>]) -> Result<Layers<'a>, MapError> {
     let input = chain[0];
     let output = *chain.last().expect("non-empty chain");
+    let flattened = chain[1..]
+        .iter()
+        .take_while(|(_, node)| !matches!(role(node), Role::Weights))
+        .any(|(_, node)| matches!(role(node), Role::Flatten));
     let mut middle = chain[1..chain.len() - 1]
         .iter()
         .copied()
@@ -474,6 +491,7 @@ fn split_layers<'a>(chain: &[Named<'a>]) -> Result<Layers<'a>, MapError> {
     }
     Ok(Layers {
         input,
+        flattened,
         weights,
         neuron,
         readout,
