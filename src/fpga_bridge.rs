@@ -76,7 +76,8 @@
 
 use crate::{
     CodecError, DenseQ88Layout, SILICON_BRIDGE_V3_RX_LEN, StimulusResponse, decode_response,
-    encode_stimuli, encode_stimuli_legacy_v3,
+    decode_response_v4, encode_request_v4, encode_stimuli, encode_stimuli_legacy_v3,
+    rx_frame_len_v4,
 };
 use serialport::{ClearBuffer, SerialPort, SerialPortInfo, SerialPortType};
 use std::fmt;
@@ -426,6 +427,9 @@ pub struct FpgaBridge {
     /// Set when a write/read fails mid-exchange. Further stimuli are refused
     /// until [`Self::recover`].
     needs_recovery: bool,
+    /// Explicit caller assertion that the peer runs matching UART v4
+    /// firmware. Defaults to `false`; see [`Self::enable_uart_v4`].
+    uart_v4_enabled: bool,
 }
 
 impl fmt::Debug for FpgaBridge {
@@ -435,6 +439,7 @@ impl fmt::Debug for FpgaBridge {
             .field("transport_open", &self.transport_open)
             .field("active", &self.active)
             .field("needs_recovery", &self.needs_recovery)
+            .field("uart_v4_enabled", &self.uart_v4_enabled)
             .finish()
     }
 }
@@ -453,6 +458,9 @@ pub enum ExchangeError {
     NotActive,
     /// A previous exchange failed part-way; call [`FpgaBridge::recover`].
     NeedsRecovery,
+    /// A UART v4 exchange was requested without [`FpgaBridge::enable_uart_v4`].
+    /// Nothing was written.
+    UartV4NotEnabled,
     /// Encode or decode failed. No bytes were written when this comes from
     /// [`encode_stimuli`].
     Codec(CodecError),
@@ -483,6 +491,10 @@ impl fmt::Display for ExchangeError {
                 f,
                 "previous UART exchange failed; call recover() before further stimuli"
             ),
+            Self::UartV4NotEnabled => write!(
+                f,
+                "UART v4 exchange refused: call enable_uart_v4() only for matching v4 firmware"
+            ),
             Self::Codec(err) => write!(f, "{err}"),
             Self::Write { source } => write!(f, "failed to write stimulus frame: {source}"),
             Self::Read { source } => write!(f, "failed to read stimulus reply: {source}"),
@@ -498,7 +510,7 @@ impl std::error::Error for ExchangeError {
             Self::Write { source } | Self::Read { source } | Self::Recover { source } => {
                 Some(source)
             }
-            Self::NotActive | Self::NeedsRecovery => None,
+            Self::NotActive | Self::NeedsRecovery | Self::UartV4NotEnabled => None,
         }
     }
 }
@@ -725,6 +737,7 @@ impl FpgaBridge {
             transport_open: true,
             active: true,
             needs_recovery: false,
+            uart_v4_enabled: false,
         })
     }
 
@@ -742,6 +755,7 @@ impl FpgaBridge {
             transport_open: true,
             active: true,
             needs_recovery: false,
+            uart_v4_enabled: false,
         }
     }
 
@@ -771,6 +785,7 @@ impl FpgaBridge {
             transport_open: true,
             active: true,
             needs_recovery: false,
+            uart_v4_enabled: false,
         })
     }
 
@@ -820,6 +835,58 @@ impl FpgaBridge {
         self.write_frame(&tx)?;
         let rx = self.read_frame(rx_len)?;
         decode_response(layout, &rx).map_err(ExchangeError::from)
+    }
+
+    /// Opt in to [`Self::exchange_v4`].
+    ///
+    /// Calling this asserts that the peer runs a separately pinned
+    /// `silicon-hdl` build that speaks UART v4 (`docs/uart-v4-protocol.md`).
+    /// The crate cannot verify that. **Current Basys 3 SiliconBridge v3.0
+    /// firmware does not understand v4**; do not enable it for that board.
+    /// The default v3 paths ([`Self::exchange`], [`Self::exchange_legacy`],
+    /// [`Self::process_stimuli`], [`Self::ping`]) are unchanged and keep
+    /// sending v3 frames regardless of this flag.
+    pub fn enable_uart_v4(&mut self) {
+        self.uart_v4_enabled = true;
+    }
+
+    /// Revoke the [`Self::enable_uart_v4`] opt-in.
+    pub fn disable_uart_v4(&mut self) {
+        self.uart_v4_enabled = false;
+    }
+
+    /// Whether [`Self::exchange_v4`] is permitted on this handle.
+    pub fn is_uart_v4_enabled(&self) -> bool {
+        self.uart_v4_enabled
+    }
+
+    /// Opt-in UART v4 exchange: a CRC-protected request carrying
+    /// `request_id`, and a reply that must echo that id.
+    ///
+    /// Refused with [`ExchangeError::UartV4NotEnabled`] (no write) unless
+    /// [`Self::enable_uart_v4`] was called. Encode failures (wrong length,
+    /// non-finite input) also occur before any write. The request is never
+    /// resent. A reply with a bad CRC, id, version, or length returns
+    /// [`ExchangeError::Codec`]; the handle is then latched for
+    /// [`Self::recover`] because the byte stream may be out of sync.
+    pub fn exchange_v4(
+        &mut self,
+        layout: &DenseQ88Layout,
+        request_id: u32,
+        stimuli: &[f32],
+    ) -> Result<StimulusResponse, ExchangeError> {
+        self.ensure_ready()?;
+        if !self.uart_v4_enabled {
+            return Err(ExchangeError::UartV4NotEnabled);
+        }
+        let tx = encode_request_v4(layout, request_id, stimuli)?;
+        let rx_len = rx_frame_len_v4(layout)?;
+        self.write_frame(&tx)?;
+        let rx = self.read_frame(rx_len)?;
+        decode_response_v4(layout, request_id, &rx).map_err(|err| {
+            self.needs_recovery = true;
+            ExchangeError::from(err)
+        })
     }
 
     fn ensure_ready(&self) -> Result<(), ExchangeError> {
@@ -1723,5 +1790,82 @@ mod tests {
         assert!(writes.lock().expect("log").is_empty());
         assert!(!bridge.needs_recovery());
         assert!(bridge.is_active());
+    }
+
+    fn v4_layout() -> DenseQ88Layout {
+        DenseQ88Layout::dense(4, 10).expect("layout")
+    }
+
+    fn v4_reply(request_id: u32) -> Vec<u8> {
+        let layout = v4_layout();
+        let payload = vec![0u8; layout.rx_len().expect("rx")];
+        let mut frame = vec![crate::UART_V4_SYNC, crate::UART_V4_VERSION];
+        frame.extend_from_slice(&(payload.len() as u16).to_be_bytes());
+        frame.extend_from_slice(&request_id.to_be_bytes());
+        frame.extend_from_slice(&payload);
+        let crc = crate::crc16_ccitt_false(&frame[1..]);
+        frame.extend_from_slice(&crc.to_be_bytes());
+        frame
+    }
+
+    #[test]
+    fn v4_exchange_is_refused_without_opt_in_and_writes_nothing() {
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let mut bridge = FpgaBridge::from_port(Box::new(MockPort::scripted(Arc::clone(&writes))));
+        assert!(!bridge.is_uart_v4_enabled());
+        assert!(matches!(
+            bridge.exchange_v4(&v4_layout(), 1, &[0.0; 4]),
+            Err(ExchangeError::UartV4NotEnabled)
+        ));
+        assert!(writes.lock().expect("log").is_empty());
+        assert!(!bridge.needs_recovery());
+    }
+
+    #[test]
+    fn v4_exchange_writes_v4_frame_once_and_default_path_stays_v3() {
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let mut mock = MockPort::scripted(Arc::clone(&writes));
+        mock.read_chunks.push_back(Ok(v4_reply(0xDEAD_BEEF)));
+        mock.read_chunks.push_back(Ok(v3_zero_reply()));
+        let mut bridge = FpgaBridge::from_port(Box::new(mock));
+        bridge.enable_uart_v4();
+        bridge
+            .exchange_v4(&v4_layout(), 0xDEAD_BEEF, &[0.5; 4])
+            .expect("v4 reply");
+        bridge.process_stimuli(&[0.1; 16]).expect("v3 still works");
+        let log = writes.lock().expect("log");
+        assert_eq!(log.len(), 2);
+        assert_eq!(
+            log[0],
+            encode_request_v4(&v4_layout(), 0xDEAD_BEEF, &[0.5; 4]).expect("frame")
+        );
+        assert_eq!(log[1], encode_stimuli_legacy_v3(&[0.1; 16]));
+    }
+
+    #[test]
+    fn v4_reply_with_wrong_id_requires_recovery() {
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let mut mock = MockPort::scripted(Arc::clone(&writes));
+        mock.read_chunks.push_back(Ok(v4_reply(8)));
+        let mut bridge = FpgaBridge::from_port(Box::new(mock));
+        bridge.enable_uart_v4();
+        assert!(matches!(
+            bridge.exchange_v4(&v4_layout(), 7, &[0.0; 4]),
+            Err(ExchangeError::Codec(CodecError::RequestIdMismatch { .. }))
+        ));
+        assert!(bridge.needs_recovery());
+        assert_eq!(writes.lock().expect("log").len(), 1);
+    }
+
+    #[test]
+    fn v4_encode_error_happens_before_write() {
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let mut bridge = FpgaBridge::from_port(Box::new(MockPort::scripted(Arc::clone(&writes))));
+        bridge.enable_uart_v4();
+        assert!(matches!(
+            bridge.exchange_v4(&v4_layout(), 1, &[0.0; 3]),
+            Err(ExchangeError::Codec(CodecError::WrongInputLength { .. }))
+        ));
+        assert!(writes.lock().expect("log").is_empty());
     }
 }
