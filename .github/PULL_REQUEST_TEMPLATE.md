@@ -11,7 +11,7 @@
 
 Quality bar from `CLAUDE.md`, plus the example-target tests the `uart`
 CI job runs. On Linux, the `uart` / `--all-features` lines need
-`pkg-config` and `libudev-dev`. `cargo test --all-features` does not run
+`pkg-config`, `libudev-dev`, and `libhdf5-dev` (for `nir-io`). `cargo test --all-features` does not run
 inline tests inside examples.
 
 - [ ] `cargo fmt --check`
