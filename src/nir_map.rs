@@ -18,8 +18,10 @@
 //!                                        decay)
 //! ```
 //!
-//! A multi-axis `Input` shape is accepted only with a `Flatten` before the
-//! weights (dense layers act on the last axis).
+//! A multi-axis `Input` shape is accepted only when `Flatten` nodes before the
+//! weights collapse it to one axis (dense layers act on the last axis).
+//! `Flatten::start_dim` / `end_dim` index the declared `Input` shape, which
+//! has no batch axis.
 //!
 //! Anything else that is valid NIR is reported as [`MapError::Unsupported`]
 //! naming the offending node, never silently approximated.
@@ -256,24 +258,27 @@ impl FpgaParameterExporter {
         let (hidden, input_count) = hidden_weights(layers.weights.0, layers.weights.1)?;
         let neuron_count = hidden.rows;
         // `Linear`/`Affine` act on the last axis, so a multi-axis input only
-        // feeds one dense layer after a `Flatten`.
-        let input_shape = input_shape(layers.input.1);
-        if !layers.flattened && input_shape.len() > 1 {
+        // feeds one dense layer once `Flatten` has collapsed it to one axis.
+        let mut shape = input_shape(layers.input.1).to_vec();
+        for (name, node) in &layers.flattens {
+            shape = flatten_shape(name, node, &shape)?;
+        }
+        if shape.len() > 1 {
             return Err(invalid(
                 layers.input.0,
                 "shape",
                 &format!(
-                    "multi-axis input {input_shape:?} needs a Flatten before the weights; \
-                     Linear/Affine would otherwise act per row"
+                    "shape {shape:?} still has several axes before the weights; Linear/Affine \
+                     act on the last axis, so a Flatten must collapse them all"
                 ),
             ));
         }
-        check_endpoint_shape(layers.input.0, input_shape, input_count, "input size")?;
+        check_endpoint_shape(layers.input.0, &shape, input_count, "input size")?;
 
         let neurons = map_neuron(layers.neuron.0, layers.neuron.1, neuron_count, dt)?;
         let weights = scale_rows(&hidden, &neurons.gain, layers.weights.0)?;
         let thresholds = to_f32_vec(layers.neuron.0, "threshold", &neurons.thresholds)?;
-        check_thresholds(layers.neuron.0, &thresholds)?;
+        check_thresholds(layers.neuron.0, &neurons.thresholds, &thresholds)?;
         let decay = to_f32_vec(layers.neuron.0, "decay", &neurons.decay)?;
 
         let mut exporter = Self::from_params(thresholds, weights, decay);
@@ -438,8 +443,8 @@ fn walk_chain(graph: &NirGraph) -> Result<Vec<Named<'_>>, MapError> {
 
 struct Layers<'a> {
     input: Named<'a>,
-    /// A `Flatten` sits between `Input` and the first weights.
-    flattened: bool,
+    /// `Flatten` nodes between `Input` and the first weights, in order.
+    flattens: Vec<Named<'a>>,
     weights: Named<'a>,
     neuron: Named<'a>,
     readout: Option<Named<'a>>,
@@ -450,10 +455,12 @@ struct Layers<'a> {
 fn split_layers<'a>(chain: &[Named<'a>]) -> Result<Layers<'a>, MapError> {
     let input = chain[0];
     let output = *chain.last().expect("non-empty chain");
-    let flattened = chain[1..]
+    let flattens: Vec<Named<'a>> = chain[1..]
         .iter()
+        .copied()
         .take_while(|(_, node)| !matches!(role(node), Role::Weights))
-        .any(|(_, node)| matches!(role(node), Role::Flatten));
+        .filter(|(_, node)| matches!(role(node), Role::Flatten))
+        .collect();
     let mut middle = chain[1..chain.len() - 1]
         .iter()
         .copied()
@@ -502,7 +509,7 @@ fn split_layers<'a>(chain: &[Named<'a>]) -> Result<Layers<'a>, MapError> {
     }
     Ok(Layers {
         input,
-        flattened,
+        flattens,
         weights,
         neuron,
         readout,
@@ -671,14 +678,15 @@ fn scale_rows(weights: &Matrix, gain: &[f64], name: &str) -> Result<Vec<Vec<f32>
         .collect()
 }
 
-/// Reject a non-zero threshold that Q8.8 truncates to 0 (always-firing neuron).
-fn check_thresholds(name: &str, thresholds: &[f32]) -> Result<(), MapError> {
-    for (neuron, threshold) in thresholds.iter().enumerate() {
-        if *threshold != 0.0 && encode_q88_signed_full(*threshold) == 0 {
+/// Reject a non-zero threshold that `f32` or Q8.8 truncates to 0 (an
+/// always-firing neuron). `source` is the value before narrowing to `f32`.
+fn check_thresholds(name: &str, source: &[f64], thresholds: &[f32]) -> Result<(), MapError> {
+    for (neuron, (source, threshold)) in source.iter().zip(thresholds).enumerate() {
+        if *source != 0.0 && (*threshold == 0.0 || encode_q88_signed_full(*threshold) == 0) {
             return Err(invalid(
                 name,
                 "threshold",
-                &format!("threshold {threshold:e} of neuron {neuron} quantizes to 0 in Q8.8"),
+                &format!("threshold {source:e} of neuron {neuron} quantizes to 0 in Q8.8"),
             ));
         }
     }
@@ -728,6 +736,46 @@ fn per_neuron(name: &str, field: &'static str, t: &Tensor, n: usize) -> Result<V
             &format!("has {len} values but the layer has {n} neurons"),
         )),
     }
+}
+
+/// Shape after one `Flatten`, with `start_dim` / `end_dim` indexing the
+/// declared shape (no batch axis), as in the vendored Sinabs export
+/// (`start_dim = 0`, `end_dim = -1`, `input_type = [8, 4, 4]`).
+///
+/// A shape with at most one axis is already flat and passes through.
+fn flatten_shape(name: &str, node: &NirNode, shape: &[usize]) -> Result<Vec<usize>, MapError> {
+    let NirNode::Flatten(flatten) = node else {
+        unreachable!("caller checked Role::Flatten");
+    };
+    if shape.len() <= 1 {
+        return Ok(shape.to_vec());
+    }
+    let rank = shape.len() as i64;
+    let axis = |dim: i64, field: &'static str| -> Result<usize, MapError> {
+        let resolved = if dim < 0 { dim + rank } else { dim };
+        if (0..rank).contains(&resolved) {
+            Ok(resolved as usize)
+        } else {
+            Err(invalid(
+                name,
+                field,
+                &format!("{dim} is out of range for shape {shape:?}"),
+            ))
+        }
+    };
+    let start = axis(flatten.start_dim, "start_dim")?;
+    let end = axis(flatten.end_dim, "end_dim")?;
+    if start > end {
+        return Err(invalid(name, "end_dim", "precedes start_dim"));
+    }
+    let collapsed = shape[start..=end]
+        .iter()
+        .try_fold(1usize, |acc, dim| acc.checked_mul(*dim))
+        .ok_or_else(|| invalid(name, "start_dim", "flattened size overflows"))?;
+    let mut flat = shape[..start].to_vec();
+    flat.push(collapsed);
+    flat.extend_from_slice(&shape[end + 1..]);
+    Ok(flat)
 }
 
 fn input_shape(node: &NirNode) -> &[usize] {

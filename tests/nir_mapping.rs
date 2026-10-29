@@ -183,16 +183,19 @@ fn underflowing_gain_or_threshold_fails_loudly() {
     let exporter = FpgaParameterExporter::from_nir_with(&g, &options).unwrap();
     assert_eq!(exporter.try_export().unwrap().weights, vec![25, 0]);
 
-    // A non-zero threshold below 1/256 would make the neuron always fire.
-    let node = NirNode::Threshold(Threshold {
-        threshold: t(&[1], &[0.001]),
-        metadata: Default::default(),
-    });
-    match refused(FpgaParameterExporter::from_nir(&layer(1, 1, &[1.0], node))) {
-        MapError::InvalidParameter { node, field, .. } => {
-            assert_eq!((node.as_str(), field), ("neuron", "threshold"));
+    // A non-zero threshold below 1/256, or one that underflows f32 (1e-50),
+    // would make the neuron always fire.
+    for tiny in [0.001f64, 1.0e-50] {
+        let node = NirNode::Threshold(Threshold {
+            threshold: Tensor::from_f64(vec![1], vec![tiny]).unwrap(),
+            metadata: Default::default(),
+        });
+        match refused(FpgaParameterExporter::from_nir(&layer(1, 1, &[1.0], node))) {
+            MapError::InvalidParameter { node, field, .. } => {
+                assert_eq!((node.as_str(), field), ("neuron", "threshold"), "{tiny}");
+            }
+            other => panic!("expected InvalidParameter, got {other:?}"),
         }
-        other => panic!("expected InvalidParameter, got {other:?}"),
     }
 }
 
@@ -251,8 +254,8 @@ fn flatten_is_transparent() {
 }
 
 #[test]
-fn multi_axis_input_requires_flatten() {
-    let build = |flatten: bool| {
+fn multi_axis_input_requires_a_flatten_that_collapses_every_axis() {
+    let build = |flatten: Option<(i64, i64)>| {
         let mut nodes = vec![(
             "in",
             NirNode::Input(Input {
@@ -260,12 +263,12 @@ fn multi_axis_input_requires_flatten() {
                 metadata: Default::default(),
             }),
         )];
-        if flatten {
+        if let Some((start_dim, end_dim)) = flatten {
             nodes.push((
                 "flat",
                 NirNode::Flatten(Flatten {
-                    start_dim: 0,
-                    end_dim: -1,
+                    start_dim,
+                    end_dim,
                     input_type: None,
                     metadata: Default::default(),
                 }),
@@ -282,13 +285,25 @@ fn multi_axis_input_requires_flatten() {
         nodes.push(("out", output(1)));
         chain(nodes)
     };
-    match refused(FpgaParameterExporter::from_nir(&build(false))) {
-        MapError::InvalidParameter { node, field, .. } => {
-            assert_eq!((node.as_str(), field), ("in", "shape"));
-        }
+    let shape_error = |g: &NirGraph| match refused(FpgaParameterExporter::from_nir(g)) {
+        MapError::InvalidParameter { node, field, .. } => (node, field),
         other => panic!("expected InvalidParameter, got {other:?}"),
-    }
-    assert_eq!(export(&build(true)).weights, vec![256; 6]);
+    };
+    // No Flatten, or one that leaves two axes (axis 1..=1 only): refused.
+    assert_eq!(shape_error(&build(None)), ("in".into(), "shape"));
+    assert_eq!(shape_error(&build(Some((1, 1)))), ("in".into(), "shape"));
+    // Flatten over every axis, by positive or negative index: accepted.
+    assert_eq!(export(&build(Some((0, 1)))).weights, vec![256; 6]);
+    assert_eq!(export(&build(Some((0, -1)))).weights, vec![256; 6]);
+    // Out-of-range dims are reported on the Flatten node.
+    assert_eq!(
+        shape_error(&build(Some((0, 5)))),
+        ("flat".into(), "end_dim")
+    );
+    assert_eq!(
+        shape_error(&build(Some((1, 0)))),
+        ("flat".into(), "end_dim")
+    );
 }
 
 #[test]
