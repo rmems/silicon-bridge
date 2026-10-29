@@ -44,15 +44,21 @@ echo "==> cargo run --features uart --example uart_host_smoke"
 # even on FAIL (the maintainer records a FAIL result too). `pipefail` makes the
 # pipeline reflect cargo's status, and we defer aborting until after the notes.
 # `Cargo.lock` is gitignored, so a fresh checkout has none and a bare
-# `--locked` aborts ("cannot create the lock file") before the harness builds.
-# Resolve the graph once if needed, then build `--locked` against it and print
-# the lockfile digest: the Candidate SHA alone does not fix dependency
-# versions, so record the digest next to it in docs/hardware-smoke-note.md.
-if [[ ! -f Cargo.lock ]]; then
-  echo "==> no Cargo.lock in this checkout; resolving dependencies once"
-  cargo generate-lockfile
+# `--locked` aborts ("cannot create the lock file") before the harness builds;
+# a lockfile left over from an older checkout can disagree with Cargo.toml and
+# abort the same way. `cargo update --workspace` creates a missing lockfile or
+# reconciles an existing one with the manifest while keeping already-resolved
+# dependency versions. Then build `--locked` against it and print the lockfile
+# digest: the Candidate SHA alone does not fix dependency versions, so record
+# the digest next to it in docs/hardware-smoke-note.md.
+echo "==> reconciling Cargo.lock with Cargo.toml (cargo update --workspace)"
+cargo update --workspace
+if command -v sha256sum >/dev/null 2>&1; then
+  LOCK_SHA256="$(sha256sum Cargo.lock | cut -d' ' -f1)"
+else
+  # macOS ships `shasum`, not GNU `sha256sum`.
+  LOCK_SHA256="$(shasum -a 256 Cargo.lock | cut -d' ' -f1)"
 fi
-LOCK_SHA256="$(sha256sum Cargo.lock | cut -d' ' -f1)"
 echo "==> Cargo.lock sha256 ${LOCK_SHA256} (record with the Candidate SHA)"
 
 status=0
