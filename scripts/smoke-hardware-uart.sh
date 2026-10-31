@@ -11,8 +11,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 # Match release-readiness §4: hardware evidence must bind to the commit under
-# test, not a dirty worktree of the smoke paths.
-SMOKE_PATHS=(Cargo.toml Cargo.lock examples/uart_host_smoke.rs src/)
+# test, not a dirty worktree of the smoke paths. `Cargo.lock` is gitignored, so
+# it is not part of the commit and is not listed here.
+SMOKE_PATHS=(Cargo.toml examples/uart_host_smoke.rs src/)
 if ! git diff --quiet HEAD -- "${SMOKE_PATHS[@]}" \
   || ! git diff --cached --quiet HEAD -- "${SMOKE_PATHS[@]}"; then
   echo "==> refusing: uncommitted changes under ${SMOKE_PATHS[*]}" >&2
@@ -42,6 +43,24 @@ echo "==> cargo run --features uart --example uart_host_smoke"
 # Capture the example's exit status while still printing the disclaimer below,
 # even on FAIL (the maintainer records a FAIL result too). `pipefail` makes the
 # pipeline reflect cargo's status, and we defer aborting until after the notes.
+# `Cargo.lock` is gitignored, so a fresh checkout has none and a bare
+# `--locked` aborts ("cannot create the lock file") before the harness builds;
+# a lockfile left over from an older checkout can disagree with Cargo.toml and
+# abort the same way. `cargo update --workspace` creates a missing lockfile or
+# reconciles an existing one with the manifest while keeping already-resolved
+# dependency versions. Then build `--locked` against it and print the lockfile
+# digest: the Candidate SHA alone does not fix dependency versions, so record
+# the digest next to it in docs/hardware-smoke-note.md.
+echo "==> reconciling Cargo.lock with Cargo.toml (cargo update --workspace)"
+cargo update --workspace
+if command -v sha256sum >/dev/null 2>&1; then
+  LOCK_SHA256="$(sha256sum Cargo.lock | cut -d' ' -f1)"
+else
+  # macOS ships `shasum`, not GNU `sha256sum`.
+  LOCK_SHA256="$(shasum -a 256 Cargo.lock | cut -d' ' -f1)"
+fi
+echo "==> Cargo.lock sha256 ${LOCK_SHA256} (record with the Candidate SHA)"
+
 status=0
 SILICON_BRIDGE_BAUD="$BAUD" \
   cargo run --locked --features uart --example uart_host_smoke -- "$SILICON_BRIDGE_PORT" \
@@ -56,6 +75,7 @@ echo "==> A PASS proves only a live UART host session on ONE named board. It is"
 echo "    distinct from the silicon-hdl LED-heartbeat smoke (#68), which is NOT a"
 echo "    silicon-bridge UART host session, and is NOT a crates.io / docs.rs"
 echo "    publication proof."
-echo "==> Record the PASS/FAIL line above in docs/hardware-smoke-note.md (#84)."
+echo "==> Record the PASS/FAIL line above and Cargo.lock sha256 ${LOCK_SHA256} in"
+echo "    docs/hardware-smoke-note.md (#84)."
 
 exit "$status"

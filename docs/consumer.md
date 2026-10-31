@@ -7,10 +7,12 @@ author's workstation. This is the packaged **public** API. Implementation
 modules under `src/` are not part of the contract.
 
 `silicon-bridge` **0.3.0** is published on crates.io and docs.rs (2026-09-17,
-tag `v0.3.0` / `bf5b20d`). `[package].version` in this tree is `0.3.1`, an
+tag `v0.3.0` / `bf5b20d`). `[package].version` in this tree is `0.4.0`, an
 unpublished candidate; an authorized `cargo publish` is a separate
 maintainer action. A README badge is not publication. See
-[release-readiness.md](release-readiness.md).
+[release-readiness.md](release-readiness.md). The candidate is a minor bump
+because it removes and retypes public API that 0.3.0 exports (see the
+changelog); a caret `"0.3.0"` requirement will not pick it up.
 
 ```toml
 silicon-bridge = "0.3.0"
@@ -23,10 +25,10 @@ changelog. To use unreleased `main`, depend on git or a path:
 silicon-bridge = { git = "https://github.com/rmems/silicon-bridge" }
 ```
 
-After an authorized publish makes crates.io serve version 0.3.1:
+After an authorized publish makes crates.io serve version 0.4.0:
 
 ```toml
-silicon-bridge = "0.3.1"
+silicon-bridge = "0.4.0"
 ```
 
 ## Bring your own floats
@@ -98,7 +100,7 @@ named reference, not a multi-board claim.
 
 silicon-hdl also ships `constraints/artix7_trainer.xdc`. That pinout is
 **not** the claimed reference demo (`build_soc.tcl` uses the Basys 3 XDCs
-only). A silicon-bridge UART host session on Basys 3 is the 0.3.1 publish
+only). A silicon-bridge UART host session on Basys 3 is the 0.4.0 publish
 gate ([#84](https://github.com/rmems/silicon-bridge/issues/84)); this
 guide does not flash a board.
 
@@ -221,8 +223,8 @@ Publication is a **separately authorized** action. This guide and the
 examples do not run `cargo publish`, flash an FPGA, or implement NIR (see
 GitHub [#15](https://github.com/rmems/silicon-bridge/issues/15)).
 
-This tree is packaged as **0.3.1**. crates.io / docs.rs serve **0.3.0** only;
-0.3.1 is **not** live until a maintainer runs a real `cargo publish`. After a
+This tree is packaged as **0.4.0**. crates.io / docs.rs serve **0.3.0** only;
+0.4.0 is **not** live until a maintainer runs a real `cargo publish`. After a
 real publish, confirm
 the registry and repeat the packaged-crate smoke test against the **registry**
 version. A path/`cargo package` test does **not** prove crates.io publication.

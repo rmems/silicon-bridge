@@ -6,14 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-### Changed
-
-- **MSRV** raised from 1.88.0 to **1.99.0** (`rust-version`, CI `msrv` job,
-  docs). No code change requires it; consumers on older toolchains must stay on
-  0.3.0.
+The next registry release is **0.4.0**, not 0.3.1. Relative to the published
+0.3.0 this cycle removes `FpgaMetrics::load_from_project`, changes the types of
+`ExportConfig::profile()` and `ExportReport::profile`, turns
+`ExportError::MissingRequiredReadout` from a unit into a struct variant, and
+raises the MSRV (see **Removed** / **Changed** below). Cargo
+treats `silicon-bridge = "0.3.0"` as a caret requirement, so shipping those
+changes as 0.3.1 would break every existing consumer on their next
+`cargo update`; a minor bump keeps them on 0.3.0 until they opt in. Earlier
+revisions of this file carried a `[0.3.1] - 2026-09-17` section for an in-tree
+candidate that was never published; its entries are folded in here.
 
 ### Added
 
+- Pinned silicon-hdl v3 compatibility export profile (#81):
+  `ExportConfig::silicon_hdl_v3()` supports exactly 16 input channels, 16
+  hidden neurons, and 3 output classes, and writes
+  `hdl_readout_neuron_major.mem` as the HDL-native `N×K` readout image while
+  preserving the generic `parameters_output_weights.mem` `K×N` contract.
+- Versioned Host/HDL contract documentation in
+  `docs/host-hdl-contract.md`, including Q8.8 signedness, truncation,
+  overflow rejection, filenames, reset/timestep assumptions, the pinned
+  silicon-hdl revision, and SiliconBridge v3.0 UART frame sizes.
 - NIR import (#15). `FpgaParameterExporter::from_nir` / `from_nir_with`
   (`nir` feature) map a `nir_rs::NirGraph` of the form `Input → Linear|Affine
   → LIF|IF|Threshold → [Linear|Affine] → Output` onto thresholds, weights,
@@ -38,7 +52,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `rust-version` floor is continuously enforced alongside the moving `stable`
   lane. The optional `nir` feature is excluded from MSRV CI because `nir-rs`
   carries a higher toolchain floor (#87).
-
+- `[package.metadata.docs.rs] features = ["uart", "nir"]` so docs.rs renders the
+  `FpgaBridge` and NIR-mapping APIs and the crate-root links to them. CI runs
+  rustdoc with that exact feature set and again with default features, so the
+  root docs stay warning-free both on docs.rs and in a consumer's own
+  `cargo doc`.
 - `ExportContract::custom`, `ExportConfig::from_contract`, and
   `ReadoutContract` let downstream HDL consumers define their own profile id,
   schema id, filenames, and readout rule without inheriting Spikenaut or
@@ -54,11 +72,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   before the authorized publish. The harness reads an explicit port only (no
   auto-probe), stays out of default CI, and is distinct from the silicon-hdl
   LED-heartbeat smoke ([#68](https://github.com/rmems/silicon-hdl/issues/68)),
-  which is not a UART host session. `cargo publish` of the current 0.3.1
+  which is not a UART host session. `cargo publish` of the current 0.4.0
   candidate is held until a recorded Basys 3 UART host session (#84) plus
   explicit maintainer go-ahead.
 
-### Changed
+### Removed
 
 - **Breaking:** `FpgaMetrics::load_from_project()` is removed. It read fixed
   `fpga-project/ship_ssn_logic.runs/impl_1/Basys3_Top_*.rpt` paths from one
@@ -68,6 +86,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `load_from_reports(timing, utilization)` for arbitrary paths. The old call is
   `load_from_impl_run("fpga-project/ship_ssn_logic.runs/impl_1", "Basys3_Top")`
   (#105).
+
+### Changed
+
+- **Breaking:** `[package].version` is `0.4.0`; the never-published 0.3.1
+  candidate number is retired. Installation snippets in README, crate rustdoc,
+  and `docs/consumer.md` name 0.4.0 as the post-publish line.
+- **MSRV** raised from 1.88.0 to **1.99.0** (`rust-version`, CI `msrv` job,
+  docs). No code change requires it; consumers on older toolchains must stay on
+  0.3.0.
 - `FpgaMetrics::load_from_path` and `load_from_reports` take
   `impl AsRef<Path>` instead of `&str`, matching `fpga_export`; existing `&str`
   callers compile unchanged and `Path`/`PathBuf` (including non-UTF-8 paths)
@@ -77,37 +104,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `silicon-hdl-v3-profile-v2` because compatibility metadata now replaces
   the silicon-hdl-specific `silicon_hdl_revision` field with a generic
   `reference` object.
-- `ExportReport::profile` is now a `String` profile id, and
+- **Breaking:** `ExportReport::profile` is now a `String` profile id, and
   `ExportConfig::profile()` now returns `&str`, so custom contracts are not
   forced through the closed `ExportProfile` enum.
-- `ExportError::ImmutableFileLayout`, `ExportError::MissingRequiredReadout`,
-  and `ExportError::UnsupportedCompatibilityShape` now carry `String` profile
-  ids. Callers constructing those variants with string literals should use
-  `.into()` or `.to_owned()`.
+- **Breaking:** `ExportError::MissingRequiredReadout` is now a struct variant
+  carrying the `profile: String` that required the readout. 0.3.0 code that
+  matches the bare unit variant must change to
+  `ExportError::MissingRequiredReadout { .. }`. The new
+  `ExportError::ImmutableFileLayout` and
+  `ExportError::UnsupportedCompatibilityShape` variants carry `String` profile
+  ids as well; `ExportError` is `#[non_exhaustive]`, so adding them is not
+  itself a break.
 - `ExportContract::custom` rejects blank profile/schema ids and keeps
   non-overwriting defaults even if a caller chooses an id that matches a
   predefined legacy profile.
+- `examples/spikenaut_profile_export.rs` writes through
+  `write_with_config(ExportConfig::legacy_spikenaut_v2().with_timestamp(..))`
+  so the pinned timestamp it advertises actually reaches `parameters.json`.
+  `FpgaParameterExporter::set_timestamp`, `use_wall_clock_timestamp`, and
+  `set_format_version` now document that they shape `try_export` output only;
+  every disk writer stamps metadata from its `ExportConfig`.
+- `scripts/smoke-hardware-uart.sh` runs `cargo update --workspace` before
+  `cargo run --locked`, so a fresh checkout (where the gitignored `Cargo.lock`
+  is missing) or a stale lockfile no longer aborts the hardware smoke before it
+  builds. It prints the `Cargo.lock` SHA-256 for the new matching field in
+  `docs/hardware-smoke-note.md`, so recorded evidence names its dependency set.
 
-## [0.3.1] - 2026-09-17
+### Fixed
 
-### Added
-
-- Pinned silicon-hdl v3 compatibility export profile (#81):
-  `ExportConfig::silicon_hdl_v3()` records
-  `silicon-bridge-silicon-hdl-v3-contract-v1`, supports exactly 16 input
-  channels, 16 hidden neurons, and 3 output classes, and writes
-  `hdl_readout_neuron_major.mem` as the HDL-native `N×K` readout image while
-  preserving the generic `parameters_output_weights.mem` `K×N` contract.
-- Versioned Host/HDL contract documentation in
-  `docs/host-hdl-contract.md`, including Q8.8 signedness, truncation,
-  overflow rejection, filenames, reset/timestep assumptions, the pinned
-  silicon-hdl revision, and SiliconBridge v3.0 UART frame sizes.
-
-### Changed
-
-- The crate version and installation snippets now target `0.3.1`. Publication
-  remains a separately authorized action; this change does not tag, publish,
-  or create a GitHub Release.
+- `FpgaMetrics::synthesis_ok` is derived from the Vivado report instead of
+  being hard-coded `true` (#104, #125).
+- `FpgaBridge::recover()` restores the activity latch after a failed `ping()`
+  (#93, #94).
 
 ## [0.3.0] - 2026-09-17
 

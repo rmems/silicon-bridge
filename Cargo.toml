@@ -1,6 +1,6 @@
 [package]
 name = "silicon-bridge"
-version = "0.3.1"
+version = "0.4.0"
 authors = ["Raul Cardenas Montoya <montoyaraul34@gmail.com>"]
 edition = "2024"
 # Raised to 1.99.0 (stable at 2026-10-01) by explicit decision; the language
@@ -43,6 +43,17 @@ include = [
 [lib]
 name = "silicon_bridge"
 path = "src/lib.rs"
+
+# docs.rs builds default features unless told otherwise, which hid the whole
+# `FpgaBridge` API and left the crate-root links to it unresolved. The docs.rs
+# build image (rust-lang/crates-build-env `linux`) ships `libudev-dev`, so the
+# `uart` feature documents there. `nir` adds `from_nir` / `NirMapOptions` and
+# links no native library (docs.rs builds on nightly, above `nir-rs`'s floor).
+# `nir-io` is left out on purpose: it links native libhdf5 for `nir_rs::io`.
+# Its three re-exports (`LoadNirError`, `load_nir_to_mem`, `load_nir_to_mem_with`)
+# therefore do not appear on docs.rs.
+[package.metadata.docs.rs]
+features = ["uart", "nir"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

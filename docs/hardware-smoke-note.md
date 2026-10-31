@@ -3,7 +3,7 @@
 # Basys 3 UART host-session smoke note
 
 This note records a live **silicon-bridge UART host session** on one named
-reference board. It is the recorded evidence for the 0.3.1 publish gate tracked
+reference board. It is the recorded evidence for the 0.4.0 publish gate tracked
 in GitHub [#84](https://github.com/rmems/silicon-bridge/issues/84).
 
 **Status: not yet recorded.** No silicon-bridge UART host session has been run
@@ -47,6 +47,7 @@ not against the note's commit.
 |---|---|
 | silicon-bridge Candidate SHA | _<fill in: the commit to be tagged/published, i.e. `git -C silicon-bridge rev-parse HEAD` taken before committing this note>_ |
 | silicon-hdl HEAD SHA | _<fill in: `git -C silicon-hdl rev-parse HEAD`>_ |
+| `Cargo.lock` SHA-256 | _<fill in: the `Cargo.lock sha256 …` line printed by `scripts/smoke-hardware-uart.sh`; `Cargo.lock` is gitignored, so the Candidate SHA alone does not fix dependency versions>_ |
 | Serial port | _<fill in: e.g. `/dev/ttyUSB0`>_ |
 | Baud rate | _<fill in: e.g. `115200`>_ |
 | Exact commands run | _<fill in: copied verbatim>_ |
