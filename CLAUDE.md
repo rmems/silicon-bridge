@@ -21,7 +21,7 @@ API, feature-gate hardware I/O, and keep Rust edition **2024**.
 | `cargo test` | Unit tests and doctests |
 | `cargo fmt --check` | Formatting gate |
 | `cargo clippy --all-targets -- -D warnings` | Lint gate (default features) |
-| `cargo clippy --all-targets --all-features -- -D warnings` | Lint gate with UART (needs `libudev` on Linux) |
+| `cargo clippy --all-targets --all-features -- -D warnings` | Lint gate with UART and `nir-io` (needs `libudev-dev` and `libhdf5-dev` on Linux) |
 | `cargo check --features uart` | UART feature compile (needs `serialport` / `libudev` on Linux) |
 | `cargo fuzz build --dev --sanitizer none` | Compile-only fuzz targets (opt-in campaign via `cargo fuzz run`) |
 | `cargo build --release` | Optimized library build |
@@ -50,10 +50,11 @@ See [`docs/release-readiness.md`](docs/release-readiness.md).
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test
-cargo clippy --all-targets --all-features -- -D warnings   # needs libudev on Linux
-cargo test --all-features                              # needs libudev on Linux
+cargo clippy --all-targets --all-features -- -D warnings   # needs libudev-dev, libhdf5-dev on Linux
+cargo test --all-features                              # needs libudev-dev, libhdf5-dev on Linux
 cargo check --features uart   # needs serialport / libudev on Linux
 ```
 
 UART is gated behind `#[cfg(feature = "uart")]`. Prefer `cargo test` without
-`--all-features` on runners that lack `libudev-dev` unless the workflow installs it.
+`--all-features` on runners that lack `libudev-dev` or `libhdf5-dev` (the `nir-io`
+feature links native HDF5) unless the workflow installs them.

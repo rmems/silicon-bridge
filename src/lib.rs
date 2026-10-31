@@ -191,6 +191,8 @@ mod fpga_codec;
 pub mod fpga_codec_v4;
 mod fpga_export;
 mod fpga_metrics;
+#[cfg(feature = "nir")]
+mod nir_map;
 
 #[cfg(feature = "uart")]
 mod fpga_bridge;
@@ -219,10 +221,17 @@ pub use fpga_metrics::FpgaMetrics;
 
 /// Re-export of the upstream `nir-rs` crate for optional NIR interoperability.
 ///
-/// Enable the `nir` feature to use the shared NIR type surface without adding
-/// NIR HDF5 graph I/O to silicon-bridge itself.
+/// Enable the `nir` feature to use the shared NIR type surface and
+/// [`FpgaParameterExporter::from_nir`]. `.nir` (HDF5) file I/O is the separate
+/// `nir-io` feature and lives in `nir_rs::io`; silicon-bridge has no HDF5
+/// decoder of its own.
 #[cfg(feature = "nir")]
 pub use nir_rs as nir;
+
+#[cfg(feature = "nir")]
+pub use nir_map::{DEFAULT_DT, MapError, NirMapOptions};
+#[cfg(feature = "nir-io")]
+pub use nir_map::{LoadNirError, load_nir_to_mem, load_nir_to_mem_with};
 
 pub use fpga_codec::{
     CodecError, DENSE_Q88_SYNC, DenseQ88Layout, MAX_DENSE_CHANNELS, SILICON_BRIDGE_V3_CHANNELS,

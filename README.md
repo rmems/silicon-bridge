@@ -48,6 +48,12 @@ stimuli and reading back spike states at runtime.
   only — not FPGA identity. `list_serial_ports()` returns enumerator
   errors instead of an empty list. On Linux, enumeration typically needs
   `libudev`; opening a named path does not.
+- `FpgaParameterExporter::from_nir` — map a
+  [`nir-rs`](https://github.com/Limen-Neural/nir-rs) `NirGraph`
+  (`Input → Linear|Affine → LIF|IF|Threshold → [Linear|Affine] → Output`) onto
+  thresholds, weights, decay, and an optional readout (`nir` feature);
+  `load_nir_to_mem` goes from a `.nir` file to a `.mem` bundle (`nir-io`
+  feature). See [NIR import](#nir-import-nir-and-nir-io-features).
 - `FpgaMetrics` — Vivado report parser for CI/CD gating: **WNS** and **TNS**
   from timing summary reports, **LUT utilization** from `report_utilization`
   reports (missing TNS or LUT values degrade to `0.0`)
@@ -137,12 +143,20 @@ Optional UART I/O:
 silicon-bridge = { git = "https://github.com/rmems/silicon-bridge", features = ["uart"] }
 ```
 
-Optional NIR interop dependency, for downstream crates that want to access
-the upstream NIR type surface re-exported as `silicon_bridge::nir` without
-adding an HDF5 reader here:
+Optional NIR import. `nir` re-exports the upstream type surface as
+`silicon_bridge::nir` and enables `FpgaParameterExporter::from_nir`; `nir-io`
+adds `.nir` (HDF5) file loading through `nir_rs::io` and links the native
+libhdf5 library (`libhdf5-dev` on Debian/Ubuntu, `hdf5` on Homebrew). There is
+no HDF5 decoder in this crate:
 
 ```toml
 silicon-bridge = { git = "https://github.com/rmems/silicon-bridge", features = ["nir"] }
+```
+
+or, with `.nir` file loading:
+
+```toml
+silicon-bridge = { git = "https://github.com/rmems/silicon-bridge", features = ["nir-io"] }
 ```
 
 The default feature set does not depend on `nir-rs`. The `nir` feature pins
@@ -301,6 +315,53 @@ unframed v3 reply cannot detect every stale same-length frame. `ping()`
 sends a real 16-channel stimulus of `0.1` — it is not passive discovery.
 Nothing in this API returns a `Future`, and no async executor is required.
 
+### NIR import (`nir` and `nir-io` features)
+
+[NIR](https://github.com/neuromorphs/NIR) is the interchange format for
+spiking networks. [`nir-rs`](https://github.com/Limen-Neural/nir-rs) owns the
+typed graph and the HDF5 `.nir` reader; silicon-bridge maps the graph onto the
+dense Q8.8 layout and refuses what that layout cannot represent.
+
+```rust,no_run
+// features = ["nir-io"]; needs libhdf5
+use silicon_bridge::{NirMapOptions, load_nir_to_mem_with};
+
+// `dt` is the FPGA step in the same unit as the NIR time constants (seconds).
+let options = NirMapOptions::default().with_dt(1.0e-3);
+let report = load_nir_to_mem_with("model.nir", "out/", &options)?;
+println!("{} neurons x {} inputs", report.num_neurons, report.num_channels);
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+With only the `nir` feature, build or load the graph yourself and call
+`FpgaParameterExporter::from_nir(&graph)` (or `from_nir_with`), then use the
+usual `try_export` / `write_generic`.
+
+Supported shape: one chain `Input → [Flatten] → Linear|Affine → LIF|IF|Threshold
+→ [Linear|Affine readout] → Output`. Time constants are discretized with
+forward Euler at `dt` (`α = dt/τ`): `LIF` gives `decay = 1 − α` and folds
+`R·α` into each weight row; `IF` gives `decay = 1` and folds `R·dt`;
+`Threshold` is stateless (`decay = 0`). Values are then quantized by the normal
+signed Q8.8 path, so out-of-range results are rejected, not clamped. A neuron
+whose whole non-zero weight row, or a non-zero threshold, underflows to zero
+(for example `IF` with `R = 1` at the default `dt`) is rejected too; raise
+`dt` or rescale the network.
+
+Every NIR node type is handled. The rest return `MapError::Unsupported` naming
+the node:
+
+| Wire type | Outcome |
+|---|---|
+| `Input`, `Output`, `Flatten` | endpoints / transparent |
+| `Linear`, `Affine` | weights and readout (non-zero bias refused) |
+| `LIF`, `IF`, `Threshold` | thresholds + decay (non-zero `v_leak` / `v_reset` refused) |
+| `CubaLIF`, `CubaLI` | refused: dual-tau needs a second state variable per neuron |
+| `LI`, `I`, `Scale`, `Delay` | refused: no equivalent in the dense layout |
+| `Conv1d`, `Conv2d`, `SumPool2d`, `AvgPool2d`, nested `NIRGraph` | refused until an FPGA path exists |
+
+Recurrent edges, fan-out, and more than one spiking layer are also refused.
+Writing a silicon-bridge graph back to NIR is not implemented.
+
 ## Q8.8 Fixed-Point Format
 
 Q8.8 always means “value × 256 packed into a 16-bit word”, truncated toward
@@ -368,6 +429,8 @@ silently. UART `encode_q88_signed(-128.0)` is `8003`; parameter `.mem` is
 |---|---|---|---|
 | Export-only | default | yes | no |
 | Pure codec (`encode_stimuli` / `decode_response`) | default | yes (`dense_codec` example) | no |
+| NIR graph → parameters | `nir` | yes (`tests/nir_mapping.rs`) | no |
+| `.nir` file → `.mem` | `nir-io` + native libhdf5 | yes (`tests/nir_import.rs`, vendored fixtures) | no |
 | Optional synchronous UART | `uart` + native `serialport` | compile + unit tests on Linux CI (#24) | **explicit device only**; live I/O only in `uart_host_smoke` (`--features uart`) |
 
 Evidence classes: **OS compilation** (CI #24: Linux/macOS/Windows; Linux `uart`
@@ -497,7 +560,7 @@ to `main` and every pull request. No secrets are required.
 | `test (ubuntu-latest)` | Linux | `cargo clippy --all-targets -- -D warnings`, `cargo build`, `cargo test` |
 | `test (macos-latest)` | macOS | same as above |
 | `test (windows-latest)` | Windows | same as above |
-| `uart (ubuntu-latest)` | Linux | installs `libudev-dev`, then `cargo clippy --all-targets --all-features -- -D warnings`, `cargo check --features uart`, `cargo test --all-features`, `cargo test --all-features --examples`, and `cargo doc --no-deps --features uart` with `RUSTDOCFLAGS: -D warnings` |
+| `uart (ubuntu-latest)` | Linux | installs `libudev-dev` and `libhdf5-dev` (for `nir-io`), then `cargo clippy --all-targets --all-features -- -D warnings`, `cargo check --features uart`, `cargo test --all-features`, `cargo test --all-features --examples`, and `cargo doc --no-deps --features uart` with `RUSTDOCFLAGS: -D warnings` |
 | `fuzz-build (ubuntu-latest)` | Linux | nightly + `cargo fuzz build --dev --sanitizer none` (compile only; no campaign, no serial I/O) |
 
 The `test` matrix uses default features and has `fail-fast: false`, so one OS

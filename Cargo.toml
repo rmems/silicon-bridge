@@ -55,6 +55,9 @@ nir-rs = { version = "=0.4.5", optional = true, default-features = false }
 default = []
 uart = ["serialport"]
 nir = ["dep:nir-rs"]
+# Opt-in `.nir` (HDF5) file I/O via `nir_rs::io`. Links native libhdf5, so it is
+# kept out of `default` and out of the MSRV job.
+nir-io = ["nir", "nir-rs/hdf5"]
 
 [dev-dependencies]
 tempfile = "3.10"
