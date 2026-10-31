@@ -78,6 +78,8 @@ cargo build --features uart # enable UART bridge (requires serialport)
 Feature flags:
 
 - `uart` — enables `FpgaBridge` and `find_fpga_ports` (requires `serialport` crate)
+- `nir` — `silicon_bridge::nir` re-export and `FpgaParameterExporter::from_nir` (requires `nir-rs`)
+- `nir-io` — `load_nir_to_mem` (`nir` + `nir-rs/hdf5`; needs native libhdf5, e.g. `libhdf5-dev`)
 
 ## Testing instructions (recommended)
 
@@ -96,6 +98,8 @@ Tests live inline in source files, plus the #53 golden-contract suite:
 | `tests/q88_properties.rs` | integration / proptest | Exhaustive signed/unsigned Q8.8 word round-trips, UART clamp, saturation, non-finite inputs (RM-1352) |
 | `tests/codec_properties.rs` | integration / proptest | Dense-layout encode→decode, truncation, garbage prefix/suffix, chunk-split decoder stability (RM-1352) |
 | `tests/fuzz_regressions.rs` | integration | Deterministic cases promoted from fuzz boundaries / artifacts (RM-1352) |
+| `tests/nir_mapping.rs` | integration (`nir` feature) | In-memory `NirGraph` → exporter mapping for every `NirNode` wire type, refusals, topology and shape errors (#15) |
+| `tests/nir_import.rs` | integration (`nir-io` feature, needs libhdf5) | Vendored upstream `.nir` fixtures (`tests/fixtures/nir/`) → Q8.8 `.mem`, and refusals (#15) |
 | `fuzz/` | libFuzzer (opt-in run) | Pure codec targets; CI compiles only (`cargo fuzz build`). Seeds from `tests/golden/` |
 
 `tests/golden/` is the committed expected output (not encoder-generated).

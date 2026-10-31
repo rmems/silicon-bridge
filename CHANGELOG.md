@@ -28,6 +28,21 @@ candidate that was never published; its entries are folded in here.
   `docs/host-hdl-contract.md`, including Q8.8 signedness, truncation,
   overflow rejection, filenames, reset/timestep assumptions, the pinned
   silicon-hdl revision, and SiliconBridge v3.0 UART frame sizes.
+- NIR import (#15). `FpgaParameterExporter::from_nir` / `from_nir_with`
+  (`nir` feature) map a `nir_rs::NirGraph` of the form `Input → Linear|Affine
+  → LIF|IF|Threshold → [Linear|Affine] → Output` onto thresholds, weights,
+  decay, and an optional readout, with `NirMapOptions { dt }` forward-Euler
+  discretization. The match over `NirNode` is exhaustive; `CubaLIF`/`CubaLI`
+  (dual-tau), `LI`, `I`, `Scale`, `Delay`, `Conv1d`/`Conv2d`,
+  `SumPool2d`/`AvgPool2d`, nested graphs, non-zero bias/`v_leak`/`v_reset`,
+  recurrence, and multiple spiking layers return `MapError::Unsupported`.
+  New `nir-io` feature (`nir` + `nir-rs/hdf5`, links libhdf5) adds
+  `load_nir_to_mem` / `load_nir_to_mem_with`, which read via `nir_rs::io::read`
+  and write the generic dense bundle. No HDF5 code or direct `hdf5` dependency
+  is added here. Tests vendor five upstream NIR paper fixtures
+  (`tests/fixtures/nir/`, BSD-3-Clause, byte-identical). CI installs
+  `libhdf5-dev` on the all-features job; `nir-io` stays out of default and MSRV
+  jobs.
 - Opt-in `FpgaBridge::exchange_v4` (after `enable_uart_v4`) using the UART v4
   codec. Refused before any write unless enabled; default v3 paths unchanged.
   Requires separately pinned matching `silicon-hdl` firmware; no board parity
@@ -37,16 +52,17 @@ candidate that was never published; its entries are folded in here.
   `rust-version` floor is continuously enforced alongside the moving `stable`
   lane. The optional `nir` feature is excluded from MSRV CI because `nir-rs`
   carries a higher toolchain floor (#87).
-- `[package.metadata.docs.rs] features = ["uart"]` so docs.rs renders the
-  `FpgaBridge` API and the crate-root links to it, and a default-feature
+- `[package.metadata.docs.rs] features = ["uart", "nir"]` so docs.rs renders the
+  `FpgaBridge` and NIR-mapping APIs and the crate-root links to them, and a default-feature
   `cargo doc` step in CI so the root docs stay warning-free with or without
   the `uart` feature.
 - `ExportContract::custom`, `ExportConfig::from_contract`, and
   `ReadoutContract` let downstream HDL consumers define their own profile id,
   schema id, filenames, and readout rule without inheriting Spikenaut or
   silicon-hdl metadata.
-- The optional `nir` feature now re-exports `nir-rs` as `silicon_bridge::nir`
-  for downstream NIR type interop without adding NIR HDF5 graph I/O here.
+- The optional `nir` feature re-exports `nir-rs` as `silicon_bridge::nir`
+  for downstream NIR type interop (HDF5 I/O is the separate `nir-io` feature,
+  delegated to `nir_rs::io`).
 - In-repo hardware-evidence publish gate (#84): `docs/hardware-smoke-note.md`
   (fill-in evidence template), `scripts/smoke-hardware-uart.sh`, and
   `examples/uart_host_smoke.rs` (`uart` feature) let a maintainer run and

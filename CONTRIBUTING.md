@@ -28,8 +28,9 @@ Dual-licensed under the [MIT](LICENSE-MIT) license or the
 ## `uart` system packages
 
 The `uart` feature depends on `serialport`. On Linux, building it needs
-`pkg-config` and `libudev-dev`. [`.agents/setup`](.agents/setup) installs
-both (with `build-essential`). macOS and Windows do not need `libudev`.
+`pkg-config` and `libudev-dev`. `--all-features` also enables `nir-io`, which
+links native HDF5 and needs `libhdf5-dev` on Linux. [`.agents/setup`](.agents/setup)
+installs these (with `build-essential`). macOS and Windows do not need `libudev`.
 
 Enumeration (`list_serial_ports`) needs `libudev` on Linux. Opening a
 caller-selected path does not. Default-feature builds do not link
@@ -45,8 +46,8 @@ before coverage in [`.github/workflows/quality.yml`](.github/workflows/quality.y
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test
-cargo clippy --all-targets --all-features -- -D warnings   # needs libudev on Linux
-cargo test --all-features                                  # needs libudev on Linux
+cargo clippy --all-targets --all-features -- -D warnings   # needs libudev-dev, libhdf5-dev on Linux
+cargo test --all-features                                  # needs libudev-dev, libhdf5-dev on Linux
 cargo test --all-features --examples                       # example #[test]s; uart job
 cargo check --features uart   # needs serialport / libudev on Linux
 ```
@@ -76,7 +77,7 @@ request and on pushes to `main`. The workflow does not use secrets.
 | `msrv (1.99.0, ubuntu-latest)` | Rust **1.99.0**: `cargo check --all-targets`, `cargo test`, then both again with `--features uart` after installing `libudev-dev`. `nir` stays off this job. |
 | `fmt (ubuntu-latest)` | stable + rustfmt: `cargo fmt --check` and `cargo fmt --check --manifest-path fuzz/Cargo.toml` |
 | `test` (`ubuntu-latest`, `macos-latest`, `windows-latest`) | stable + clippy, default features: `cargo clippy --all-targets -- -D warnings`, `cargo build`, `cargo test`. `fail-fast: false`. |
-| `uart (ubuntu-latest)` | `libudev-dev`, then `cargo clippy --all-targets --all-features -- -D warnings`, `cargo check --features uart`, `cargo test --all-features`, `cargo test --all-features --examples`, and `cargo doc --no-deps --features uart` with `RUSTDOCFLAGS=-D warnings` |
+| `uart (ubuntu-latest)` | `libudev-dev` and `libhdf5-dev`, then `cargo clippy --all-targets --all-features -- -D warnings`, `cargo check --features uart`, `cargo test --all-features`, `cargo test --all-features --examples`, and `cargo doc --no-deps --features uart` with `RUSTDOCFLAGS=-D warnings` |
 | `fuzz-build (ubuntu-latest)` | nightly, `g++`, `cargo install cargo-fuzz --locked`, then `cargo +nightly fuzz build --dev --sanitizer none` (`CC=gcc`, `CXX=g++`, linker `g++`). Compile only. |
 
 The `uart` job runs unit tests only. CI runners have no serial hardware.

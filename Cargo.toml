@@ -47,10 +47,12 @@ path = "src/lib.rs"
 # docs.rs builds default features unless told otherwise, which hid the whole
 # `FpgaBridge` API and left the crate-root links to it unresolved. The docs.rs
 # build image (rust-lang/crates-build-env `linux`) ships `libudev-dev`, so the
-# `uart` feature documents there. `nir` is left out: `nir-rs` pins its own,
-# higher toolchain floor and adds nothing to this crate's rendered surface.
+# `uart` feature documents there. `nir` adds `from_nir` / `NirMapOptions` and
+# links no native library (docs.rs builds on nightly, above `nir-rs`'s floor).
+# `nir-io` is left out: it links native libhdf5 for `nir_rs::io`, which adds
+# only the two `load_nir_to_mem*` wrappers to the rendered surface.
 [package.metadata.docs.rs]
-features = ["uart"]
+features = ["uart", "nir"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -63,6 +65,9 @@ nir-rs = { version = "=0.4.5", optional = true, default-features = false }
 default = []
 uart = ["serialport"]
 nir = ["dep:nir-rs"]
+# Opt-in `.nir` (HDF5) file I/O via `nir_rs::io`. Links native libhdf5, so it is
+# kept out of `default` and out of the MSRV job.
+nir-io = ["nir", "nir-rs/hdf5"]
 
 [dev-dependencies]
 tempfile = "3.10"

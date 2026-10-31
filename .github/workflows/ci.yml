@@ -137,10 +137,12 @@ jobs:
           components: clippy
           toolchain: stable
 
-      - name: Install libudev
+      # libhdf5-dev: `--all-features` includes `nir-io`, whose `nir-rs/hdf5`
+      # links the native HDF5 library.
+      - name: Install libudev and libhdf5
         run: |
           sudo apt-get update
-          sudo apt-get install -y libudev-dev
+          sudo apt-get install -y libudev-dev libhdf5-dev
 
       - name: Cache cargo registry
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
@@ -178,7 +180,7 @@ jobs:
         run: cargo doc --no-deps --features uart
 
       # The crate-root docs mention `uart`-only items. docs.rs builds with
-      # `features = ["uart"]` (Cargo.toml `[package.metadata.docs.rs]`), but a
+      # `features = ["uart", "nir"]` (Cargo.toml `[package.metadata.docs.rs]`), but a
       # consumer's own `cargo doc` runs with default features; keep that build
       # warning-free too so a link to a feature-gated item cannot slip back in.
       - name: Rustdoc (deny warnings, default features)
