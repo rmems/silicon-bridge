@@ -173,11 +173,13 @@ jobs:
       # AGENTS.md bans relative links to licence files in doc comments because
       # they break on docs.rs — a rule that exists precisely because nothing
       # rendered the docs. This runs on the uart job because libudev is already
-      # installed here, so `--features uart` covers every public item at once.
-      - name: Rustdoc (deny warnings)
+      # installed here. `uart,nir` is the exact feature set docs.rs builds
+      # (Cargo.toml `[package.metadata.docs.rs]`), so a `nir`-gated doc warning
+      # cannot reach docs.rs unseen; `nir-io` adds no rendered items of its own.
+      - name: Rustdoc (deny warnings, docs.rs features)
         env:
           RUSTDOCFLAGS: -D warnings
-        run: cargo doc --no-deps --features uart
+        run: cargo doc --no-deps --features uart,nir
 
       # The crate-root docs mention `uart`-only items. docs.rs builds with
       # `features = ["uart", "nir"]` (Cargo.toml `[package.metadata.docs.rs]`), but a

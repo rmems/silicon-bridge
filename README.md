@@ -567,7 +567,7 @@ to `main` and every pull request. No secrets are required.
 | `test (ubuntu-latest)` | Linux | `cargo clippy --all-targets -- -D warnings`, `cargo build`, `cargo test` |
 | `test (macos-latest)` | macOS | same as above |
 | `test (windows-latest)` | Windows | same as above |
-| `uart (ubuntu-latest)` | Linux | installs `libudev-dev` and `libhdf5-dev` (for `nir-io`), then `cargo clippy --all-targets --all-features -- -D warnings`, `cargo check --features uart`, `cargo test --all-features`, `cargo test --all-features --examples`, and `cargo doc --no-deps` both with `--features uart` and with default features, each under `RUSTDOCFLAGS: -D warnings` (docs.rs builds with `features = ["uart", "nir"]`; the default-feature pass keeps the root docs link-clean without it) |
+| `uart (ubuntu-latest)` | Linux | installs `libudev-dev` and `libhdf5-dev` (for `nir-io`), then `cargo clippy --all-targets --all-features -- -D warnings`, `cargo check --features uart`, `cargo test --all-features`, `cargo test --all-features --examples`, and `cargo doc --no-deps` both with `--features uart,nir` (the exact docs.rs feature set) and with default features, each under `RUSTDOCFLAGS: -D warnings` (the default-feature pass keeps the root docs link-clean without either feature) |
 | `fuzz-build (ubuntu-latest)` | Linux | nightly + `cargo fuzz build --dev --sanitizer none` (compile only; no campaign, no serial I/O) |
 
 The `test` matrix uses default features and has `fail-fast: false`, so one OS

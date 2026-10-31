@@ -53,9 +53,10 @@ candidate that was never published; its entries are folded in here.
   lane. The optional `nir` feature is excluded from MSRV CI because `nir-rs`
   carries a higher toolchain floor (#87).
 - `[package.metadata.docs.rs] features = ["uart", "nir"]` so docs.rs renders the
-  `FpgaBridge` and NIR-mapping APIs and the crate-root links to them, and a default-feature
-  `cargo doc` step in CI so the root docs stay warning-free with or without
-  the `uart` feature.
+  `FpgaBridge` and NIR-mapping APIs and the crate-root links to them. CI runs
+  rustdoc with that exact feature set and again with default features, so the
+  root docs stay warning-free both on docs.rs and in a consumer's own
+  `cargo doc`.
 - `ExportContract::custom`, `ExportConfig::from_contract`, and
   `ReadoutContract` let downstream HDL consumers define their own profile id,
   schema id, filenames, and readout rule without inheriting Spikenaut or
