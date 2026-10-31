@@ -170,7 +170,7 @@
 //! `list_serial_ports` typically does. These items exist only with the `uart`
 //! feature, so they are written as plain code here rather than intra-doc
 //! links: a default-feature `cargo doc` has no target for them, and docs.rs
-//! (which builds this crate with `features = ["uart"]`) lists them in the
+//! (which builds this crate with `features = ["uart", "nir"]`) lists them in the
 //! sidebar.
 //!
 //! Frame encode/decode is [`encode_stimuli`] / [`decode_response`] and does

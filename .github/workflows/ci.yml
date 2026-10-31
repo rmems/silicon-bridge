@@ -175,7 +175,9 @@ jobs:
       # rendered the docs. This runs on the uart job because libudev is already
       # installed here. `uart,nir` is the exact feature set docs.rs builds
       # (Cargo.toml `[package.metadata.docs.rs]`), so a `nir`-gated doc warning
-      # cannot reach docs.rs unseen; `nir-io` adds no rendered items of its own.
+      # cannot reach docs.rs unseen. `nir-io` (which adds `LoadNirError` and the
+      # `load_nir_to_mem*` re-exports) is excluded on purpose: it links native
+      # HDF5, so those three items are documented only by `--all-features`.
       - name: Rustdoc (deny warnings, docs.rs features)
         env:
           RUSTDOCFLAGS: -D warnings

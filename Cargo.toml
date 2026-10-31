@@ -49,8 +49,9 @@ path = "src/lib.rs"
 # build image (rust-lang/crates-build-env `linux`) ships `libudev-dev`, so the
 # `uart` feature documents there. `nir` adds `from_nir` / `NirMapOptions` and
 # links no native library (docs.rs builds on nightly, above `nir-rs`'s floor).
-# `nir-io` is left out: it links native libhdf5 for `nir_rs::io`, which adds
-# only the two `load_nir_to_mem*` wrappers to the rendered surface.
+# `nir-io` is left out on purpose: it links native libhdf5 for `nir_rs::io`.
+# Its three re-exports (`LoadNirError`, `load_nir_to_mem`, `load_nir_to_mem_with`)
+# therefore do not appear on docs.rs.
 [package.metadata.docs.rs]
 features = ["uart", "nir"]
 
