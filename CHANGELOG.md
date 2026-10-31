@@ -124,9 +124,11 @@ candidate that was never published; its entries are folded in here.
   `FpgaParameterExporter::set_timestamp`, `use_wall_clock_timestamp`, and
   `set_format_version` now document that they shape `try_export` output only;
   every disk writer stamps metadata from its `ExportConfig`.
-- `scripts/smoke-hardware-uart.sh` no longer passes `--locked` to `cargo run`:
-  `Cargo.lock` is gitignored, so on a fresh checkout the flag aborted the
-  hardware smoke before it built.
+- `scripts/smoke-hardware-uart.sh` runs `cargo update --workspace` before
+  `cargo run --locked`, so a fresh checkout (where the gitignored `Cargo.lock`
+  is missing) or a stale lockfile no longer aborts the hardware smoke before it
+  builds. It prints the `Cargo.lock` SHA-256 for the new matching field in
+  `docs/hardware-smoke-note.md`, so recorded evidence names its dependency set.
 
 ### Fixed
 
