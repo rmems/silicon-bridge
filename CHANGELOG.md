@@ -9,8 +9,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 The next registry release is **0.4.0**, not 0.3.1. Relative to the published
 0.3.0 this cycle removes `FpgaMetrics::load_from_project`, changes the types of
 `ExportConfig::profile()` and `ExportReport::profile`, turns
-`ExportError::MissingRequiredReadout` from a unit into a struct variant, and
-raises the MSRV (see **Removed** / **Changed** below). Cargo
+`ExportError::MissingRequiredReadout` from a unit into a struct variant (see
+**Removed** / **Changed** below). Cargo
 treats `silicon-bridge = "0.3.0"` as a caret requirement, so shipping those
 changes as 0.3.1 would break every existing consumer on their next
 `cargo update`; a minor bump keeps them on 0.3.0 until they opt in. Earlier
@@ -47,11 +47,11 @@ candidate that was never published; its entries are folded in here.
   codec. Refused before any write unless enabled; default v3 paths unchanged.
   Requires separately pinned matching `silicon-hdl` firmware; no board parity
   claim.
-- CI **MSRV** job on Rust **1.99.0** (`cargo check --all-targets`, `cargo test`,
+- CI **MSRV** job on Rust **1.88.0** (`cargo check --all-targets`, `cargo test`,
   and `--features uart` with `libudev-dev` on Linux) so the declared
   `rust-version` floor is continuously enforced alongside the moving `stable`
-  lane. The optional `nir` feature is excluded from MSRV CI because `nir-rs`
-  carries a higher toolchain floor (#87).
+  lane (#87), plus an `msrv-nir` job on Rust **1.98.1** for `--features nir`,
+  the floor `nir-rs` 0.4.5 declares.
 - `[package.metadata.docs.rs] features = ["uart", "nir"]` so docs.rs renders the
   `FpgaBridge` and NIR-mapping APIs and the crate-root links to them. CI runs
   rustdoc with that exact feature set and again with default features, so the
@@ -92,9 +92,10 @@ candidate that was never published; its entries are folded in here.
 - **Breaking:** `[package].version` is `0.4.0`; the never-published 0.3.1
   candidate number is retired. Installation snippets in README, crate rustdoc,
   and `docs/consumer.md` name 0.4.0 as the post-publish line.
-- **MSRV** raised from 1.88.0 to **1.99.0** (`rust-version`, CI `msrv` job,
-  docs). No code change requires it; consumers on older toolchains must stay on
-  0.3.0.
+- **MSRV** stays at **1.88.0** (same as 0.3.0) for default features and
+  `uart`. An in-tree raise to 1.99.0 was reverted before release because no
+  code needed it. The new optional `nir` / `nir-io` features need Rust
+  1.98.1, the floor declared by `nir-rs` 0.4.5.
 - `FpgaMetrics::load_from_path` and `load_from_reports` take
   `impl AsRef<Path>` instead of `&str`, matching `fpga_export`; existing `&str`
   callers compile unchanged and `Path`/`PathBuf` (including non-UTF-8 paths)

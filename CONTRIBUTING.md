@@ -13,17 +13,18 @@ Dual-licensed under the [MIT](LICENSE-MIT) license or the
 ## Toolchain
 
 - Edition **2024** (`edition = "2024"`). Do not downgrade the edition.
-- `[package].rust-version` is **1.99.0**. That is the MSRV. CI enforces it
-  with the `msrv (1.99.0, ubuntu-latest)` job. Edition 2024 and `if`/`let`
-  chains need only Rust 1.88.0, and the dependency graph would compile on
-  1.85.0 without those language features. The advertised floor is still
-  1.99.0. Raising it requires the compatibility decision in
+- `[package].rust-version` is **1.88.0**. That is the MSRV for default
+  features and `uart`, set by edition 2024 and `if`/`let` chains. CI
+  enforces it with the `msrv (1.88.0, ubuntu-latest)` job. Raising it
+  requires the compatibility decision in
   [docs/release-readiness.md](docs/release-readiness.md).
 - CI also runs the moving GitHub Actions `stable` toolchain. That lane is
   not a second MSRV pin.
-- The optional `nir` feature pins `nir-rs = 0.4.5`. `nir-rs` declares a
-  higher MSRV than this crate, so the 1.99.0 job does not pass
-  `--all-features` or `--features nir`. Validate `nir` on stable.
+- The optional `nir` feature pins `nir-rs = 0.4.5`, which declares
+  `rust-version = "1.98.1"`. The `msrv-nir (1.98.1, ubuntu-latest)` job
+  checks and tests `--features nir` on that floor. Do not use newer std or
+  language APIs in `nir`-gated code than 1.98.1 allows, or newer than 1.88.0
+  anywhere else.
 
 ## `uart` system packages
 
@@ -74,7 +75,8 @@ request and on pushes to `main`. The workflow does not use secrets.
 
 | Job | What it runs |
 | --- | --- |
-| `msrv (1.99.0, ubuntu-latest)` | Rust **1.99.0**: `cargo check --all-targets`, `cargo test`, then both again with `--features uart` after installing `libudev-dev`. `nir` stays off this job. |
+| `msrv (1.88.0, ubuntu-latest)` | Rust **1.88.0**: `cargo check --all-targets`, `cargo test`, then both again with `--features uart` after installing `libudev-dev`. `nir` stays off this job. |
+| `msrv-nir (1.98.1, ubuntu-latest)` | Rust **1.98.1**: `cargo check --all-targets --features nir` and `cargo test --features nir`. |
 | `fmt (ubuntu-latest)` | stable + rustfmt: `cargo fmt --check` and `cargo fmt --check --manifest-path fuzz/Cargo.toml` |
 | `test` (`ubuntu-latest`, `macos-latest`, `windows-latest`) | stable + clippy, default features: `cargo clippy --all-targets -- -D warnings`, `cargo build`, `cargo test`. `fail-fast: false`. |
 | `uart (ubuntu-latest)` | `libudev-dev` and `libhdf5-dev`, then `cargo clippy --all-targets --all-features -- -D warnings`, `cargo check --features uart`, `cargo test --all-features`, `cargo test --all-features --examples`, and `cargo doc --no-deps --features uart` with `RUSTDOCFLAGS=-D warnings` |

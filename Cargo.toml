@@ -3,11 +3,11 @@ name = "silicon-bridge"
 version = "0.4.0"
 authors = ["Raul Cardenas Montoya <montoyaraul34@gmail.com>"]
 edition = "2024"
-# Raised to 1.99.0 (stable at 2026-10-01) by explicit decision; the language
-# features in use (edition 2024, `if`/`let` chains) only need 1.88.0. CI
-# enforces this floor via a dedicated 1.99.0 job and separately exercises
-# GitHub Actions `stable`.
-rust-version = "1.99.0"
+# Floor for default features and `uart`: edition 2024 plus `if`/`let` chains
+# need 1.88.0. The optional `nir` / `nir-io` features pull in `nir-rs`, whose
+# own `rust-version` is 1.98.1; Cargo reports that floor when those features
+# are enabled. CI enforces both floors (`msrv` and `msrv-nir` jobs).
+rust-version = "1.88.0"
 license = "MIT OR Apache-2.0"
 description = "Deploy spiking neural networks to FPGAs: Q8.8 fixed-point export, optional UART spike I/O, and Vivado timing-report parsing for CI gating"
 repository = "https://github.com/rmems/silicon-bridge"

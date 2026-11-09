@@ -116,8 +116,8 @@ only registry version. `main` is the unpublished **0.4.0** candidate
 separate maintainer action. The candidate is a minor bump, not 0.3.1, because
 it removes `FpgaMetrics::load_from_project`, changes the types of
 `ExportConfig::profile()` / `ExportReport::profile`, turns
-`ExportError::MissingRequiredReadout` into a struct variant, and raises the
-MSRV; see [CHANGELOG.md](CHANGELOG.md).
+`ExportError::MissingRequiredReadout` into a struct variant; see
+[CHANGELOG.md](CHANGELOG.md).
 
 ```toml
 silicon-bridge = "0.3.0"
@@ -164,19 +164,17 @@ silicon-bridge = { git = "https://github.com/rmems/silicon-bridge", features = [
 ```
 
 The default feature set does not depend on `nir-rs`. The `nir` feature pins
-`nir-rs = 0.4.5`, whose own crate metadata currently raises the effective
-feature-specific toolchain floor above this crate's default `rust-version`.
+`nir-rs = 0.4.5`, which declares `rust-version = "1.98.1"`, so `nir` and
+`nir-io` need Rust 1.98.1 or newer.
 
-`[package].rust-version` is **`1.99.0`**: the **MSRV** (minimum supported
-Rust version), raised from 1.88.0 by explicit decision. The language features
-in use (edition 2024 plus `if`/`let` chains) only need 1.88.0, and the
-dependency graph would compile on **1.85.0** without them. CI runs a dedicated
-**1.99.0** job on every push and PR, and separately exercises the moving GitHub
-Actions **`stable`** toolchain (clippy, multi-OS tests, full `--all-features`
-including `nir`, fuzz compile). The optional `nir` feature is not part of the
-1.99.0 MSRV job. Raising MSRV requires
-an explicit compatibility decision and a CHANGELOG entry; see
-[docs/release-readiness.md](docs/release-readiness.md).
+`[package].rust-version` is **`1.88.0`**: the **MSRV** (minimum supported
+Rust version) for default features and `uart`, unchanged from 0.3.0. Edition
+2024 plus `if`/`let` chains set that floor. CI runs a dedicated **1.88.0**
+job (default features and `uart`) and a **1.98.1** job (`nir`) on every push
+and PR, and separately exercises the moving GitHub Actions **`stable`**
+toolchain (clippy, multi-OS tests, full `--all-features`, fuzz compile).
+Raising MSRV requires an explicit compatibility decision and a CHANGELOG entry;
+see [docs/release-readiness.md](docs/release-readiness.md).
 
 ### After an authorized 0.4.0 publish
 
@@ -187,7 +185,7 @@ registry currently serves 0.3.0 only):
 silicon-bridge = "0.4.0"
 ```
 
-0.4.0 needs Rust 1.99.0 and contains the breaking changes listed under
+0.4.0 needs Rust 1.88.0 (1.98.1 with `nir` / `nir-io`) and contains the breaking changes listed under
 `[Unreleased]` in [CHANGELOG.md](CHANGELOG.md).
 
 Verify docs.rs **after** that publish. A `cargo package` / path smoke test
@@ -562,7 +560,8 @@ to `main` and every pull request. No secrets are required.
 
 | Job | Runner | What it runs |
 |-----|--------|--------------|
-| `msrv (1.99.0, ubuntu-latest)` | Linux | pinned Rust **1.99.0** (`[package].rust-version`): `cargo check --all-targets` and `cargo test`, then the same with `--features uart` (installs `libudev-dev`). The `nir` feature is excluded because `nir-rs` needs a newer toolchain |
+| `msrv (1.88.0, ubuntu-latest)` | Linux | pinned Rust **1.88.0** (`[package].rust-version`): `cargo check --all-targets` and `cargo test`, then the same with `--features uart` (installs `libudev-dev`). The `nir` feature is excluded because `nir-rs` needs 1.98.1 |
+| `msrv-nir (1.98.1, ubuntu-latest)` | Linux | pinned Rust **1.98.1** (`nir-rs` `rust-version`): `cargo check --all-targets --features nir` and `cargo test --features nir` (no native HDF5, so `nir-io` stays on stable) |
 | `fmt (ubuntu-latest)` | Linux | `cargo fmt --check` (once — formatting is OS-independent) |
 | `test (ubuntu-latest)` | Linux | `cargo clippy --all-targets -- -D warnings`, `cargo build`, `cargo test` |
 | `test (macos-latest)` | macOS | same as above |

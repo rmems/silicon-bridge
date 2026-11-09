@@ -29,8 +29,8 @@ Registry state (checked 2026-10-29): crates.io serves **0.3.0** only
 build succeeded). The next crates.io-intended semver is **0.4.0**, not 0.3.1:
 since 0.3.0 the tree removed `FpgaMetrics::load_from_project`, changed the
 types of `ExportConfig::profile()` and `ExportReport::profile`, turned
-`ExportError::MissingRequiredReadout` from a unit into a struct variant, and
-raised the MSRV to 1.99.0. Cargo resolves
+`ExportError::MissingRequiredReadout` from a unit into a struct variant. Cargo
+resolves
 `silicon-bridge = "0.3.0"` as `>=0.3.0, <0.4.0`, so a 0.3.1 carrying those
 changes would reach every existing consumer on their next `cargo update` and
 break their build; 0.4.0 keeps them on 0.3.0 until they opt in. Apply the same
@@ -51,13 +51,14 @@ that host proof.
 
 ## 2. Supported Rust version
 
-- **MSRV:** `[package].rust-version` is `1.99.0`, raised from 1.88.0 by
-  explicit decision (language features in use: edition 2024 plus `if`/`let`
-  chains, which need only 1.88.0; the dependency graph would compile on 1.85.0
-  without them). CI enforces this floor with a dedicated **1.99.0**
-  job (`cargo check --all-targets`, `cargo test`, and `--features uart` with
-  `libudev-dev` on Linux). The optional `nir` feature is validated on stable
-  only because `nir-rs` declares a higher MSRV than this crate.
+- **MSRV:** `[package].rust-version` is `1.88.0` (unchanged from 0.3.0) for
+  default features and `uart`; edition 2024 plus `if`/`let` chains set that
+  floor. CI enforces it with a dedicated **1.88.0** job (`cargo check
+  --all-targets`, `cargo test`, and `--features uart` with `libudev-dev` on
+  Linux).
+- **NIR floor:** `nir` / `nir-io` pin `nir-rs = 0.4.5`, which declares
+  `rust-version = "1.98.1"`. CI enforces that with a **1.98.1** `msrv-nir`
+  job (`--features nir`). `nir-io` needs native libhdf5 and runs on stable.
 - **Stable:** CI also runs the moving GitHub Actions `stable` toolchain
   (formatting, clippy, multi-OS default-feature tests, UART/rustdoc, fuzz
   compile). That lane tracks current stable; it is not a second MSRV pin.
@@ -65,10 +66,9 @@ that host proof.
   without an explicit compatibility decision. When MSRV increases, update
   `Cargo.toml`, README, this section, and add a **Changed** entry under
   `[Unreleased]` in `CHANGELOG.md` before release.
-- Build and test default features on 1.99.0 or newer stable. The optional
-  `nir` feature pins `nir-rs = 0.4.5`; validate it on a toolchain new enough
-  for `nir-rs` before claiming that feature. `nir-io` also needs native
-  libhdf5 and stays out of the default and MSRV jobs.
+- Build and test default features on 1.88.0 or newer, and `nir` on 1.98.1
+  or newer. `nir-io` also needs native libhdf5 and stays out of both MSRV
+  jobs.
 - Record the toolchain and enabled features in the release notes.
 
 ## 3. License and package contents

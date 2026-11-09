@@ -57,9 +57,10 @@
 //! silicon-bridge = "0.4.0"
 //! ```
 //!
-//! MSRV on this tree is `1.99.0` (`[package].rust-version`; the published
-//! 0.3.0 declares `1.88.0`). CI enforces the floor with a dedicated 1.99.0
-//! job and separately exercises the moving `stable` toolchain. See the crate
+//! MSRV is `1.88.0` (`[package].rust-version`, unchanged from the published
+//! 0.3.0) for default features and `uart`. The optional `nir` / `nir-io`
+//! features need Rust 1.98.1, the floor declared by `nir-rs`. CI enforces both
+//! floors and separately exercises the moving `stable` toolchain. See the crate
 //! README and `docs/release-readiness.md` for the authorized `cargo publish`
 //! checklist for 0.4.0. This rustdoc does **not** claim 0.4.0 is on
 //! crates.io or docs.rs.

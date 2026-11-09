@@ -237,9 +237,9 @@ only.
 
 ### 14. No MSRV job — **resolved (#87)**
 
-CI now runs an `msrv` job on Rust **1.99.0** with `cargo check --all-targets`,
-`cargo test`, and `--features uart` (with `libudev-dev` on Ubuntu). The
-optional `nir` feature stays on the stable lane only (`nir-rs` MSRV may exceed the crate floor).
+CI now runs an `msrv` job on Rust **1.88.0** with `cargo check --all-targets`,
+`cargo test`, and `--features uart` (with `libudev-dev` on Ubuntu), and an
+`msrv-nir` job on Rust **1.98.1** (the `nir-rs` floor) for `--features nir`.
 The moving `stable` lane is unchanged.
 
 ### 15. README examples are never compiled

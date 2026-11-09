@@ -15,23 +15,23 @@ permissions:
 jobs:
   # Pins the toolchain to `[package].rust-version` so the advertised floor cannot
   # drift silently. UART (`--features uart`) is included with libudev on Linux.
-  # `--all-features` is intentionally omitted: the optional `nir` feature pins
-  # `nir-rs`, whose own MSRV is above 1.99.0 (see README / release-readiness).
+  # `--features nir` is on the separate `msrv-nir` job: `nir-rs` 0.4.5 declares
+  # rust-version 1.98.1 (see README / release-readiness).
   msrv:
-    name: msrv (1.99.0, ubuntu-latest)
+    name: msrv (1.88.0, ubuntu-latest)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
-      - name: Install Rust 1.99.0 (MSRV)
+      - name: Install Rust 1.88.0 (MSRV)
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # stable
         with:
-          toolchain: 1.99.0
+          toolchain: 1.88.0
 
       - name: Verify MSRV toolchain
-        run: rustc --version | grep -F '1.99.0'
+        run: rustc --version | grep -F '1.88.0'
 
       - name: Install libudev (serialport / uart feature)
         run: |
@@ -44,9 +44,9 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ runner.os }}-cargo-msrv-1.99.0-${{ hashFiles('**/Cargo.toml') }}
+          key: ${{ runner.os }}-cargo-msrv-1.88.0-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-msrv-1.99.0-
+            ${{ runner.os }}-cargo-msrv-1.88.0-
             ${{ runner.os }}-cargo-
 
       - name: Check (default features)
@@ -60,6 +60,41 @@ jobs:
 
       - name: Test (uart feature)
         run: cargo test --features uart
+
+  # `nir` pins `nir-rs = 0.4.5`, whose `rust-version` is 1.98.1. Enforce that
+  # floor here; `nir-io` links native HDF5 and stays on the stable `uart` job.
+  msrv-nir:
+    name: msrv-nir (1.98.1, ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install Rust 1.98.1 (nir-rs MSRV)
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # stable
+        with:
+          toolchain: 1.98.1
+
+      - name: Verify toolchain
+        run: rustc --version | grep -F '1.98.1'
+
+      - name: Cache cargo registry
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-msrv-nir-1.98.1-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-msrv-nir-1.98.1-
+            ${{ runner.os }}-cargo-
+
+      - name: Check (nir feature)
+        run: cargo check --all-targets --features nir
+
+      - name: Test (nir feature)
+        run: cargo test --features nir
 
   # Formatting is OS-independent, so it runs once on Linux to save runner minutes.
   fmt:
