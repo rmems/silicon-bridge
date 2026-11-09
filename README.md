@@ -107,33 +107,31 @@ Companion contracts live in silicon-hdl:
 
 ## Installation
 
-`silicon-bridge` **0.3.0** is published on
-[crates.io](https://crates.io/crates/silicon-bridge) (2026-09-17, git tag
-`v0.3.0` / `bf5b20d`; API docs on
-[docs.rs](https://docs.rs/silicon-bridge/0.3.0/silicon_bridge/)). It is the
-only registry version. `main` is the unpublished **0.4.0** candidate
-(`[package].version = "0.4.0"`); an authorized `cargo publish` is a
-separate maintainer action. The candidate is a minor bump, not 0.3.1, because
-it removes `FpgaMetrics::load_from_project`, changes the types of
-`ExportConfig::profile()` / `ExportReport::profile`, turns
+`silicon-bridge` **0.4.0** is published on
+[crates.io](https://crates.io/crates/silicon-bridge), with API docs on
+[docs.rs](https://docs.rs/silicon-bridge/0.4.0/silicon_bridge/). It
+supersedes 0.3.0 (2026-09-17, git tag `v0.3.0` / `bf5b20d`). 0.4.0 is a
+minor bump, not 0.3.1, because it removes
+`FpgaMetrics::load_from_project`, changes the types of
+`ExportConfig::profile()` / `ExportReport::profile`, and turns
 `ExportError::MissingRequiredReadout` into a struct variant; see
 [CHANGELOG.md](CHANGELOG.md).
 
 ```toml
-silicon-bridge = "0.3.0"
+silicon-bridge = "0.4.0"
 ```
 
 Optional UART I/O from the registry:
 
 ```toml
-silicon-bridge = { version = "0.3.0", features = ["uart"] }
+silicon-bridge = { version = "0.4.0", features = ["uart"] }
 ```
 
 0.3.0 has no `nir` feature and none of the changes listed under
-`[Unreleased]` in [CHANGELOG.md](CHANGELOG.md). `"0.3.0"` is a caret
-requirement that stops below 0.4.0, so publishing 0.4.0 does not move
-existing consumers; they opt in by changing the requirement. To use
-unreleased `main`, depend on git or a path:
+`[0.4.0]` in [CHANGELOG.md](CHANGELOG.md). `"0.3.0"` is a caret
+requirement that stops below 0.4.0, so the 0.4.0 publish did not move
+existing consumers; they opt in by changing the requirement. To track
+`main` between releases, depend on git or a path:
 
 ```toml
 silicon-bridge = { git = "https://github.com/rmems/silicon-bridge" }
@@ -154,13 +152,13 @@ libhdf5 library (`libhdf5-dev` on Debian/Ubuntu, `hdf5` on Homebrew). There is
 no HDF5 decoder in this crate:
 
 ```toml
-silicon-bridge = { git = "https://github.com/rmems/silicon-bridge", features = ["nir"] }
+silicon-bridge = { version = "0.4.0", features = ["nir"] }
 ```
 
 or, with `.nir` file loading:
 
 ```toml
-silicon-bridge = { git = "https://github.com/rmems/silicon-bridge", features = ["nir-io"] }
+silicon-bridge = { version = "0.4.0", features = ["nir-io"] }
 ```
 
 The default feature set does not depend on `nir-rs`. The `nir` feature pins
@@ -176,20 +174,14 @@ toolchain (clippy, multi-OS tests, full `--all-features`, fuzz compile).
 Raising MSRV requires an explicit compatibility decision and a CHANGELOG entry;
 see [docs/release-readiness.md](docs/release-readiness.md).
 
-### After an authorized 0.4.0 publish
+### Verifying the 0.4.0 publish
 
-Only once `https://crates.io/crates/silicon-bridge` serves **0.4.0** (the
-registry currently serves 0.3.0 only):
-
-```toml
-silicon-bridge = "0.4.0"
-```
+Confirm [crates.io](https://crates.io/crates/silicon-bridge) serves **0.4.0**
+and that [docs.rs](https://docs.rs/silicon-bridge/0.4.0/silicon_bridge/)
+built it. A `cargo package` / path smoke test is not a registry test.
 
 0.4.0 needs Rust 1.88.0 (1.98.1 with `nir` / `nir-io`) and contains the breaking changes listed under
-`[Unreleased]` in [CHANGELOG.md](CHANGELOG.md).
-
-Verify docs.rs **after** that publish. A `cargo package` / path smoke test
-is not a registry test.
+`[0.4.0]` in [CHANGELOG.md](CHANGELOG.md).
 
 ## Quick Start
 
@@ -477,10 +469,9 @@ list other revisions without fixtures.
 ## Public-release readiness
 
 See [docs/release-readiness.md](docs/release-readiness.md). This tree is the
-**0.4.0** package candidate (`[package].version` is `0.4.0`). 0.3.0 is already
-live on crates.io / docs.rs; an authorized human `cargo publish` is still
-required before 0.4.0 is. Do not treat an in-tree version string or a future
-install snippet as a published version.
+published **0.4.0** release (`[package].version` is `0.4.0`). Do not treat an
+in-tree version string or an install snippet as proof of publication; verify
+the registry.
 Packaged-crate smoke (`bash scripts/smoke-packaged-consumer.sh`) is not
 registry proof. CI matrix remains
 [#24](https://github.com/rmems/silicon-bridge/issues/24).
