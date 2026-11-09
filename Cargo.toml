@@ -34,8 +34,8 @@ include = [
     "docs/host-hdl-contract.md",
     "docs/uart-v4-protocol.md",
     "docs/release-readiness.md",
-    "README.md",
-    "CHANGELOG.md",
+    "/README.md",
+    "/CHANGELOG.md",
     "LICENSE-MIT",
     "LICENSE-APACHE",
 ]

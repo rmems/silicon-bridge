@@ -43,7 +43,18 @@ candidate that was never published; its entries are folded in here.
   (`tests/fixtures/nir/`, BSD-3-Clause, byte-identical). CI installs
   `libhdf5-dev` on the all-features job; `nir-io` stays out of default and MSRV
   jobs.
-- Opt-in `FpgaBridge::exchange_v4` (after `enable_uart_v4`) using the UART v4
+- Pure UART v4 codec (#96): `encode_request_v4` / `decode_response_v4` wrap
+  the dense Q8.8 payload in a sync byte, version, payload length,
+  caller-selected request id, and CRC-16/CCITT-FALSE, with
+  `tx_frame_len_v4` / `rx_frame_len_v4`, `crc16_ccitt_false`, the `UART_V4_*`
+  constants, and typed `CodecError` variants (`WrongSync`,
+  `UnsupportedVersion`, `WrongPayloadLength`, `RequestIdMismatch`,
+  `ChecksumMismatch`). `DenseQ88Layout::dense_with_switches` builds layouts
+  whose frames carry the switch field. Host-only; documented in
+  `docs/uart-v4-protocol.md` with independent golden bytes in
+  `tests/golden/uart/v4/`. Not compatible with current Basys 3 v3.0 firmware.
+- Opt-in `FpgaBridge::exchange_v4` (after `enable_uart_v4`; symmetric
+  `disable_uart_v4` / `is_uart_v4_enabled` included) using the UART v4
   codec. Refused before any write unless enabled; default v3 paths unchanged.
   Requires separately pinned matching `silicon-hdl` firmware; no board parity
   claim.

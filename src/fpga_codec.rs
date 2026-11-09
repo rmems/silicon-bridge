@@ -34,7 +34,8 @@
 //! that sees the expected byte count cannot tell a stale or misaligned
 //! same-length reply from a fresh one. This crate does not invent a
 //! checksum or claim guaranteed resynchronization. Use the opt-in UART v4
-//! codec in [`crate::fpga_codec_v4`] when matching v4 firmware is available.
+//! codec ([`crate::encode_request_v4`] / [`crate::decode_response_v4`]) when
+//! matching v4 firmware is available.
 
 use crate::{NonFiniteKind, encode_q88_signed, q88_signed_to_f32};
 use serde::{Deserialize, Serialize};

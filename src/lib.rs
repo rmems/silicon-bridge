@@ -195,7 +195,7 @@
 #![deny(missing_docs)]
 
 mod fpga_codec;
-pub mod fpga_codec_v4;
+mod fpga_codec_v4;
 mod fpga_export;
 mod fpga_metrics;
 #[cfg(feature = "nir")]

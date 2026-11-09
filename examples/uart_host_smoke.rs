@@ -40,10 +40,6 @@ fn main() {
     std::process::exit(run(std::env::args().nth(1)));
 }
 
-/// Default baud rate when `SILICON_BRIDGE_BAUD` is unset or unparseable.
-#[cfg(feature = "uart")]
-const DEFAULT_SMOKE_BAUD: u32 = 115_200;
-
 /// Resolve the port, open it, run one exchange, and print the result line.
 ///
 /// Returns the process exit code: `0` PASS, `1` open/exchange failure, `2`
@@ -71,12 +67,19 @@ fn run(cli_port: Option<String>) -> i32 {
         }
     };
 
-    // Optional baud override; a non-positive-integer value falls back cleanly.
-    let baud = std::env::var("SILICON_BRIDGE_BAUD")
-        .ok()
-        .and_then(|b| b.trim().parse::<u32>().ok())
-        .filter(|b| *b > 0)
-        .unwrap_or(DEFAULT_SMOKE_BAUD);
+    // Optional baud override. An unparsable or zero value is a usage error:
+    // recorded hardware evidence must name the rate that was actually used.
+    let baud = match std::env::var("SILICON_BRIDGE_BAUD") {
+        Ok(raw) => match raw.trim().parse::<u32>().ok().filter(|b| *b > 0) {
+            Some(b) => b,
+            None => {
+                eprintln!("==> invalid SILICON_BRIDGE_BAUD={raw:?} (expected a positive integer)");
+                println!("FAIL: invalid SILICON_BRIDGE_BAUD={raw:?} (expected a positive integer)");
+                return 2;
+            }
+        },
+        Err(_) => silicon_bridge::DEFAULT_BAUD_RATE,
+    };
 
     eprintln!("==> reference: Digilent Basys 3 / XC7A35T-1CPG236C / spikenaut_soc_basys3_top");
     eprintln!("==> opening {port} @ {baud} baud (explicit port, no auto-probe)");

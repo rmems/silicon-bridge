@@ -13,7 +13,7 @@ vulnerability reporting). That is the reporting route for this
 repository.
 
 Include the crate version or git commit, the feature set (`default`,
-`uart`, `nir`), and enough detail to reproduce the issue.
+`uart`, `nir`, `nir-io`), and enough detail to reproduce the issue.
 
 File non-security bugs as public issues. See
 [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -23,4 +23,4 @@ File non-security bugs as public issues. See
 Reports should be about the `silicon-bridge` crate in this repository:
 Q8.8 export, Vivado timing-report parsing, and the optional `uart` /
 `serialport` bridge. The crates.io release is 0.3.0. `main` is the
-unpublished 0.3.1 candidate (`[package].version` in `Cargo.toml`).
+unpublished 0.4.0 candidate (`[package].version` in `Cargo.toml`).

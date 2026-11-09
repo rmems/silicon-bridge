@@ -81,7 +81,7 @@ pub fn encode_request_v4(
     let legacy = encode_stimuli(layout, stimuli)?;
     let payload = legacy.get(1..).ok_or(CodecError::LengthOverflow)?;
     let payload_len = payload_len_field(payload.len())?;
-    let capacity = frame_len(payload.len())?;
+    let capacity = tx_frame_len_v4(layout)?;
     let mut frame = Vec::with_capacity(capacity);
     frame.push(UART_V4_SYNC);
     frame.push(UART_V4_VERSION);
@@ -97,8 +97,10 @@ pub fn encode_request_v4(
 /// Decode and authenticate the structure of a UART v4 reply.
 ///
 /// The decoder rejects truncation/trailing bytes, wrong sync or version,
-/// payload-length disagreement, a reply for another request id, and a bad
-/// CRC before decoding the dense Q8.8 payload. The id provides correlation
+/// payload-length disagreement, a bad CRC, and a reply for another request id
+/// before decoding the dense Q8.8 payload. The CRC is checked before the
+/// request id so a reply whose id byte was corrupted reports as corruption
+/// ([`CodecError::ChecksumMismatch`]) rather than a mismatched id. The id provides correlation
 /// and freshness metadata only; CRC and request ids are not authentication or
 /// replay protection.
 pub fn decode_response_v4(
@@ -133,13 +135,6 @@ pub fn decode_response_v4(
             actual: advertised_payload_len,
         });
     }
-    let request_id = u32::from_be_bytes([frame[4], frame[5], frame[6], frame[7]]);
-    if request_id != expected_request_id {
-        return Err(CodecError::RequestIdMismatch {
-            expected: expected_request_id,
-            actual: request_id,
-        });
-    }
     let crc_start = expected_frame_len - UART_V4_CRC_BYTES;
     let actual_crc = u16::from_be_bytes([frame[crc_start], frame[crc_start + 1]]);
     let expected_crc = crc16_ccitt_false(&frame[1..crc_start]);
@@ -147,6 +142,13 @@ pub fn decode_response_v4(
         return Err(CodecError::ChecksumMismatch {
             expected: expected_crc,
             actual: actual_crc,
+        });
+    }
+    let request_id = u32::from_be_bytes([frame[4], frame[5], frame[6], frame[7]]);
+    if request_id != expected_request_id {
+        return Err(CodecError::RequestIdMismatch {
+            expected: expected_request_id,
+            actual: request_id,
         });
     }
     decode_response(layout, &frame[UART_V4_HEADER_BYTES..crc_start])

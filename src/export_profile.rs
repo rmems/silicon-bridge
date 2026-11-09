@@ -60,10 +60,16 @@ pub const SILICON_HDL_V3_CONTRACT_ID: &str = "silicon-bridge-silicon-hdl-v3-cont
 pub const SILICON_HDL_V3_SUPPORTED_REVISION: &str = "d45163f38ac1cd88f8a3918e3793a08ace85e132";
 
 /// Hidden-neuron count supported by the pinned silicon-hdl v3 profile.
-pub const SILICON_HDL_V3_HIDDEN_NEURONS: usize = 16;
+///
+/// The pinned profile shares the SiliconBridge v3.0 layout, so this aliases
+/// [`SILICON_BRIDGE_V3_CHANNELS`] rather than restating the number.
+pub const SILICON_HDL_V3_HIDDEN_NEURONS: usize = SILICON_BRIDGE_V3_CHANNELS;
 
 /// Input-channel count supported by the pinned silicon-hdl v3 profile.
-pub const SILICON_HDL_V3_INPUT_CHANNELS: usize = 16;
+///
+/// The pinned profile shares the SiliconBridge v3.0 layout, so this aliases
+/// [`SILICON_BRIDGE_V3_CHANNELS`] rather than restating the number.
+pub const SILICON_HDL_V3_INPUT_CHANNELS: usize = SILICON_BRIDGE_V3_CHANNELS;
 
 /// Output-class count supported by the pinned silicon-hdl v3 profile.
 pub const SILICON_HDL_V3_OUTPUT_CLASSES: usize = 3;
@@ -180,8 +186,6 @@ pub struct CompatibilityMetadata {
 /// filenames, overwrite behaviour, and declared 35 µs target.
 /// [`ExportProfile::SpikenautSignedOutputV1`] is the corrected signed-readout
 /// contract and **must not** be serialized as `Spikenaut-v2`.
-/// [`ExportProfile::SiliconHdlV3`] pins the reference silicon-hdl contract and
-/// emits an additional HDL-native readout image.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum ExportProfile {
@@ -195,9 +199,6 @@ pub enum ExportProfile {
     /// the Spikenaut-named [`ExportConfig::spikenaut_signed_output_v1`]).
     /// **Must not** be serialized as `Spikenaut-v2`.
     SpikenautSignedOutputV1,
-    /// Pinned silicon-hdl v3 reference profile. Writes the generic `K×N`
-    /// readout and an additional HDL-native `N×K` readout image.
-    SiliconHdlV3,
 }
 
 impl ExportProfile {
@@ -207,7 +208,6 @@ impl ExportProfile {
             Self::GenericDenseQ88 => GENERIC_DENSE_PROFILE_ID,
             Self::LegacySpikenautV2 => SPIKENAUT_V2_LEGACY_PROFILE_ID,
             Self::SpikenautSignedOutputV1 => SPIKENAUT_SIGNED_OUTPUT_PROFILE_ID,
-            Self::SiliconHdlV3 => SILICON_HDL_V3_PROFILE_ID,
         }
     }
 
@@ -218,13 +218,12 @@ impl ExportProfile {
             // Historical tag is the schema for the compatibility profile.
             Self::LegacySpikenautV2 => EXPORT_FORMAT_VERSION,
             Self::SpikenautSignedOutputV1 => SPIKENAUT_SIGNED_OUTPUT_SCHEMA_VERSION,
-            Self::SiliconHdlV3 => SILICON_HDL_V3_SCHEMA_VERSION,
         }
     }
 
     /// Whether this profile requires a readout / output-weight matrix.
     pub fn requires_readout(self) -> bool {
-        matches!(self, Self::SpikenautSignedOutputV1 | Self::SiliconHdlV3)
+        matches!(self, Self::SpikenautSignedOutputV1)
     }
 }
 
@@ -583,13 +582,7 @@ impl ExportConfig {
     /// This is the compatibility default used by
     /// [`super::MemFileWriter::write_mem_files`].
     pub fn legacy_spikenaut_v2() -> Self {
-        Self {
-            contract: ExportContract::legacy_spikenaut_v2(),
-            overwrite: OverwritePolicy::Replace,
-            timestamp: TimestampPolicy::Now,
-            declared_target_latency_us: Some(SPIKENAUT_LEGACY_TARGET_LATENCY_US),
-            model_id: String::new(),
-        }
+        Self::from_contract(ExportContract::legacy_spikenaut_v2())
     }
 
     /// Neutral required-readout dense Q8.8 export.
@@ -789,7 +782,7 @@ pub struct ExportReport {
     /// Directory the files were written under.
     pub output_dir: PathBuf,
     /// Basenames actually written, in a stable order (thresholds, weights,
-    /// decay, optional readout, metadata).
+    /// decay, optional readout, optional HDL-native readout, metadata).
     pub written: Vec<String>,
     /// Whether replacement of existing files was permitted for this write.
     pub overwrite: OverwritePolicy,
@@ -994,9 +987,7 @@ pub(super) fn stamp_profile_metadata(
     };
 
     metadata.version = config.contract.legacy_version.clone().unwrap_or_default();
-    metadata.target_latency_us = config
-        .declared_target_latency_us
-        .or(config.contract.default_target_latency_us);
+    metadata.target_latency_us = config.declared_target_latency_us;
 
     metadata.timestamp = match &config.timestamp {
         TimestampPolicy::Omit => String::new(),

@@ -30,7 +30,6 @@ API, feature-gate hardware I/O, and keep Rust edition **2024**.
 
 - Downgrade the Rust edition from 2024 to 2021
 - Commit secrets, API keys, DSNs, or credentials
-- Commit IDE project trees (for example `.idea/`, `.vscode/`)
 - Add `unsafe` without an explicit safety justification
 - Reimplement NIR (Neuromorphic Intermediate Representation) HDF5 I/O in this
   crate (deferred; future work may depend on `Limen-Neural/nir-rs` instead of a

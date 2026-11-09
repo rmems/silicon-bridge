@@ -203,8 +203,9 @@ the FPGA.
 
 ## Examples
 
-See [`examples/README.md`](../examples/README.md). All three binaries compile
-against the public crate surface.
+See [`examples/README.md`](../examples/README.md). All four binaries compile
+against the public crate surface; `uart_host_smoke` is the only one that
+touches hardware (explicit serial port, `--features uart`).
 
 ## Migration
 

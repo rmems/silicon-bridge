@@ -90,11 +90,13 @@ Tests live inline in source files, plus the #53 golden-contract suite:
 | `src/fpga_export.rs` | unit tests | Q8.8 conversion, checked export, `.mem` writer, signed encoding |
 | `src/export_profile.rs` | unit tests | generic / legacy / signed-output profiles, determinism, filename and overwrite rejection |
 | `src/fpga_codec.rs` | unit tests (default features) | v3 golden frames, checked vs legacy encode, 8/16/32 and non-multiple-of-8 masks |
+| `src/fpga_codec_v4.rs` | unit tests (default features) | CRC-16 check vector, per-field v4 integrity refusals (sync / version / length / id / CRC) |
 | `src/fpga_bridge.rs` | unit tests (`uart` feature) | port-name heuristic, `SerialConfig` validation/defaults, open/enumerate/configure failures, USB-serial selection, mock-port injection, scripted mock transport errors / no-resend |
 | `src/lib.rs` | doctest | Quick Start example |
-| `examples/` | binaries | Generic 4×6 export, synthetic Spikenaut-shaped export, dense codec (no UART I/O) |
+| `examples/` | binaries | Generic 4×6 export, synthetic Spikenaut-shaped export, dense codec (no UART I/O); `uart_host_smoke` opens an explicit serial port under `--features uart` (maintainer hardware evidence), with offline `#[test]`s CI runs via `--examples` |
 | `tests/golden_export_contract.rs` | integration | Independent Rust↔HDL numeric and memory-layout fixtures (#53) |
 | `tests/golden_uart_contract.rs` | integration | Independent UART v3 / dense-profile golden bytes (#53 after #52) |
+| `tests/golden_uart_v4_contract.rs` | integration | Independent UART v4 golden bytes and typed contract violations (RM-1430) |
 | `tests/q88_properties.rs` | integration / proptest | Exhaustive signed/unsigned Q8.8 word round-trips, UART clamp, saturation, non-finite inputs (RM-1352) |
 | `tests/codec_properties.rs` | integration / proptest | Dense-layout encode→decode, truncation, garbage prefix/suffix, chunk-split decoder stability (RM-1352) |
 | `tests/fuzz_regressions.rs` | integration | Deterministic cases promoted from fuzz boundaries / artifacts (RM-1352) |
