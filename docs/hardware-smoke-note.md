@@ -6,9 +6,10 @@ This note records a live **silicon-bridge UART host session** on one named
 reference board. It is the recorded evidence for the 0.4.0 publish gate tracked
 in GitHub [#84](https://github.com/rmems/silicon-bridge/issues/84).
 
-**Status: not yet recorded.** No silicon-bridge UART host session has been run
-and recorded here. Until the Session record below is filled in with a `PASS`
-result, no such host-session proof exists.
+**Status: recorded FAIL for candidate 1886113 (2026-11-09).** A silicon-bridge
+UART host session was run and recorded below, but the host timed out reading
+the reply, so no passing host-session proof exists. The publish gate stays open
+until a `PASS` session and the maintainer go-ahead are recorded.
 
 When a session is recorded, the maintainer MUST update this Status line in the
 same edit that fills the Session record (for example, to `**Status: recorded
@@ -45,15 +46,15 @@ not against the note's commit.
 
 | Field | Value |
 |---|---|
-| silicon-bridge Candidate SHA | _<fill in: the commit to be tagged/published, i.e. `git -C silicon-bridge rev-parse HEAD` taken before committing this note>_ |
-| silicon-hdl HEAD SHA | _<fill in: `git -C silicon-hdl rev-parse HEAD`>_ |
-| `Cargo.lock` SHA-256 | _<fill in: the `Cargo.lock sha256 …` line printed by `scripts/smoke-hardware-uart.sh`; `Cargo.lock` is gitignored, so the Candidate SHA alone does not fix dependency versions>_ |
-| Serial port | _<fill in: e.g. `/dev/ttyUSB0`>_ |
-| Baud rate | _<fill in: e.g. `115200`>_ |
-| Exact commands run | _<fill in: copied verbatim>_ |
-| Harness result line | _<fill in: the full `PASS: ...` / `FAIL: ...` line, verbatim>_ |
-| Result | _<fill in: exactly `PASS` or `FAIL`>_ |
-| Maintainer go-ahead | _<fill in: name + date of explicit publish go-ahead>_ |
+| silicon-bridge Candidate SHA | `188611306097429ae3010b85cf31c3db22341d65` |
+| silicon-hdl HEAD SHA | `e56663143fe5faaa9b6dddea69ffda66d0ad6602` |
+| `Cargo.lock` SHA-256 | `0c923d8113854e183586f94f51acad3aba06d11cc288cb1319dbc3c530beb585` |
+| Serial port | `COM3` (Windows host, "USB Serial Port (COM3)") |
+| Baud rate | `115200` |
+| Exact commands run | `SILICON_BRIDGE_PORT=COM3 bash scripts/smoke-hardware-uart.sh` (run twice, identical result both times) |
+| Harness result line | `FAIL: exchange port=COM3 baud=115200 reason=failed to read stimulus reply: Operation timed out` |
+| Result | FAIL |
+| Maintainer go-ahead | _held — evidence recorded 2026-11-09; explicit publish go-ahead pending_ |
 
 ## Flow (in order)
 
@@ -69,11 +70,13 @@ maintainer with silicon-hdl and Vivado.
    session on an explicit serial port
    (`examples/uart_host_smoke.rs` via `scripts/smoke-hardware-uart.sh`).
 
-## What this proves
+## What a passing session proves
 
-- A live silicon-bridge UART host session on the one named Basys 3 board: the
-  host opened the port, sent one SiliconBridge v3.0 stimulus frame, and decoded
-  one v3.0 response frame.
+When Result is `PASS`, the recorded session demonstrates a live silicon-bridge
+UART host session on the one named Basys 3 board: the host opened the port, sent
+one SiliconBridge v3.0 stimulus frame, and decoded one v3.0 response frame.
+This recorded session (`FAIL`) timed out before a response frame was decoded; it
+does not establish that exchange.
 
 ## This does not prove
 
