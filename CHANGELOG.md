@@ -6,10 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [0.4.0] - 2026-11-09
-
-This release is **0.4.0**, not 0.3.1. Relative to the published 0.3.0 it
-removes `FpgaMetrics::load_from_project`, changes the types of
+The next registry release is **0.4.0**, not 0.3.1. Relative to the published
+0.3.0 this cycle removes `FpgaMetrics::load_from_project`, changes the types of
 `ExportConfig::profile()` and `ExportReport::profile`, turns
 `ExportError::MissingRequiredReadout` from a unit into a struct variant (see
 **Removed** / **Changed** below). Cargo

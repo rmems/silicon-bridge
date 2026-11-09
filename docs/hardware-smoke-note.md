@@ -7,8 +7,8 @@ reference board. It is the recorded evidence for the 0.4.0 publish gate tracked
 in GitHub [#84](https://github.com/rmems/silicon-bridge/issues/84).
 
 **Status: recorded FAIL for candidate 1886113 (2026-11-09).** A silicon-bridge
-UART host session was run and recorded below, but the board returned no reply
-frame, so no passing host-session proof exists. The publish gate stays open
+UART host session was run and recorded below, but the host timed out reading
+the reply, so no passing host-session proof exists. The publish gate stays open
 until a `PASS` session and the maintainer go-ahead are recorded.
 
 When a session is recorded, the maintainer MUST update this Status line in the
@@ -70,11 +70,13 @@ maintainer with silicon-hdl and Vivado.
    session on an explicit serial port
    (`examples/uart_host_smoke.rs` via `scripts/smoke-hardware-uart.sh`).
 
-## What this proves
+## What a passing session proves
 
-- A live silicon-bridge UART host session on the one named Basys 3 board: the
-  host opened the port, sent one SiliconBridge v3.0 stimulus frame, and decoded
-  one v3.0 response frame.
+When Result is `PASS`, the recorded session demonstrates a live silicon-bridge
+UART host session on the one named Basys 3 board: the host opened the port, sent
+one SiliconBridge v3.0 stimulus frame, and decoded one v3.0 response frame.
+This recorded session (`FAIL`) timed out before a response frame was decoded; it
+does not establish that exchange.
 
 ## This does not prove
 
