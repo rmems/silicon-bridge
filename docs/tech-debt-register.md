@@ -43,7 +43,7 @@ the file and symbol names are the durable part.
 | 20 | 2.4 MB logo; the `imgbot` branch that shrinks it is unmergeable | `docs/logo.png` | Low | queued |
 | 21 | 12 stale remote branches | remote refs | Low | cleanup |
 | 22 | No `CONTRIBUTING`, `SECURITY`, templates, or `CODEOWNERS` | `.github/` | Low | queued |
-| 23 | No vulnerability audit in CI | `.github/workflows/ci.yml` | Low | blocked by #31 |
+| 23 | ~~No vulnerability audit in CI~~ | `.github/workflows/ci.yml` | Low | **Fixed RM-2040 / #134** |
 
 ---
 
@@ -356,7 +356,7 @@ intake and ownership out would close the item without resolving it.
 ### 23. ~~No vulnerability audit in CI~~ (closed)
 
 Resolved in RM-2040: CI job `audit` runs `cargo deny check advisories` against
-`deny.toml` (`uart` + `nir` features). Reported vulnerabilities **fail** the
+`deny.toml` (`uart`, `nir`, `nir-io` features). Reported vulnerabilities **fail** the
 build; optional `cargo deny check licenses` is configured locally but not
 gated in CI yet. With `Cargo.lock` uncommitted, each run inspects freshly
 resolved versions rather than what a consumer pins. Wire into `ci-gate` when

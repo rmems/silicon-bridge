@@ -8,10 +8,9 @@
 # locally; the workflow gate is advisories-only.
 
 [graph]
-# `uart` → `serialport` / native deps; `nir` → `nir-rs`. `nir-io` (HDF5) is
-# omitted here so the audit job does not require libhdf5; the `uart` CI job still
-# builds `--all-features` including `nir-io`.
-features = ["uart", "nir"]
+# Feature-enabled dependency graph for advisory checks (metadata only; no native
+# link step). Matches supported optional features, including `nir-io` / HDF5.
+features = ["uart", "nir", "nir-io"]
 
 [advisories]
 version = 2
@@ -40,5 +39,5 @@ allow = [
 multiple-versions = "warn"
 
 [sources]
-unknown-registry = "warn"
-unknown-git = "warn"
+unknown-registry = "deny"
+unknown-git = "deny"
