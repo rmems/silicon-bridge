@@ -265,3 +265,27 @@ jobs:
           CXX: g++
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: g++
         run: cargo +nightly fuzz build --dev --sanitizer none
+
+  # Single stable required status check for branch rulesets (#106). Individual
+  # job names embed MSRV versions and matrix OS legs that change over time.
+  ci-gate:
+    name: ci-gate
+    runs-on: ubuntu-latest
+    needs: [msrv, msrv-nir, fmt, test, uart, fuzz]
+    if: always()
+    steps:
+      - name: Require all CI jobs to succeed
+        env:
+          MSRV: ${{ needs.msrv.result }}
+          MSRV_NIR: ${{ needs.msrv-nir.result }}
+          FMT: ${{ needs.fmt.result }}
+          TEST: ${{ needs.test.result }}
+          UART: ${{ needs.uart.result }}
+          FUZZ: ${{ needs.fuzz.result }}
+        run: |
+          for result in "$MSRV" "$MSRV_NIR" "$FMT" "$TEST" "$UART" "$FUZZ"; do
+            if [ "$result" != "success" ]; then
+              echo "Required job result was '$result' (expected success)"
+              exit 1
+            fi
+          done
