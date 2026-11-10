@@ -353,12 +353,11 @@ checklist from CLAUDE.md's quality bar, `.github/ISSUE_TEMPLATE/` for bug and
 feature intake, and `CODEOWNERS` so review routing is explicit. Leaving issue
 intake and ownership out would close the item without resolving it.
 
-### 23. No vulnerability audit in CI
+### 23. ~~No vulnerability audit in CI~~ (closed)
 
-Nothing runs `cargo audit` or `cargo deny`. `serialport` pulls in `libudev-sys`
-and `nix`, so the `uart` feature has real native surface area.
-
-**Fix scope (blocked by #31)** — an `audit` job running
-`rustsec/audit-check`, or `cargo deny check advisories` if licence checking is
-wanted too. Note that with `Cargo.lock` uncommitted, an audit inspects freshly
-resolved versions rather than what a consumer pins.
+Resolved in RM-2040: CI job `audit` runs `cargo deny check advisories` against
+`deny.toml` (`uart` + `nir` features). Reported vulnerabilities **fail** the
+build; optional `cargo deny check licenses` is configured locally but not
+gated in CI yet. With `Cargo.lock` uncommitted, each run inspects freshly
+resolved versions rather than what a consumer pins. Wire into `ci-gate` when
+RM-2039 lands.

@@ -1,0 +1,44 @@
+# Dependency policy for CI (`cargo deny check advisories`) and optional local
+# license checks. `Cargo.lock` is intentionally uncommitted (see
+# `.github/dependabot.yml`); each run resolves fresh crate versions against
+# the feature set below.
+#
+# CI fails the build on reported vulnerabilities (RustSec advisories). License
+# checking is configured for maintainers who run `cargo deny check licenses`
+# locally; the workflow gate is advisories-only.
+
+[graph]
+# `uart` → `serialport` / native deps; `nir` → `nir-rs`. `nir-io` (HDF5) is
+# omitted here so the audit job does not require libhdf5; the `uart` CI job still
+# builds `--all-features` including `nir-io`.
+features = ["uart", "nir"]
+
+[advisories]
+version = 2
+ignore = [
+    # Example: { id = "RUSTSEC-0000-0000", reason = "document why" },
+]
+
+# SPDX allow-list for optional `cargo deny check licenses` (not run in CI yet).
+[licenses]
+version = 2
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+    "CC0-1.0",
+    "MPL-2.0",
+]
+
+[bans]
+multiple-versions = "warn"
+
+[sources]
+unknown-registry = "warn"
+unknown-git = "warn"
