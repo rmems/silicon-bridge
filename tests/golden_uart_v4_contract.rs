@@ -81,8 +81,9 @@ fn v4_rx_matches_independent_bytes() {
     let decoded = decode_response_v4(&layout(&fix), fix.request_id, &expected)
         .expect("valid integrity-bearing fixture");
     assert_eq!(decoded.potentials, fix.rx_potentials_f32);
-    for index in 0..fix.output_neurons {
-        assert_eq!(decoded.spikes[index], fix.rx_spike_bits.contains(&index));
+    assert_eq!(decoded.spikes.len(), fix.output_neurons);
+    for (index, &spike) in decoded.spikes.iter().enumerate() {
+        assert_eq!(spike, fix.rx_spike_bits.contains(&index));
     }
     assert_eq!(decoded.switches, Some(fix.rx_switches));
 }
