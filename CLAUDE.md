@@ -23,7 +23,7 @@ API, feature-gate hardware I/O, and keep Rust edition **2024**.
 | `cargo clippy --all-targets -- -D warnings` | Lint gate (default features) |
 | `cargo clippy --all-targets --all-features -- -D warnings` | Lint gate with UART and `nir-io` (needs `libudev-dev` and `libhdf5-dev` on Linux) |
 | `cargo check --features uart` | UART feature compile (needs `serialport` / `libudev` on Linux) |
-| `cargo fuzz build --dev --sanitizer none` | Compile-only fuzz targets (opt-in campaign via `cargo fuzz run`) |
+| `cargo fuzz build --dev --sanitizer none` | Compile-only fuzz targets (opt-in campaign via `cargo +nightly fuzz run`) |
 | `cargo build --release` | Optimized library build |
 
 ## Do not

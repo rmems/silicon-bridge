@@ -116,10 +116,10 @@ CI compiles them (`cargo +nightly fuzz build --dev --sanitizer none`). A long
 campaign is opt-in, after `cargo install cargo-fuzz --locked`:
 
 ```bash
-cargo fuzz run q88_codecs
-cargo fuzz run encode_stimuli
-cargo fuzz run decode_response
-cargo fuzz run chunked_frames
+cargo +nightly fuzz run q88_codecs
+cargo +nightly fuzz run encode_stimuli
+cargo +nightly fuzz run decode_response
+cargo +nightly fuzz run chunked_frames
 ```
 
 If a local image exposes `clang` as `c++`, install `g++` and use the

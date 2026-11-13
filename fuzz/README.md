@@ -25,10 +25,10 @@ if a local image exposes `clang` as `c++`.
 Opt-in, after `cargo install cargo-fuzz`:
 
 ```bash
-cargo fuzz run q88_codecs
-cargo fuzz run encode_stimuli
-cargo fuzz run decode_response
-cargo fuzz run chunked_frames
+cargo +nightly fuzz run q88_codecs
+cargo +nightly fuzz run encode_stimuli
+cargo +nightly fuzz run decode_response
+cargo +nightly fuzz run chunked_frames
 ```
 
 Promote any crash from `fuzz/artifacts/<target>/` into

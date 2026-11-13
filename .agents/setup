@@ -7,7 +7,7 @@
 #
 # Installs only what this repo's CI and manifests need:
 #   - apt: build-essential, pkg-config, libudev-dev, libhdf5-dev, curl, ca-certificates
-#   - Rust stable (+rustfmt, clippy, llvm-tools-preview) [default]
+#   - Rust 1.99.0 dev pin (+rustfmt, clippy, llvm-tools-preview) [default]
 #   - Rust 1.88.0 (MSRV) and 1.98.1 (nir MSRV)
 #   - cargo check --all-targets --all-features
 #   - tool directories exposed to later shells (/etc/profile.d + /usr/local/bin links)

@@ -107,6 +107,6 @@ Tests live inline in source files, plus the #53 golden-contract suite:
 `tests/golden/` is the committed expected output (not encoder-generated).
 Ordinary `cargo test` does not run HDL simulation. Optional Icarus evidence:
 `bash tests/golden/hdl/run.sh`. Long fuzz campaigns are opt-in
-(`cargo fuzz run <target>`); see `fuzz/README.md`.
+(`cargo +nightly fuzz run <target>`); see `fuzz/README.md`.
 
 Run `cargo test` and ensure all tests pass before pushing. Add tests for any new code you write.
