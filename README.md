@@ -95,11 +95,11 @@ Artix-7 trainer pinout. That file is **not** the claimed reference demo;
 A silicon-bridge UART host session on this board is release evidence for the
 0.4.0 publish path ([#84](https://github.com/rmems/silicon-bridge/issues/84)).
 When run, that session is recorded in
-[`docs/hardware-smoke-note.md`](docs/hardware-smoke-note.md). A **FAIL** is
-recorded for candidate `1886113` (2026-11-09); until that note records a
-`PASS`, no passing host-session proof exists. Raw logs may also be linked on
-#84. This crate’s examples and CI do not flash an FPGA. Lab JTAG serials belong
-in smoke logs, not here.
+[`docs/hardware-smoke-note.md`](docs/hardware-smoke-note.md). A **PASS** is
+recorded for candidate `996d8f3` (2026-11-13, silicon-hdl `e566631`
+bitstream); the maintainer publish go-ahead is still pending. Raw logs may
+also be linked on #84. This crate’s examples and CI do not flash an FPGA. Lab
+JTAG serials belong in smoke logs, not here.
 
 Companion contracts live in silicon-hdl:
 [README](https://github.com/rmems/silicon-hdl#readme),
@@ -444,7 +444,9 @@ Evidence classes: **OS compilation** (CI #24: Linux/macOS/Windows; Linux `uart`
 job with `libudev-dev`), **HDL simulation** (`tests/golden/hdl/run.sh`, Icarus,
 optional), **board testing** (not this crate's default examples or CI). The
 only captured physical Basys 3 evidence so far is silicon-hdl’s LED heartbeat
-smoke, not a silicon-bridge UART host session (that is [#84](https://github.com/rmems/silicon-bridge/issues/84)).
+smoke plus the recorded silicon-bridge UART host-session **PASS** in
+[`docs/hardware-smoke-note.md`](docs/hardware-smoke-note.md) ([#84](https://github.com/rmems/silicon-bridge/issues/84);
+publish go-ahead still pending).
 
 Serial prerequisites: Linux needs `libudev` to **enumerate** ports; opening a
 named path does not. Always select the device yourself. `ping()` sends a real

@@ -6,10 +6,12 @@ This note records a live **silicon-bridge UART host session** on one named
 reference board. It is the recorded evidence for the 0.4.0 publish gate tracked
 in GitHub [#84](https://github.com/rmems/silicon-bridge/issues/84).
 
-**Status: recorded FAIL for candidate 1886113 (2026-11-09).** A silicon-bridge
-UART host session was run and recorded below, but the host timed out reading
-the reply, so no passing host-session proof exists. The publish gate stays open
-until a `PASS` session and the maintainer go-ahead are recorded.
+**Status: recorded PASS for candidate 996d8f3 (2026-11-13).** A silicon-bridge
+UART host session was run and recorded below and returned `PASS` twice
+identically. Release-readiness §5 items 1 and 3 are satisfied by this record;
+item 2 must be re-verified against the post-merge publish candidate. The gate
+stays open until item 2, item 4 (maintainer go-ahead), and the authorized
+publish are recorded.
 
 When a session is recorded, the maintainer MUST update this Status line in the
 same edit that fills the Session record (for example, to `**Status: recorded
@@ -46,15 +48,15 @@ not against the note's commit.
 
 | Field | Value |
 |---|---|
-| silicon-bridge Candidate SHA | `188611306097429ae3010b85cf31c3db22341d65` |
+| silicon-bridge Candidate SHA | `996d8f33a21cf5d96135d533e3ceec26b3e53459` |
 | silicon-hdl HEAD SHA | `e56663143fe5faaa9b6dddea69ffda66d0ad6602` |
 | `Cargo.lock` SHA-256 | `0c923d8113854e183586f94f51acad3aba06d11cc288cb1319dbc3c530beb585` |
 | Serial port | `COM3` (Windows host, "USB Serial Port (COM3)") |
 | Baud rate | `115200` |
-| Exact commands run | `SILICON_BRIDGE_PORT=COM3 bash scripts/smoke-hardware-uart.sh` (run twice, identical result both times) |
-| Harness result line | `FAIL: exchange port=COM3 baud=115200 reason=failed to read stimulus reply: Operation timed out` |
-| Result | FAIL |
-| Maintainer go-ahead | _held — evidence recorded 2026-11-09; explicit publish go-ahead pending_ |
+| Exact commands run | `SILICON_BRIDGE_PORT=COM3 bash scripts/smoke-hardware-uart.sh` (run twice, PASS both times). Board side: bitstream rebuilt from silicon-hdl `main` @ `e566631` via `vivado -mode batch -source scripts/build_soc.tcl` (Vivado 2026.1, WNS 0.669 ns / WHS 0.028 ns, DRC 0 errors) → `vivado_projects/spikenaut_soc/output/spikenaut_soc.bit`, programmed over JTAG (`program_hw_devices`, DONE HIGH), BTNC reset, SW15 + SW14 high |
+| Harness result line | `PASS: live silicon-bridge UART host session port=COM3 baud=115200 (16 potentials, 16 spikes)` |
+| Result | PASS |
+| Maintainer go-ahead | _held — PASS evidence recorded 2026-11-13; explicit publish go-ahead pending_ |
 
 ## Flow (in order)
 
@@ -74,9 +76,11 @@ maintainer with silicon-hdl and Vivado.
 
 When Result is `PASS`, the recorded session demonstrates a live silicon-bridge
 UART host session on the one named Basys 3 board: the host opened the port, sent
-one SiliconBridge v3.0 stimulus frame, and decoded one v3.0 response frame.
-This recorded session (`FAIL`) timed out before a response frame was decoded; it
-does not establish that exchange.
+one SiliconBridge v3.0 stimulus frame, and decoded one v3.0 response frame
+(16 potentials, 16 spikes). The earlier 2026-11-09 session against candidate
+`1886113` timed out reading the reply because the board was not running the
+matching `e566631` bitstream; re-building and re-programming that bitstream
+produced this PASS.
 
 ## This does not prove
 

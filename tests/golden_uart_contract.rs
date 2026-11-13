@@ -139,9 +139,10 @@ fn legacy_v3_rx_matches_independent_bytes() {
     let decoded =
         decode_response(&DenseQ88Layout::silicon_bridge_v3(), &rx).expect("36-byte v3 reply");
     assert_eq!(decoded.potentials, fix.rx_potentials_f32);
-    for i in 0..16 {
+    assert_eq!(decoded.spikes.len(), 16);
+    for (i, &spike) in decoded.spikes.iter().enumerate() {
         let fired = fix.rx_spike_bits.contains(&i);
-        assert_eq!(decoded.spikes[i], fired, "spike bit {i}");
+        assert_eq!(spike, fired, "spike bit {i}");
     }
     assert_eq!(decoded.switches, Some(fix.rx_switches));
 }
@@ -161,9 +162,10 @@ fn assert_dense(name: &str, stimuli: &[f32]) {
     assert_eq!(rx.len(), fix.rx_len);
     let decoded = decode_response(&layout, &rx).expect(name);
     assert_eq!(decoded.potentials.len(), fix.output_neurons);
-    for i in 0..fix.output_neurons {
+    assert_eq!(decoded.spikes.len(), fix.output_neurons);
+    for (i, &spike) in decoded.spikes.iter().enumerate() {
         let fired = fix.rx_spike_bits.contains(&i);
-        assert_eq!(decoded.spikes[i], fired, "{name} spike {i}");
+        assert_eq!(spike, fired, "{name} spike {i}");
     }
     assert_eq!(decoded.switches, Some(fix.rx_switches));
 }
