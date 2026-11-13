@@ -12,13 +12,20 @@ cd "$ROOT"
 
 # Match release-readiness §4: hardware evidence must bind to the commit under
 # test, not a dirty worktree of the smoke paths. `Cargo.lock` is gitignored, so
-# it is not part of the commit and is not listed here.
+# it is not part of the commit and is not listed here. This check only applies
+# inside a git work tree: an unpacked `.crate` has no `.git`, so the guard is
+# skipped there (the recorded evidence then cannot name a commit — run from a
+# checkout when commit binding matters).
 SMOKE_PATHS=(Cargo.toml examples/uart_host_smoke.rs src/)
-if ! git diff --quiet HEAD -- "${SMOKE_PATHS[@]}" \
-  || ! git diff --cached --quiet HEAD -- "${SMOKE_PATHS[@]}"; then
-  echo "==> refusing: uncommitted changes under ${SMOKE_PATHS[*]}" >&2
-  echo "    commit or stash the publish candidate before recording hardware evidence" >&2
-  exit 1
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  if ! git diff --quiet HEAD -- "${SMOKE_PATHS[@]}" \
+    || ! git diff --cached --quiet HEAD -- "${SMOKE_PATHS[@]}"; then
+    echo "==> refusing: uncommitted changes under ${SMOKE_PATHS[*]}" >&2
+    echo "    commit or stash the publish candidate before recording hardware evidence" >&2
+    exit 1
+  fi
+else
+  echo "==> note: not a git work tree (e.g. unpacked crate); skipping commit-cleanliness check" >&2
 fi
 
 if [[ -z "${SILICON_BRIDGE_PORT:-}" ]]; then
