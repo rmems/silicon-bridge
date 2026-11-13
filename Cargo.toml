@@ -34,6 +34,11 @@ include = [
     "docs/host-hdl-contract.md",
     "docs/uart-v4-protocol.md",
     "docs/release-readiness.md",
+    "docs/boundary-matrix.md",
+    # Shipped so the maintainer commands referenced by release-readiness.md,
+    # the smoke note, and examples/README.md resolve inside the unpacked crate.
+    "scripts/smoke-hardware-uart.sh",
+    "scripts/smoke-packaged-consumer.sh",
     "/README.md",
     "/CHANGELOG.md",
     "LICENSE-MIT",
