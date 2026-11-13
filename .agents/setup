@@ -47,7 +47,7 @@ if ! command -v rustup >/dev/null 2>&1; then
 fi
 # rust-toolchain.toml pins 1.99.0 for dev lanes (issue #135); install it so the
 # first cargo invocation in the repo does not fetch it mid-build.
-rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy --component llvm-tools-preview
 rustup default 1.99.0
 # ci.yml MSRV jobs pin 1.88.0 (rust-version) and 1.98.1 (nir-rs rust-version);
 # they override the repo pin via RUSTUP_TOOLCHAIN.

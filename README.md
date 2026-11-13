@@ -172,8 +172,9 @@ The default feature set does not depend on `nir-rs`. The `nir` feature pins
 Rust version) for default features and `uart`, unchanged from 0.3.0. Edition
 2024 plus `if`/`let` chains set that floor. CI runs a dedicated **1.88.0**
 job (default features and `uart`) and a **1.98.1** job (`nir`) on every push
-and PR, and separately exercises the moving GitHub Actions **`stable`**
-toolchain (clippy, multi-OS tests, full `--all-features`, fuzz compile).
+and PR, and separately exercises the **1.99.0** dev toolchain pinned by
+`rust-toolchain.toml` (clippy, multi-OS tests, full `--all-features`; fuzz
+compile stays on nightly).
 Raising MSRV requires an explicit compatibility decision and a CHANGELOG entry;
 see [docs/release-readiness.md](docs/release-readiness.md).
 
@@ -565,7 +566,7 @@ to `main` and every pull request. No secrets are required.
 | Job | Runner | What it runs |
 |-----|--------|--------------|
 | `msrv (1.88.0, ubuntu-latest)` | Linux | pinned Rust **1.88.0** (`[package].rust-version`): `cargo check --all-targets` and `cargo test`, then the same with `--features uart` (installs `libudev-dev`). The `nir` feature is excluded because `nir-rs` needs 1.98.1 |
-| `msrv-nir (1.98.1, ubuntu-latest)` | Linux | pinned Rust **1.98.1** (`nir-rs` `rust-version`): `cargo check --all-targets --features nir` and `cargo test --features nir` (no native HDF5, so `nir-io` stays on stable) |
+| `msrv-nir (1.98.1, ubuntu-latest)` | Linux | pinned Rust **1.98.1** (`nir-rs` `rust-version`): `cargo check --all-targets --features nir` and `cargo test --features nir` (no native HDF5, so `nir-io` stays on the 1.99.0 dev lane) |
 | `fmt (ubuntu-latest)` | Linux | `cargo fmt --check` (once — formatting is OS-independent) |
 | `test (ubuntu-latest)` | Linux | `cargo clippy --all-targets -- -D warnings`, `cargo build`, `cargo test` |
 | `test (macos-latest)` | macOS | same as above |

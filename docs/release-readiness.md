@@ -58,10 +58,13 @@ that host proof.
   Linux).
 - **NIR floor:** `nir` / `nir-io` pin `nir-rs = 0.4.5`, which declares
   `rust-version = "1.98.1"`. CI enforces that with a **1.98.1** `msrv-nir`
-  job (`--features nir`). `nir-io` needs native libhdf5 and runs on stable.
-- **Stable:** CI also runs the moving GitHub Actions `stable` toolchain
-  (formatting, clippy, multi-OS default-feature tests, UART/rustdoc, fuzz
-  compile). That lane tracks current stable; it is not a second MSRV pin.
+  job (`--features nir`). `nir-io` needs native libhdf5 and runs on the
+  1.99.0 dev lane.
+- **Dev toolchain:** CI's non-MSRV jobs pin Rust **1.99.0** via
+  `rust-toolchain.toml` (formatting, clippy, multi-OS default-feature tests,
+  UART/rustdoc, coverage); the fuzz lane uses `nightly`, and the `msrv` /
+  `msrv-nir` jobs override the pin with `RUSTUP_TOOLCHAIN`. That lane is not
+  a second MSRV pin.
 - **Raising MSRV:** Do not bump `rust-version` to match the newest stable
   without an explicit compatibility decision. When MSRV increases, update
   `Cargo.toml`, README, this section, and add a **Changed** entry under

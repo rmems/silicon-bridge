@@ -3,4 +3,4 @@
 # `msrv` / `msrv-nir` CI jobs pin their own floors via RUSTUP_TOOLCHAIN.
 [toolchain]
 channel = "1.99.0"
-components = ["rustfmt", "clippy"]
+components = ["rustfmt", "clippy", "llvm-tools-preview"]

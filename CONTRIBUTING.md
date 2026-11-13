@@ -79,9 +79,9 @@ request and on pushes to `main`. The workflow does not use secrets.
 | --- | --- |
 | `msrv (1.88.0, ubuntu-latest)` | Rust **1.88.0**: `cargo check --all-targets`, `cargo test`, then both again with `--features uart` after installing `libudev-dev`. `nir` stays off this job. |
 | `msrv-nir (1.98.1, ubuntu-latest)` | Rust **1.98.1**: `cargo check --all-targets --features nir` and `cargo test --features nir`. |
-| `fmt (ubuntu-latest)` | stable + rustfmt: `cargo fmt --check` and `cargo fmt --check --manifest-path fuzz/Cargo.toml` |
-| `test` (`ubuntu-latest`, `macos-latest`, `windows-latest`) | stable + clippy, default features: `cargo clippy --all-targets -- -D warnings`, `cargo build`, `cargo test`. `fail-fast: false`. |
-| `uart (ubuntu-latest)` | `libudev-dev` and `libhdf5-dev`, then `cargo clippy --all-targets --all-features -- -D warnings`, `cargo check --features uart`, `cargo test --all-features`, `cargo test --all-features --examples`, and `cargo doc --no-deps --features uart` with `RUSTDOCFLAGS=-D warnings` |
+| `fmt (ubuntu-latest)` | Rust 1.99.0 (dev pin) + rustfmt: `cargo fmt --check` and `cargo fmt --check --manifest-path fuzz/Cargo.toml` |
+| `test` (`ubuntu-latest`, `macos-latest`, `windows-latest`) | Rust 1.99.0 (dev pin) + clippy, default features: `cargo clippy --all-targets -- -D warnings`, `cargo build`, `cargo test`. `fail-fast: false`. |
+| `uart (ubuntu-latest)` | Rust 1.99.0 (dev pin); `libudev-dev` and `libhdf5-dev`, then `cargo clippy --all-targets --all-features -- -D warnings`, `cargo check --features uart`, `cargo test --all-features`, `cargo test --all-features --examples`, and `cargo doc --no-deps --features uart` with `RUSTDOCFLAGS=-D warnings` |
 | `fuzz-build (ubuntu-latest)` | nightly, `g++`, `cargo install cargo-fuzz --locked`, then `cargo +nightly fuzz build --dev --sanitizer none` (`CC=gcc`, `CXX=g++`, linker `g++`). Compile only. |
 
 The `uart` job runs unit tests only. CI runners have no serial hardware.
