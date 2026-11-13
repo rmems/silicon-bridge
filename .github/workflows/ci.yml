@@ -20,6 +20,10 @@ jobs:
   msrv:
     name: msrv (1.88.0, ubuntu-latest)
     runs-on: ubuntu-latest
+    env:
+      # rust-toolchain.toml pins 1.99.0 for dev lanes; RUSTUP_TOOLCHAIN beats
+      # the file so this job keeps enforcing the crate floor.
+      RUSTUP_TOOLCHAIN: 1.88.0
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -66,6 +70,9 @@ jobs:
   msrv-nir:
     name: msrv-nir (1.98.1, ubuntu-latest)
     runs-on: ubuntu-latest
+    env:
+      # See `msrv`: overrides rust-toolchain.toml so the nir-rs floor holds.
+      RUSTUP_TOOLCHAIN: 1.98.1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -105,11 +112,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Rust stable
+      - name: Install Rust 1.99.0 (dev pin)
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # stable
         with:
           components: rustfmt
-          toolchain: stable
+          toolchain: 1.99.0
 
       - name: Check formatting
         run: cargo fmt --check
@@ -130,11 +137,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Rust stable
+      - name: Install Rust 1.99.0 (dev pin)
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # stable
         with:
           components: clippy
-          toolchain: stable
+          toolchain: 1.99.0
 
       - name: Cache cargo registry
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
@@ -166,11 +173,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Rust stable
+      - name: Install Rust 1.99.0 (dev pin)
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # stable
         with:
           components: clippy
-          toolchain: stable
+          toolchain: 1.99.0
 
       # libhdf5-dev: `--all-features` includes `nir-io`, whose `nir-rs/hdf5`
       # links the native HDF5 library.

@@ -18,8 +18,10 @@ Dual-licensed under the [MIT](LICENSE-MIT) license or the
   enforces it with the `msrv (1.88.0, ubuntu-latest)` job. Raising it
   requires the compatibility decision in
   [docs/release-readiness.md](docs/release-readiness.md).
-- CI also runs the moving GitHub Actions `stable` toolchain. That lane is
-  not a second MSRV pin.
+- CI's non-MSRV jobs pin the dev toolchain **1.99.0** via
+  `rust-toolchain.toml` (local `cargo` commands pick it up automatically).
+  That lane is not a second MSRV pin; the `msrv` and `msrv-nir` jobs override
+  it with `RUSTUP_TOOLCHAIN`.
 - The optional `nir` feature pins `nir-rs = 0.4.5`, which declares
   `rust-version = "1.98.1"`. The `msrv-nir (1.98.1, ubuntu-latest)` job
   checks and tests `--features nir` on that floor. Do not use newer std or
