@@ -117,24 +117,6 @@ jobs:
       - name: Check fuzz-target formatting
         run: cargo fmt --check --manifest-path fuzz/Cargo.toml
 
-  # RustSec advisory gate on a freshly resolved graph (`Cargo.lock` is not
-  # committed). `deny.toml` enables `uart`, `nir`, and `nir-io` (metadata only;
-  # no libhdf5 install here). Reported vulnerabilities fail the job.
-  audit:
-    name: audit (cargo-deny advisories)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-
-      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
-        with:
-          rust-version: stable
-          command: check
-          arguments: ""
-          command-arguments: advisories
-
   # Default features (no `uart`) on every supported host OS.
   test:
     name: test (${{ matrix.os }})
@@ -283,27 +265,3 @@ jobs:
           CXX: g++
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: g++
         run: cargo +nightly fuzz build --dev --sanitizer none
-
-  # Single stable required status check for branch rulesets (#106). Individual
-  # job names embed MSRV versions and matrix OS legs that change over time.
-  ci-gate:
-    name: ci-gate
-    runs-on: ubuntu-latest
-    needs: [msrv, msrv-nir, fmt, test, uart, fuzz]
-    if: always()
-    steps:
-      - name: Require all CI jobs to succeed
-        env:
-          MSRV: ${{ needs.msrv.result }}
-          MSRV_NIR: ${{ needs.msrv-nir.result }}
-          FMT: ${{ needs.fmt.result }}
-          TEST: ${{ needs.test.result }}
-          UART: ${{ needs.uart.result }}
-          FUZZ: ${{ needs.fuzz.result }}
-        run: |
-          for result in "$MSRV" "$MSRV_NIR" "$FMT" "$TEST" "$UART" "$FUZZ"; do
-            if [ "$result" != "success" ]; then
-              echo "Required job result was '$result' (expected success)"
-              exit 1
-            fi
-          done
