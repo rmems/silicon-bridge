@@ -1,0 +1,5 @@
+# libFuzzer targets require nightly; keep the repo-root 1.99.0 dev pin from
+# applying inside fuzz/ (issue #135). CI invokes `cargo +nightly fuzz build`
+# explicitly and does not depend on this file.
+[toolchain]
+channel = "nightly"

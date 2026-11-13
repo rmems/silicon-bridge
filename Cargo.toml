@@ -37,6 +37,10 @@ include = [
     "docs/boundary-matrix.md",
     # Shipped so the maintainer commands referenced by release-readiness.md,
     # the smoke note, and examples/README.md resolve inside the unpacked crate.
+    # NOTE: for commit-bound hardware evidence, maintainers must run
+    # smoke-hardware-uart.sh from the candidate git checkout, not the unpacked
+    # crate — outside a work tree the script skips the cleanliness guard and
+    # cannot record which commit was tested.
     "scripts/smoke-hardware-uart.sh",
     "scripts/smoke-packaged-consumer.sh",
     "/README.md",

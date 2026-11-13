@@ -1,0 +1,6 @@
+# Dev-toolchain pin for local work and non-MSRV CI lanes (issue #135 / RM-2468).
+# This is NOT the crate MSRV: `[package].rust-version` stays 1.88.0 and the
+# `msrv` / `msrv-nir` CI jobs pin their own floors via RUSTUP_TOOLCHAIN.
+[toolchain]
+channel = "1.99.0"
+components = ["rustfmt", "clippy", "llvm-tools-preview"]
