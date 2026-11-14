@@ -150,7 +150,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! silicon-bridge = { git = "https://github.com/rmems/silicon-bridge", features = ["uart"] }
+//! silicon-bridge = { version = "0.4.0", features = ["uart"] }
 //! ```
 //!
 //! Prefer `FpgaBridge::open_with_config` or `FpgaBridge::builder` with an
