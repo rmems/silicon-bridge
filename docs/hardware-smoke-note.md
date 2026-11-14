@@ -6,10 +6,10 @@ This note records a live **silicon-bridge UART host session** on one named
 reference board. It is the recorded evidence for the 0.4.0 publish gate tracked
 in GitHub [#84](https://github.com/rmems/silicon-bridge/issues/84).
 
-**Status: recorded PASS for candidate 97cc3da (2026-11-13).** A silicon-bridge
-UART host session was run and recorded below and returned `PASS` twice
-identically at post-merge `main` HEAD `97cc3da` (re-verified after the
-evidence PR merged; earlier PASS at `996d8f3` had identical `src/` and
+**Status: recorded PASS for candidate a8570b1 (2026-11-14).** A silicon-bridge
+UART host session was run and recorded below and returned `PASS` at post-#141
+`main` HEAD `a8570b1` (re-verified after the cargo-deny gate restore merged;
+earlier PASSes at `97cc3da` and `996d8f3` had identical `src/` and
 `Cargo.lock`). Release-readiness §5 items 1–3 are satisfied by this record;
 the gate stays open until item 4 (maintainer go-ahead) and the authorized
 publish are recorded.
@@ -49,15 +49,15 @@ not against the note's commit.
 
 | Field | Value |
 |---|---|
-| silicon-bridge Candidate SHA | `97cc3dab3567c9a6583bf12da40d7e9536ea4820` |
+| silicon-bridge Candidate SHA | `a8570b107092cb267cc966068050a97bf141cb4e` |
 | silicon-hdl HEAD SHA | `e56663143fe5faaa9b6dddea69ffda66d0ad6602` |
 | `Cargo.lock` SHA-256 | `0c923d8113854e183586f94f51acad3aba06d11cc288cb1319dbc3c530beb585` |
 | Serial port | `COM3` (Windows host, "USB Serial Port (COM3)") |
 | Baud rate | `115200` |
-| Exact commands run | `SILICON_BRIDGE_PORT=COM3 bash scripts/smoke-hardware-uart.sh` (run twice at `996d8f3` and once at post-merge `97cc3da`, PASS every time). Board side: bitstream rebuilt from silicon-hdl `main` @ `e566631` via `vivado -mode batch -source scripts/build_soc.tcl` (Vivado 2026.1, WNS 0.669 ns / WHS 0.028 ns, DRC 0 errors) → `vivado_projects/spikenaut_soc/output/spikenaut_soc.bit`, programmed over JTAG (`program_hw_devices`, DONE HIGH), BTNC reset, SW15 + SW14 high |
+| Exact commands run | `SILICON_BRIDGE_PORT=COM3 bash scripts/smoke-hardware-uart.sh` (run twice at `996d8f3`, once at post-merge `97cc3da`, and once at post-#141 `a8570b1`, PASS every time). Board side: bitstream rebuilt from silicon-hdl `main` @ `e566631` via `vivado -mode batch -source scripts/build_soc.tcl` (Vivado 2026.1, WNS 0.669 ns / WHS 0.028 ns, DRC 0 errors) → `vivado_projects/spikenaut_soc/output/spikenaut_soc.bit`, programmed over JTAG (`program_hw_devices`, DONE HIGH), BTNC reset, SW15 + SW14 high |
 | Harness result line | `PASS: live silicon-bridge UART host session port=COM3 baud=115200 (16 potentials, 16 spikes)` |
 | Result | PASS |
-| Maintainer go-ahead | _held — PASS evidence recorded 2026-11-13; explicit publish go-ahead pending_ |
+| Maintainer go-ahead | _held — PASS evidence recorded 2026-11-14; explicit publish go-ahead pending_ |
 
 ## Flow (in order)
 
