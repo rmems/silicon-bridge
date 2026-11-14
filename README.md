@@ -96,7 +96,7 @@ A silicon-bridge UART host session on this board is release evidence for the
 0.4.0 publish path ([#84](https://github.com/rmems/silicon-bridge/issues/84)).
 When run, that session is recorded in
 [`docs/hardware-smoke-note.md`](docs/hardware-smoke-note.md). A **PASS** is
-recorded for candidate `97cc3da` (2026-11-13, silicon-hdl `e566631`
+recorded for candidate `a8570b1` (2026-11-14, silicon-hdl `e566631`
 bitstream); the maintainer publish go-ahead is still pending. Raw logs may
 also be linked on #84. This crate’s examples and CI do not flash an FPGA. Lab
 JTAG serials belong in smoke logs, not here.
