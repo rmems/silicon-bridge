@@ -6,29 +6,22 @@ How to use `silicon-bridge` without Spikenaut, a sibling checkout, or the
 author's workstation. This is the packaged **public** API. Implementation
 modules under `src/` are not part of the contract.
 
-`silicon-bridge` **0.3.0** is published on crates.io and docs.rs (2026-09-17,
-tag `v0.3.0` / `bf5b20d`). `[package].version` in this tree is `0.4.0`, an
-unpublished candidate; an authorized `cargo publish` is a separate
-maintainer action. A README badge is not publication. See
-[release-readiness.md](release-readiness.md). The candidate is a minor bump
-because it removes and retypes public API that 0.3.0 exports (see the
-changelog); a caret `"0.3.0"` requirement will not pick it up.
-
-```toml
-silicon-bridge = "0.3.0"
-```
-
-0.3.0 has no `nir` feature and none of the unreleased changes in the
-changelog. To use unreleased `main`, depend on git or a path:
-
-```toml
-silicon-bridge = { git = "https://github.com/rmems/silicon-bridge" }
-```
-
-After an authorized publish makes crates.io serve version 0.4.0:
+`silicon-bridge` **0.4.0** is the current crates.io release, with API docs
+on docs.rs. 0.3.0 (2026-09-17, tag `v0.3.0` / `bf5b20d`) remains available:
+a caret `"0.3.0"` requirement stops below 0.4.0, so existing consumers opt
+in by bumping it. 0.4.0 is a minor bump because it removes and retypes
+public API that 0.3.0 exports (see the changelog). See
+[release-readiness.md](release-readiness.md).
 
 ```toml
 silicon-bridge = "0.4.0"
+```
+
+0.3.0 has no `nir` feature and none of the 0.4.0 changes in the changelog.
+To use unreleased `main`, depend on git or a path:
+
+```toml
+silicon-bridge = { git = "https://github.com/rmems/silicon-bridge" }
 ```
 
 ## Bring your own floats
@@ -224,8 +217,8 @@ Publication is a **separately authorized** action. This guide and the
 examples do not run `cargo publish`, flash an FPGA, or implement NIR (see
 GitHub [#15](https://github.com/rmems/silicon-bridge/issues/15)).
 
-This tree is packaged as **0.4.0**. crates.io / docs.rs serve **0.3.0** only;
-0.4.0 is **not** live until a maintainer runs a real `cargo publish`. After a
-real publish, confirm
-the registry and repeat the packaged-crate smoke test against the **registry**
-version. A path/`cargo package` test does **not** prove crates.io publication.
+This tree is the **0.4.0** release. After the authorized `cargo publish`,
+confirm `https://crates.io/crates/silicon-bridge` serves 0.4.0 and the
+docs.rs build is clean, then repeat the packaged-crate smoke test against
+the **registry** version. A path/`cargo package` test does **not** prove
+crates.io publication.

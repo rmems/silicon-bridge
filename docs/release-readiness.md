@@ -24,25 +24,23 @@ explicitly authorized that exact version.
    crates.io tarballs and the docs.rs build for that version are immutable;
    a later git commit cannot correct them.
 
-Registry state (checked 2026-10-29): crates.io serves **0.3.0** only
+Registry state at release: crates.io previously served **0.3.0** only
 (published 2026-09-17, tag `v0.3.0` / `bf5b20d`, not yanked; the docs.rs
-build succeeded). The next crates.io-intended semver is **0.4.0**, not 0.3.1:
-since 0.3.0 the tree removed `FpgaMetrics::load_from_project`, changed the
-types of `ExportConfig::profile()` and `ExportReport::profile`, turned
-`ExportError::MissingRequiredReadout` from a unit into a struct variant. Cargo
-resolves
-`silicon-bridge = "0.3.0"` as `>=0.3.0, <0.4.0`, so a 0.3.1 carrying those
-changes would reach every existing consumer on their next `cargo update` and
-break their build; 0.4.0 keeps them on 0.3.0 until they opt in. Apply the same
-rule in future: for a 0.x crate, any removal or type change of a public item
-bumps the minor version. Registry state must still be re-checked immediately
-before publication. README, crate rustdoc, and `docs/consumer.md` describe
-0.3.0 as the live release and 0.4.0 as the unpublished candidate; rewrite all
-three to `silicon-bridge = "0.4.0"` on the exact candidate commit before
-`cargo package` (step 5 above), and update this paragraph too, since
-`docs/consumer.md` and this file both ship in the tarball. Do not treat a
-crates.io badge or an in-tree `0.4.0` string as proof of a live registry
-version.
+build succeeded); **0.4.0** is the release this checklist gates. The version
+is 0.4.0, not 0.3.1: since 0.3.0 the tree removed
+`FpgaMetrics::load_from_project`, changed the types of
+`ExportConfig::profile()` and `ExportReport::profile`, and turned
+`ExportError::MissingRequiredReadout` from a unit into a struct variant.
+Cargo resolves `silicon-bridge = "0.3.0"` as `>=0.3.0, <0.4.0`, so a 0.3.1
+carrying those changes would have reached every existing consumer on their
+next `cargo update` and broken their build; the minor bump keeps them on
+0.3.0 until they opt in. Apply the same rule in future: for a 0.x crate, any
+removal or type change of a public item bumps the minor version. README,
+crate rustdoc, and `docs/consumer.md` were rewritten to
+`silicon-bridge = "0.4.0"` on the release commit per step 5 above; this
+file ships in the tarball too. Do not treat a crates.io badge or an in-tree
+`0.4.0` string as proof of a live registry version — confirm the registry
+after the authorized publish (step 7).
 
 The reference FPGA named in README / `docs/consumer.md` is Digilent Basys 3
 (Artix-7 `XC7A35T-1CPG236C`, `xc7a35tcpg236-1`) with silicon-hdl

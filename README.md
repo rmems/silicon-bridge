@@ -108,33 +108,44 @@ Companion contracts live in silicon-hdl:
 
 ## Installation
 
-`silicon-bridge` **0.3.0** is published on
-[crates.io](https://crates.io/crates/silicon-bridge) (2026-09-17, git tag
-`v0.3.0` / `bf5b20d`; API docs on
-[docs.rs](https://docs.rs/silicon-bridge/0.3.0/silicon_bridge/)). It is the
-only registry version. `main` is the unpublished **0.4.0** candidate
-(`[package].version = "0.4.0"`); an authorized `cargo publish` is a
-separate maintainer action. The candidate is a minor bump, not 0.3.1, because
-it removes `FpgaMetrics::load_from_project`, changes the types of
-`ExportConfig::profile()` / `ExportReport::profile`, turns
+`silicon-bridge` **0.4.0** is the current release on
+[crates.io](https://crates.io/crates/silicon-bridge) (API docs on
+[docs.rs](https://docs.rs/silicon-bridge/0.4.0/silicon_bridge/)). 0.3.0
+(2026-09-17, git tag `v0.3.0` / `bf5b20d`) remains available: a caret
+`"0.3.0"` requirement stops below 0.4.0, so existing consumers opt in by
+bumping the requirement. 0.4.0 is a minor bump, not 0.3.1, because it
+removes `FpgaMetrics::load_from_project`, changes the types of
+`ExportConfig::profile()` / `ExportReport::profile`, and turns
 `ExportError::MissingRequiredReadout` into a struct variant; see
 [CHANGELOG.md](CHANGELOG.md).
 
 ```toml
-silicon-bridge = "0.3.0"
+silicon-bridge = "0.4.0"
 ```
 
-Optional UART I/O from the registry:
+Optional UART I/O:
 
 ```toml
-silicon-bridge = { version = "0.3.0", features = ["uart"] }
+silicon-bridge = { version = "0.4.0", features = ["uart"] }
 ```
 
-0.3.0 has no `nir` feature and none of the changes listed under
-`[Unreleased]` in [CHANGELOG.md](CHANGELOG.md). `"0.3.0"` is a caret
-requirement that stops below 0.4.0, so publishing 0.4.0 does not move
-existing consumers; they opt in by changing the requirement. To use
-unreleased `main`, depend on git or a path:
+Optional NIR import. `nir` re-exports the upstream type surface as
+`silicon_bridge::nir` and enables `FpgaParameterExporter::from_nir`; `nir-io`
+adds `.nir` (HDF5) file loading through `nir_rs::io` and links the native
+libhdf5 library (`libhdf5-dev` on Debian/Ubuntu, `hdf5` on Homebrew). There is
+no HDF5 decoder in this crate:
+
+```toml
+silicon-bridge = { version = "0.4.0", features = ["nir"] }
+```
+
+or, with `.nir` file loading:
+
+```toml
+silicon-bridge = { version = "0.4.0", features = ["nir-io"] }
+```
+
+To use unreleased `main`, depend on git or a path:
 
 ```toml
 silicon-bridge = { git = "https://github.com/rmems/silicon-bridge" }
@@ -146,22 +157,6 @@ Optional UART I/O:
 
 ```toml
 silicon-bridge = { git = "https://github.com/rmems/silicon-bridge", features = ["uart"] }
-```
-
-Optional NIR import. `nir` re-exports the upstream type surface as
-`silicon_bridge::nir` and enables `FpgaParameterExporter::from_nir`; `nir-io`
-adds `.nir` (HDF5) file loading through `nir_rs::io` and links the native
-libhdf5 library (`libhdf5-dev` on Debian/Ubuntu, `hdf5` on Homebrew). There is
-no HDF5 decoder in this crate:
-
-```toml
-silicon-bridge = { git = "https://github.com/rmems/silicon-bridge", features = ["nir"] }
-```
-
-or, with `.nir` file loading:
-
-```toml
-silicon-bridge = { git = "https://github.com/rmems/silicon-bridge", features = ["nir-io"] }
 ```
 
 The default feature set does not depend on `nir-rs`. The `nir` feature pins
@@ -178,19 +173,9 @@ compile stays on nightly).
 Raising MSRV requires an explicit compatibility decision and a CHANGELOG entry;
 see [docs/release-readiness.md](docs/release-readiness.md).
 
-### After an authorized 0.4.0 publish
-
-Only once `https://crates.io/crates/silicon-bridge` serves **0.4.0** (the
-registry currently serves 0.3.0 only):
-
-```toml
-silicon-bridge = "0.4.0"
-```
-
-0.4.0 needs Rust 1.88.0 (1.98.1 with `nir` / `nir-io`) and contains the breaking changes listed under
-`[Unreleased]` in [CHANGELOG.md](CHANGELOG.md).
-
-Verify docs.rs **after** that publish. A `cargo package` / path smoke test
+0.4.0 needs Rust 1.88.0 (1.98.1 with `nir` / `nir-io`) and contains the
+breaking changes listed under `[0.4.0]` in [CHANGELOG.md](CHANGELOG.md).
+Verify the docs.rs build after publish; a `cargo package` / path smoke test
 is not a registry test.
 
 ## Quick Start
@@ -480,11 +465,9 @@ list other revisions without fixtures.
 
 ## Public-release readiness
 
-See [docs/release-readiness.md](docs/release-readiness.md). This tree is the
-**0.4.0** package candidate (`[package].version` is `0.4.0`). 0.3.0 is already
-live on crates.io / docs.rs; an authorized human `cargo publish` is still
-required before 0.4.0 is. Do not treat an in-tree version string or a future
-install snippet as a published version.
+See [docs/release-readiness.md](docs/release-readiness.md). **0.4.0** is the
+published release (`[package].version` is `0.4.0`); 0.3.0 remains on
+crates.io / docs.rs for caret `"0.3.0"` requirements.
 Packaged-crate smoke (`bash scripts/smoke-packaged-consumer.sh`) is not
 registry proof. CI matrix remains
 [#24](https://github.com/rmems/silicon-bridge/issues/24).
