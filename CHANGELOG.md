@@ -6,16 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-The next registry release is **0.4.0**, not 0.3.1. Relative to the published
-0.3.0 this cycle removes `FpgaMetrics::load_from_project`, changes the types of
-`ExportConfig::profile()` and `ExportReport::profile`, turns
+## [0.4.0] - 2026-11-13
+
+Relative to the published
+0.3.0 this release removes `FpgaMetrics::load_from_project`, changes the types of
+`ExportConfig::profile()` and `ExportReport::profile`, and turns
 `ExportError::MissingRequiredReadout` from a unit into a struct variant (see
 **Removed** / **Changed** below). Cargo
 treats `silicon-bridge = "0.3.0"` as a caret requirement, so shipping those
-changes as 0.3.1 would break every existing consumer on their next
-`cargo update`; a minor bump keeps them on 0.3.0 until they opt in. Earlier
-revisions of this file carried a `[0.3.1] - 2026-09-17` section for an in-tree
-candidate that was never published; its entries are folded in here.
+changes as 0.3.1 would have broken every existing consumer on their next
+`cargo update`; the minor bump kept them on 0.3.0 until they opted in.
+Earlier revisions of this file carried a `[0.3.1] - 2026-09-17` section for
+an in-tree candidate that was never published; its entries are folded in
+here.
 
 ### Added
 

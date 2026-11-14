@@ -6,7 +6,7 @@ This note records a live **silicon-bridge UART host session** on one named
 reference board. It is the recorded evidence for the 0.4.0 publish gate tracked
 in GitHub [#84](https://github.com/rmems/silicon-bridge/issues/84).
 
-**Status: recorded PASS for candidate a8570b1 (2026-11-14).** A silicon-bridge
+**Status: recorded PASS for candidate a8570b1 (2026-11-13).** A silicon-bridge
 UART host session was run and recorded below and returned `PASS` at post-#141
 `main` HEAD `a8570b1` (re-verified after the cargo-deny gate restore merged;
 earlier PASSes at `97cc3da` and `996d8f3` had identical `src/` and
@@ -57,7 +57,7 @@ not against the note's commit.
 | Exact commands run | `SILICON_BRIDGE_PORT=COM3 bash scripts/smoke-hardware-uart.sh` (run twice at `996d8f3`, once at post-merge `97cc3da`, and once at post-#141 `a8570b1`, PASS every time). Board side: bitstream rebuilt from silicon-hdl `main` @ `e566631` via `vivado -mode batch -source scripts/build_soc.tcl` (Vivado 2026.1, WNS 0.669 ns / WHS 0.028 ns, DRC 0 errors) → `vivado_projects/spikenaut_soc/output/spikenaut_soc.bit`, programmed over JTAG (`program_hw_devices`, DONE HIGH), BTNC reset, SW15 + SW14 high |
 | Harness result line | `PASS: live silicon-bridge UART host session port=COM3 baud=115200 (16 potentials, 16 spikes)` |
 | Result | PASS |
-| Maintainer go-ahead | _held — PASS evidence recorded 2026-11-14; explicit publish go-ahead pending_ |
+| Maintainer go-ahead | _held — PASS evidence recorded 2026-11-13; explicit publish go-ahead pending_ |
 
 ## Flow (in order)
 
