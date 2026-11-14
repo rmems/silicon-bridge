@@ -217,8 +217,9 @@ Publication is a **separately authorized** action. This guide and the
 examples do not run `cargo publish`, flash an FPGA, or implement NIR (see
 GitHub [#15](https://github.com/rmems/silicon-bridge/issues/15)).
 
-This tree is the **0.4.0** release. After the authorized `cargo publish`,
-confirm `https://crates.io/crates/silicon-bridge` serves 0.4.0 and the
-docs.rs build is clean, then repeat the packaged-crate smoke test against
-the **registry** version. A path/`cargo package` test does **not** prove
-crates.io publication.
+This tree is the **0.4.0** release (published 2026-11-13, tag `v0.4.0`).
+Post-publish checks were run and passed: crates.io serves 0.4.0, the docs.rs
+build is clean, and an out-of-tree consumer pinned `silicon-bridge =
+"=0.4.0"` built and ran against the registry artifact. For future releases,
+repeat those checks after `cargo publish` — a path/`cargo package` test does
+**not** prove crates.io publication.

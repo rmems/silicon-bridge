@@ -59,6 +59,7 @@ not against the note's commit.
 | Harness result line | `PASS: live silicon-bridge UART host session port=COM3 baud=115200 (16 potentials, 16 spikes)` |
 | Result | PASS |
 | Maintainer go-ahead | recorded 2026-11-13 by rmems — authorized `cargo publish` of 0.4.0 |
+| Publish tag reconciliation | tag `v0.4.0` points at `995ae38`, the docs-only successor of candidate `f082c2f` (`git diff f082c2f 995ae38` touches only `README.md`, `docs/consumer.md`, `docs/hardware-smoke-note.md` evidence rows — `src/`, `Cargo.toml`, and `Cargo.lock` are identical, so the packaged crate code is the same). Per this note's convention the recorded Candidate SHA is the commit the session ran against. |
 
 ## Flow (in order)
 
