@@ -35,8 +35,8 @@ Cargo resolves `silicon-bridge = "0.3.0"` as `>=0.3.0, <0.4.0`, so a 0.3.1
 carrying those changes would have reached every existing consumer on their
 next `cargo update` and broken their build; the minor bump keeps them on
 0.3.0 until they opt in. Apply the same rule in future: for a 0.x crate, any
-removal or type change of a public item bumps the minor version. README,
-crate rustdoc, and `docs/consumer.md` were rewritten to
+removal or type change of a public item bumps the minor version. Registry state must still be re-checked immediately before
+publication. README, crate rustdoc, and `docs/consumer.md` were rewritten to
 `silicon-bridge = "0.4.0"` on the release commit per step 5 above; this
 file ships in the tarball too. Do not treat a crates.io badge or an in-tree
 `0.4.0` string as proof of a live registry version — confirm the registry
