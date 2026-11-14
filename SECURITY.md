@@ -22,5 +22,5 @@ File non-security bugs as public issues. See
 
 Reports should be about the `silicon-bridge` crate in this repository:
 Q8.8 export, Vivado timing-report parsing, and the optional `uart` /
-`serialport` bridge. The crates.io release is 0.3.0. `main` is the
-unpublished 0.4.0 candidate (`[package].version` in `Cargo.toml`).
+`serialport` bridge. The crates.io release is 0.4.0 (published
+2026-11-13, tag `v0.4.0`).

@@ -89,7 +89,7 @@ named reference, not a multi-board claim.
 | Constraints | `constraints/basys3.xdc`, `basys3_soc.xdc` |
 | Host UART | SiliconBridge **v3.0** (16 in / 16 out) — example layout with golden bytes matching Basys 3 firmware, not “any board” |
 | Prior board smoke | silicon-hdl [#68](https://github.com/rmems/silicon-hdl/issues/68) / [`docs/phase-c-board-smoke.md`](https://github.com/rmems/silicon-hdl/blob/main/docs/phase-c-board-smoke.md) — LED heartbeat **PASS** only; **not** a silicon-bridge UART host session |
-| Host-session evidence | [`docs/hardware-smoke-note.md`](hardware-smoke-note.md) records silicon-bridge UART host sessions on this board. **Recorded PASS** (16 potentials, 16 spikes decoded) for candidate `f082c2f` on 2026-11-13, silicon-hdl `e566631` bitstream ([#84](https://github.com/rmems/silicon-bridge/issues/84)); maintainer publish go-ahead still pending |
+| Host-session evidence | [`docs/hardware-smoke-note.md`](hardware-smoke-note.md) records silicon-bridge UART host sessions on this board. **Recorded PASS** (16 potentials, 16 spikes decoded) for candidate `f082c2f` on 2026-11-13, silicon-hdl `e566631` bitstream ([#84](https://github.com/rmems/silicon-bridge/issues/84)); maintainer go-ahead recorded and 0.4.0 published 2026-11-13 |
 
 silicon-hdl also ships `constraints/artix7_trainer.xdc`. That pinout is
 **not** the claimed reference demo (`build_soc.tcl` uses the Basys 3 XDCs
@@ -217,8 +217,9 @@ Publication is a **separately authorized** action. This guide and the
 examples do not run `cargo publish`, flash an FPGA, or implement NIR (see
 GitHub [#15](https://github.com/rmems/silicon-bridge/issues/15)).
 
-This tree is the **0.4.0** release. After the authorized `cargo publish`,
-confirm `https://crates.io/crates/silicon-bridge` serves 0.4.0 and the
-docs.rs build is clean, then repeat the packaged-crate smoke test against
-the **registry** version. A path/`cargo package` test does **not** prove
-crates.io publication.
+This tree is the **0.4.0** release (published 2026-11-13, tag `v0.4.0`).
+Post-publish checks were run and passed: crates.io serves 0.4.0, the docs.rs
+build is clean, and an out-of-tree consumer pinned `silicon-bridge =
+"=0.4.0"` built and ran against the registry artifact. For future releases,
+repeat those checks after `cargo publish` — a path/`cargo package` test does
+**not** prove crates.io publication.

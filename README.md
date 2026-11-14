@@ -97,7 +97,7 @@ A silicon-bridge UART host session on this board is release evidence for the
 When run, that session is recorded in
 [`docs/hardware-smoke-note.md`](docs/hardware-smoke-note.md). A **PASS** is
 recorded for candidate `f082c2f` (2026-11-13, silicon-hdl `e566631`
-bitstream); the maintainer publish go-ahead is still pending. Raw logs may
+bitstream); maintainer go-ahead was recorded and 0.4.0 published 2026-11-13. Raw logs may
 also be linked on #84. This crate’s examples and CI do not flash an FPGA. Lab
 JTAG serials belong in smoke logs, not here.
 
@@ -432,7 +432,7 @@ optional), **board testing** (not this crate's default examples or CI). The
 only captured physical Basys 3 evidence so far is silicon-hdl’s LED heartbeat
 smoke plus the recorded silicon-bridge UART host-session **PASS** in
 [`docs/hardware-smoke-note.md`](docs/hardware-smoke-note.md) ([#84](https://github.com/rmems/silicon-bridge/issues/84);
-publish go-ahead still pending).
+go-ahead recorded; 0.4.0 published 2026-11-13).
 
 Serial prerequisites: Linux needs `libudev` to **enumerate** ports; opening a
 named path does not. Always select the device yourself. `ping()` sends a real
