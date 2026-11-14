@@ -10,9 +10,10 @@ in GitHub [#84](https://github.com/rmems/silicon-bridge/issues/84).
 UART host session was run and recorded below and returned `PASS` at the
 release-candidate `main` HEAD `f082c2f` (post-#143 install-doc rewrite —
 the commit intended for tagging/publish; earlier PASSes at `a8570b1`,
-`97cc3da`, and `996d8f3` had identical `src/` and `Cargo.lock`). Release-readiness §5 items 1–3 are satisfied by this record;
-the gate stays open until item 4 (maintainer go-ahead) and the authorized
-publish are recorded.
+`97cc3da`, and `996d8f3` had identical `src/` and `Cargo.lock`). Release-readiness §5 is fully satisfied: maintainer
+go-ahead was recorded and `silicon-bridge` **0.4.0** was published to
+crates.io on 2026-11-13 (tag `v0.4.0` / `995ae38`; crates.io and docs.rs
+verified post-publish).
 
 When a session is recorded, the maintainer MUST update this Status line in the
 same edit that fills the Session record (for example, to `**Status: recorded
@@ -57,7 +58,7 @@ not against the note's commit.
 | Exact commands run | `SILICON_BRIDGE_PORT=COM3 bash scripts/smoke-hardware-uart.sh` (run twice at `996d8f3`, once at post-merge `97cc3da`, once at post-#141 `a8570b1`, and once at the #143 release candidate `f082c2f`, PASS every time). Board side: bitstream rebuilt from silicon-hdl `main` @ `e566631` via `vivado -mode batch -source scripts/build_soc.tcl` (Vivado 2026.1, WNS 0.669 ns / WHS 0.028 ns, DRC 0 errors) → `vivado_projects/spikenaut_soc/output/spikenaut_soc.bit`, programmed over JTAG (`program_hw_devices`, DONE HIGH), BTNC reset, SW15 + SW14 high |
 | Harness result line | `PASS: live silicon-bridge UART host session port=COM3 baud=115200 (16 potentials, 16 spikes)` |
 | Result | PASS |
-| Maintainer go-ahead | _held — PASS evidence recorded 2026-11-13; explicit publish go-ahead pending_ |
+| Maintainer go-ahead | recorded 2026-11-13 by rmems — authorized `cargo publish` of 0.4.0 |
 
 ## Flow (in order)
 
