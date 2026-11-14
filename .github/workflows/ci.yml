@@ -124,6 +124,24 @@ jobs:
       - name: Check fuzz-target formatting
         run: cargo fmt --check --manifest-path fuzz/Cargo.toml
 
+  # RustSec advisory gate on a freshly resolved graph (`Cargo.lock` is not
+  # committed). `deny.toml` enables `uart`, `nir`, and `nir-io` (metadata only;
+  # no libhdf5 install here). Reported vulnerabilities fail the job.
+  audit:
+    name: audit (cargo-deny advisories)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
+        with:
+          rust-version: stable
+          command: check
+          arguments: ""
+          command-arguments: advisories
+
   # Default features (no `uart`) on every supported host OS.
   test:
     name: test (${{ matrix.os }})
