@@ -67,7 +67,7 @@ features = ["uart", "nir"]
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-chrono = "0.4"
+jiff = { version = "0.2", default-features = false, features = ["std"] }
 serialport = { version = "4.3", optional = true }
 nir-rs = { version = "=0.4.5", optional = true, default-features = false }
 

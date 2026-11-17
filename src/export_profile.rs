@@ -438,7 +438,7 @@ pub enum TimestampPolicy {
     Omit,
     /// Caller-supplied stamp, copied verbatim so repeats stay deterministic.
     Supplied(String),
-    /// `chrono::Utc::now()` RFC 3339. Used by the legacy writer. Not
+    /// `jiff::Timestamp::now()` RFC 3339. Used by the legacy writer. Not
     /// deterministic.
     Now,
 }
@@ -992,7 +992,7 @@ pub(super) fn stamp_profile_metadata(
     metadata.timestamp = match &config.timestamp {
         TimestampPolicy::Omit => String::new(),
         TimestampPolicy::Supplied(value) => value.clone(),
-        TimestampPolicy::Now => chrono::Utc::now().to_rfc3339(),
+        TimestampPolicy::Now => jiff::Timestamp::now().to_string(),
     };
 
     metadata.compatibility = config.contract.compatibility.clone();

@@ -975,7 +975,7 @@ pub struct FpgaMetadata {
     pub version: String,
     /// Export timestamp. Empty when omitted (checked / generic default).
     /// Legacy `ParameterExport::export` and `write_mem_files` use
-    /// `chrono::Utc::now()`; the generic path copies a caller-supplied
+    /// `jiff::Timestamp::now()`; the generic path copies a caller-supplied
     /// string or omits the field so repeats stay byte-identical.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub timestamp: String,
@@ -1212,7 +1212,7 @@ impl FpgaParameterExporter {
     /// The caller’s spelling is stored unchanged so repeated exports stay
     /// byte-identical. Non-UTC offsets and unparsable strings return
     /// [`MetadataTimestampError`]. The default is to **omit** the timestamp.
-    /// Call [`Self::use_wall_clock_timestamp`] to record `chrono::Utc::now`
+    /// Call [`Self::use_wall_clock_timestamp`] to record `jiff::Timestamp::now`
     /// at export time (legacy behaviour).
     ///
     /// This affects the in-memory [`FpgaParameters`] returned by
@@ -1232,16 +1232,20 @@ impl FpgaParameterExporter {
         timestamp: impl AsRef<str>,
     ) -> Result<(), MetadataTimestampError> {
         let timestamp = timestamp.as_ref();
-        let parsed = chrono::DateTime::parse_from_rfc3339(timestamp)
+        timestamp
+            .parse::<jiff::Timestamp>()
             .map_err(|_| MetadataTimestampError::InvalidRfc3339)?;
-        if parsed.offset().local_minus_utc() != 0 {
+        if !(timestamp.ends_with('Z')
+            || timestamp.ends_with("+00:00")
+            || timestamp.ends_with("-00:00"))
+        {
             return Err(MetadataTimestampError::NotUtc);
         }
         self.timestamp = TimestampPolicy::Supplied(timestamp.to_owned());
         Ok(())
     }
 
-    /// Record a wall-clock timestamp (`chrono::Utc::now` at export time).
+    /// Record a wall-clock timestamp (`jiff::Timestamp::now` at export time).
     ///
     /// This is opt-in. The default checked path omits timestamps so repeats
     /// stay byte-identical. Like [`Self::set_timestamp`], this shapes the
@@ -1260,7 +1264,7 @@ impl FpgaParameterExporter {
         match &self.timestamp {
             TimestampPolicy::Omit => String::new(),
             TimestampPolicy::Supplied(value) => value.clone(),
-            TimestampPolicy::Now => chrono::Utc::now().to_rfc3339(),
+            TimestampPolicy::Now => jiff::Timestamp::now().to_string(),
         }
     }
 
@@ -1874,7 +1878,7 @@ impl ParameterExport for FpgaParameterExporter {
         };
         let timestamp = match &self.timestamp {
             TimestampPolicy::Supplied(value) => value.clone(),
-            TimestampPolicy::Omit | TimestampPolicy::Now => chrono::Utc::now().to_rfc3339(),
+            TimestampPolicy::Omit | TimestampPolicy::Now => jiff::Timestamp::now().to_string(),
         };
 
         let metadata = FpgaMetadata {
