@@ -1468,7 +1468,7 @@ impl FpgaParameterExporter {
             // wrote (a custom layout may assign it to another artifact).
             let mut stale_names = vec![crate::AER_ROUTE_FILENAME];
             if let Some(name) = config.files().aer_routes.as_deref()
-                && !stale_names.iter().any(|n| n.eq_ignore_ascii_case(name))
+                && !stale_names.contains(&name)
             {
                 stale_names.push(name);
             }
