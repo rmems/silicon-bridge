@@ -1235,7 +1235,7 @@ impl FpgaParameterExporter {
         timestamp
             .parse::<jiff::Timestamp>()
             .map_err(|_| MetadataTimestampError::InvalidRfc3339)?;
-        if !(timestamp.ends_with('Z')
+        if !(timestamp.ends_with(['Z', 'z'])
             || timestamp.ends_with("+00:00")
             || timestamp.ends_with("-00:00"))
         {
@@ -2268,6 +2268,9 @@ mod tests {
         exporter
             .set_timestamp("1970-01-01T00:00:00+00:00")
             .expect("explicit zero offset is UTC");
+        exporter
+            .set_timestamp("2020-01-01T00:00:00z")
+            .expect("lowercase z is UTC");
         let params = exporter.try_export().expect("checked");
         assert_eq!(params.metadata.timestamp, "1970-01-01T00:00:00+00:00");
     }

@@ -79,7 +79,7 @@ Current and intentional:
 | Crate | Why |
 |-------|-----|
 | `serde` / `serde_json` | Parameter metadata JSON |
-| `chrono` | Export timestamps |
+| `jiff` | Export timestamps |
 | `serialport` (optional) | UART feature only |
 | `nir-rs` (optional, `nir` / `nir-io` features; [Limen-Neural/nir-rs](https://github.com/Limen-Neural/nir-rs)) | NIR graph types for `FpgaParameterExporter::from_nir`; with `nir-io`, its `hdf5` feature supplies `.nir` file I/O. There is deliberately no direct `hdf5` dependency here |
 
