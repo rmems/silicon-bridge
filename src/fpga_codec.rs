@@ -37,7 +37,10 @@
 //! codec ([`crate::encode_request_v4`] / [`crate::decode_response_v4`]) when
 //! matching v4 firmware is available.
 
-use crate::{NonFiniteKind, encode_q88_signed, q88_signed_to_f32};
+use crate::{
+    AER_ROUTE_ENTRY_COUNT, AerRouteEntry, AerRouteError, AerRouteTable, NonFiniteKind,
+    encode_q88_signed, q88_signed_to_f32,
+};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -432,6 +435,77 @@ pub fn decode_response(layout: &DenseQ88Layout, rx: &[u8]) -> Result<StimulusRes
     })
 }
 
+/// Write-command byte of the `0xA5` runtime register write.
+///
+/// The five-byte frame is `[0xA5, target, address, data_hi, data_lo]`,
+/// unchanged since SiliconBridge v3.0. Targets 0/1/2 (weight, threshold,
+/// leak RAM) are outside this crate's scope; only
+/// [`ROUTE_TABLE_TARGET`] is encoded here.
+pub const ROUTE_WRITE_COMMAND: u8 = 0xA5;
+
+/// `0xA5` target selecting the AER route table.
+pub const ROUTE_TABLE_TARGET: u8 = 3;
+
+/// Byte length of one `0xA5` route-write frame.
+pub const ROUTE_WRITE_LEN: usize = 5;
+
+/// Encode one target-3 route-write frame for a validated entry.
+///
+/// Bytes are `[0xA5, 0x03, address, data_hi, data_lo]` (big-endian 16-bit
+/// entry word). `address` is the table index written, not the route's
+/// delivered address.
+///
+/// # Panics
+///
+/// `address` must be below [`crate::AER_ROUTE_ENTRY_COUNT`]; use
+/// [`encode_route_write_word`] for checked callers.
+#[must_use]
+pub fn encode_route_write(address: u8, entry: AerRouteEntry) -> [u8; ROUTE_WRITE_LEN] {
+    assert!(
+        (address as usize) < crate::AER_ROUTE_ENTRY_COUNT,
+        "route-write address {address} outside 0..{}",
+        crate::AER_ROUTE_ENTRY_COUNT
+    );
+    let word = entry.word();
+    [
+        ROUTE_WRITE_COMMAND,
+        ROUTE_TABLE_TARGET,
+        address,
+        (word >> 8) as u8,
+        word as u8,
+    ]
+}
+
+/// Checked [`encode_route_write`] from a raw `(address, word)` pair.
+///
+/// # Errors
+///
+/// [`AerRouteError::AddressOutOfRange`] when `address` is 16 or above;
+/// [`AerRouteError::ReservedBits`] when `word` sets reserved bits 13:4.
+pub fn encode_route_write_word(
+    address: u8,
+    word: u16,
+) -> Result<[u8; ROUTE_WRITE_LEN], AerRouteError> {
+    if (address as usize) >= crate::AER_ROUTE_ENTRY_COUNT {
+        return Err(AerRouteError::AddressOutOfRange { address });
+    }
+    let entry = AerRouteEntry::from_word(word, address)?;
+    Ok(encode_route_write(address, entry))
+}
+
+/// Encode a whole table: 16 frames in ascending address order.
+#[must_use]
+pub fn encode_route_table(table: &AerRouteTable) -> [[u8; ROUTE_WRITE_LEN]; AER_ROUTE_ENTRY_COUNT] {
+    let mut frames = [[0u8; ROUTE_WRITE_LEN]; AER_ROUTE_ENTRY_COUNT];
+    for (address, frame) in frames.iter_mut().enumerate() {
+        let entry = table
+            .entry(address as u8)
+            .expect("address is within the fixed table");
+        *frame = encode_route_write(address as u8, entry);
+    }
+    frames
+}
+
 /// Interpret `mask` as a big-endian integer; bit `i` is neuron `i`.
 fn spikes_from_be_mask(mask: &[u8], neurons: usize) -> Vec<bool> {
     (0..neurons)
@@ -447,6 +521,40 @@ fn spikes_from_be_mask(mask: &[u8], neurons: usize) -> Vec<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn route_write_frame_is_five_bytes_big_endian() {
+        let frame = encode_route_write(3, AerRouteEntry::from_word(0xC003, 3).unwrap());
+        assert_eq!(frame, [0xA5, 0x03, 0x03, 0xC0, 0x03]);
+    }
+
+    #[test]
+    fn route_write_word_validates_address_and_reserved_bits() {
+        assert_eq!(
+            encode_route_write_word(16, 0xC000),
+            Err(AerRouteError::AddressOutOfRange { address: 16 })
+        );
+        assert_eq!(
+            encode_route_write_word(2, 0xC010),
+            Err(AerRouteError::ReservedBits {
+                address: 2,
+                word: 0xC010
+            })
+        );
+    }
+
+    #[test]
+    fn route_table_encodes_sixteen_frames_in_address_order() {
+        let frames = encode_route_table(&AerRouteTable::identity());
+        assert_eq!(frames.len(), 16);
+        for (address, frame) in frames.iter().enumerate() {
+            let a = address as u8;
+            assert_eq!(frame[0], ROUTE_WRITE_COMMAND);
+            assert_eq!(frame[1], ROUTE_TABLE_TARGET);
+            assert_eq!(frame[2], a);
+            assert_eq!(&frame[3..5], &((0xC000 | a as u16).to_be_bytes()));
+        }
+    }
 
     fn v3() -> DenseQ88Layout {
         DenseQ88Layout::silicon_bridge_v3()

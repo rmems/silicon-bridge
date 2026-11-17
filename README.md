@@ -48,6 +48,11 @@ stimuli and reading back spike states at runtime.
   only — not FPGA identity. `list_serial_ports()` returns enumerator
   errors instead of an empty list. On Linux, enumeration typically needs
   `libudev`; opening a named path does not.
+- `FpgaParameterExporter::aer_export_config_from_nir` — `nir`-gated
+  `silicon-hdl-v3 + aer-route-v1` bundle: emits `aer_routes.mem`
+  (identity routing by default) plus manifest provenance; runtime
+  route-table writes use the five-byte `0xA5` target-3 command via
+  `FpgaBridge::write_route_table` (`uart` feature)
 - `FpgaParameterExporter::from_nir` — map a
   [`nir-rs`](https://github.com/Limen-Neural/nir-rs) `NirGraph`
   (`Input → Linear|Affine → LIF|IF|Threshold → [Linear|Affine] → Output`) onto
@@ -328,7 +333,15 @@ println!("{} neurons x {} inputs", report.num_neurons, report.num_channels);
 
 With only the `nir` feature, build or load the graph yourself and call
 `FpgaParameterExporter::from_nir(&graph)` (or `from_nir_with`), then use the
-usual `try_export` / `write_generic`.
+usual `try_export` / `write_generic`. For a pinned silicon-hdl bundle that
+also carries the AER route-table image,
+`FpgaParameterExporter::aer_export_config_from_nir(&graph, plan)` derives
+the `aer-route-v1` identity table from canonical input ordering (or accepts
+an explicit hardware plan) and returns the matching
+`ExportConfig::silicon_hdl_v3_aer_route_v1()` config — see
+[docs/aer-route-v1.md](docs/aer-route-v1.md) and
+`examples/nir_aer_export.rs`. Ordinary NIR edges are never treated as FPGA
+routing hops.
 
 Supported shape: one chain `Input → [Flatten] → Linear|Affine → LIF|IF|Threshold
 → [Linear|Affine readout] → Output`. Time constants are discretized with

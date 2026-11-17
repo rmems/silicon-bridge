@@ -1,0 +1,33 @@
+{
+  "description": "aer-route-v1 target-3 runtime writes: five-byte 0xA5 frames [command, target, address, data_hi, data_lo], big-endian entry word, no acknowledgement",
+  "contract": "https://github.com/rmems/silicon-hdl docs/aer-routing-contract.md (silicon-hdl #71)",
+  "command": "0xA5",
+  "target": 3,
+  "frame_bytes": 5,
+  "identity_frames": [
+    "A50300C000",
+    "A50301C001",
+    "A50302C002",
+    "A50303C003",
+    "A50304C004",
+    "A50305C005",
+    "A50306C006",
+    "A50307C007",
+    "A50308C008",
+    "A50309C009",
+    "A5030AC00A",
+    "A5030BC00B",
+    "A5030CC00C",
+    "A5030DC00D",
+    "A5030EC00E",
+    "A5030FC00F"
+  ],
+  "multi_hop_example": {
+    "note": "synthetic 0 -> 1 -> 2 route: entry 0 forwards to 1, entry 1 forwards to 2, entry 2 is terminal delivering 2",
+    "frames": [
+      "A503008001",
+      "A503018002",
+      "A50302C002"
+    ]
+  }
+}

@@ -28,6 +28,7 @@ include = [
     "src/**/*.rs",
     "examples/**/*.rs",
     "examples/README.md",
+    "docs/aer-route-v1.md",
     "docs/consumer.md",
     "docs/export-profiles.md",
     "docs/hardware-smoke-note.md",
@@ -53,6 +54,12 @@ include = [
 name = "silicon_bridge"
 path = "src/lib.rs"
 
+# Requires the `nir` feature: it lowers an in-memory `nir_rs::NirGraph` to a
+# silicon-hdl-v3 + aer-route-v1 bundle.
+[[example]]
+name = "nir_aer_export"
+required-features = ["nir"]
+
 # docs.rs builds default features unless told otherwise, which hid the whole
 # `FpgaBridge` API and left the crate-root links to it unresolved. The docs.rs
 # build image (rust-lang/crates-build-env `linux`) ships `libudev-dev`, so the
@@ -68,6 +75,9 @@ features = ["uart", "nir"]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 jiff = { version = "0.2", default-features = false, features = ["std"] }
+# `artifact_hashes` in the manifest (aer-route-v1 profile) hashes staged
+# `.mem` bytes, so sha2 is a runtime dependency, not test-only.
+sha2 = "0.11"
 serialport = { version = "4.3", optional = true }
 nir-rs = { version = "=0.4.5", optional = true, default-features = false }
 
@@ -81,7 +91,6 @@ nir-io = ["nir", "nir-rs/hdf5"]
 
 [dev-dependencies]
 tempfile = "3.10"
-sha2 = "0.11"
 proptest = "1.7"
 
 [profile.release]

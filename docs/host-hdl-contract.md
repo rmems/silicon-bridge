@@ -78,6 +78,20 @@ The UART stimulus helper intentionally clamps to the v3 wire range. Parameter
 `.mem` export uses the full signed parameter range, so boundary values such as
 `-128.0` have different UART and `.mem` encodings.
 
+### Route-table writes (target 3)
+
+The `silicon-hdl-v3 + aer-route-v1` profile additionally uses the existing
+five-byte `0xA5` RAM-write command with **target 3** (AER route table):
+`[0xA5, 0x03, address, data_hi, data_lo]` — one 16-bit entry, big-endian,
+16 entries total. Targets 0/1/2 (weight / threshold / leak RAM) keep their
+existing meanings and remain outside this crate's scope. The write is never
+acknowledged, changes no request/response lengths (the `0xAA` stimulus
+frame stays 33/36 bytes), and a route `0xA5` frame never reuses the
+stimulus sync. Entry bit layout, the four-lookup hop budget, and fault
+semantics are defined in [aer-route-v1.md](aer-route-v1.md); hardware
+truth is `AerRouteTable.sv` in the pinned silicon-hdl routing revision
+`bcdf630c01016ea0ba4d4637af4911b81e30a592`.
+
 ## Cold-start recipe
 
 ```rust

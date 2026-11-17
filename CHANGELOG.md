@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `aer-route-v1` route-table support (#79):
+  `AerRouteTable` / `AerRouteEntry` model the 16×16-bit route image
+  (`valid[15] | terminal[14] | next_addr[3:0]`, reserved bits must be zero,
+  four-lookup hop budget) with typed `AerRouteError` rejection of invalid
+  addresses, reserved bits, cycles, over-budget, and dangling routes;
+  `AerRouteTable::identity()` emits the canonical `0xC000|i` default.
+- `silicon-hdl-v3 + aer-route-v1` export profile
+  (`ExportConfig::silicon_hdl_v3_aer_route_v1()`,
+  `ExportContract::silicon_hdl_v3_aer_route_v1()`): same pinned 16/16/3
+  dimensions and immutable filenames as the v3 reference profile, plus
+  `aer_routes.mem`, `metadata.aer_routing` provenance (schema, widths, hop
+  budget, route source, pinned silicon-hdl routing revision), and
+  `metadata.artifact_hashes` (SHA-256 of every `.mem` artifact's exact
+  bytes). `.with_aer_route_table(table, AerRouteSource)` swaps in an
+  explicit hardware routing plan.
+- Host route-table writes: `ROUTE_WRITE_COMMAND` (`0xA5`) target 3
+  five-byte frames via `encode_route_write` /
+  `encode_route_table_writes` (default features) and
+  `FpgaBridge::write_route_entry` / `write_route_table` (`uart` feature).
+  The write is unacknowledged and leaves the 33-byte request / 36-byte
+  response stimulus framing unchanged.
+- `FpgaParameterExporter::aer_export_config_from_nir` (`nir` feature):
+  validates the canonical NIR chain and derives the identity route table
+  from canonical input ordering, or accepts an explicit hardware plan —
+  ordinary NIR edges are never treated as FPGA hops. Includes
+  `examples/nir_aer_export.rs`, the deterministic
+  `tests/golden/aer/identity_routes.mem` golden, and
+  `tests/golden/uart/route_write_target3.json`.
+- Contract documentation in `docs/aer-route-v1.md`; `docs/` additions to
+  `export-profiles.md`, `host-hdl-contract.md`, and `boundary-matrix.md`.
+
 ## [0.4.0] - 2026-11-13
 
 Relative to the published

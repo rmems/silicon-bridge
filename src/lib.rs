@@ -183,6 +183,7 @@
 // ambiguity worth a compile error.
 #![deny(missing_docs)]
 
+mod aer_route;
 mod fpga_codec;
 mod fpga_codec_v4;
 mod fpga_export;
@@ -195,22 +196,24 @@ mod fpga_bridge;
 
 // Re-export public API
 pub use fpga_export::{
-    BlockEncodings, BlockShape, BundleShapes, CheckedParameterExport, CompatibilityDimensions,
-    CompatibilityFiles, CompatibilityMetadata, ContractReference, EXPORT_FORMAT_VERSION,
-    ExportConfig, ExportContract, ExportError, ExportFileLayout, ExportProfile, ExportReport,
-    FilenameError, FixedPointEncode, FpgaMetadata, FpgaParameterExporter, FpgaParameters,
-    GENERIC_DENSE_PROFILE_ID, GENERIC_DENSE_SCHEMA_VERSION, MatrixFlattening, MemFileWriter,
-    MetadataTimestampError, NonFiniteKind, OverflowPolicy, OverwritePolicy, PRODUCER_CRATE,
-    ParameterBlock, ParameterExport, ParameterLocation, ParameterShapeError, Q88_SIGNED_MAX,
-    Q88_SIGNED_MIN, Q88_UNSIGNED_MAX, Q88Encoding, QFormat, RangePolicy, ReadoutContract,
-    ReadoutShape, RoundingMode, SILICON_HDL_V3_CONTRACT_ID, SILICON_HDL_V3_HIDDEN_NEURONS,
-    SILICON_HDL_V3_INPUT_CHANNELS, SILICON_HDL_V3_OUTPUT_CLASSES, SILICON_HDL_V3_PROFILE_ID,
-    SILICON_HDL_V3_READOUT_FILENAME, SILICON_HDL_V3_SCHEMA_VERSION,
-    SILICON_HDL_V3_SUPPORTED_REVISION, SPIKENAUT_LEGACY_TARGET_LATENCY_US,
-    SPIKENAUT_SIGNED_OUTPUT_PROFILE_ID, SPIKENAUT_SIGNED_OUTPUT_SCHEMA_VERSION,
-    SPIKENAUT_V2_LEGACY_PROFILE_ID, STIMULUS_Q88_MAX, STIMULUS_Q88_MIN, SaturationEvent,
-    SaturationReport, TimestampPolicy, UartContractMetadata, encode_q88_signed,
-    encode_q88_signed_full, encode_q88_unsigned, format_q88_hex, q88_signed_to_f32, q88_to_f32,
+    AerRouting, AerRoutingMetadata, BlockEncodings, BlockShape, BundleShapes,
+    CheckedParameterExport, CompatibilityDimensions, CompatibilityFiles, CompatibilityMetadata,
+    ContractReference, EXPORT_FORMAT_VERSION, ExportConfig, ExportContract, ExportError,
+    ExportFileLayout, ExportProfile, ExportReport, FilenameError, FixedPointEncode, FpgaMetadata,
+    FpgaParameterExporter, FpgaParameters, GENERIC_DENSE_PROFILE_ID, GENERIC_DENSE_SCHEMA_VERSION,
+    MatrixFlattening, MemFileWriter, MetadataTimestampError, NonFiniteKind, OverflowPolicy,
+    OverwritePolicy, PRODUCER_CRATE, ParameterBlock, ParameterExport, ParameterLocation,
+    ParameterShapeError, Q88_SIGNED_MAX, Q88_SIGNED_MIN, Q88_UNSIGNED_MAX, Q88Encoding, QFormat,
+    RangePolicy, ReadoutContract, ReadoutShape, RoundingMode, SILICON_HDL_AER_CONTRACT_ID,
+    SILICON_HDL_AER_PROFILE_ID, SILICON_HDL_AER_SCHEMA_VERSION, SILICON_HDL_AER_SUPPORTED_REVISION,
+    SILICON_HDL_V3_CONTRACT_ID, SILICON_HDL_V3_HIDDEN_NEURONS, SILICON_HDL_V3_INPUT_CHANNELS,
+    SILICON_HDL_V3_OUTPUT_CLASSES, SILICON_HDL_V3_PROFILE_ID, SILICON_HDL_V3_READOUT_FILENAME,
+    SILICON_HDL_V3_SCHEMA_VERSION, SILICON_HDL_V3_SUPPORTED_REVISION,
+    SPIKENAUT_LEGACY_TARGET_LATENCY_US, SPIKENAUT_SIGNED_OUTPUT_PROFILE_ID,
+    SPIKENAUT_SIGNED_OUTPUT_SCHEMA_VERSION, SPIKENAUT_V2_LEGACY_PROFILE_ID, STIMULUS_Q88_MAX,
+    STIMULUS_Q88_MIN, SaturationEvent, SaturationReport, TimestampPolicy, UartContractMetadata,
+    encode_q88_signed, encode_q88_signed_full, encode_q88_unsigned, format_q88_hex,
+    q88_signed_to_f32, q88_to_f32,
 };
 
 pub use fpga_metrics::FpgaMetrics;
@@ -229,10 +232,18 @@ pub use nir_map::{DEFAULT_DT, MapError, NirMapOptions};
 #[cfg(feature = "nir-io")]
 pub use nir_map::{LoadNirError, load_nir_to_mem, load_nir_to_mem_with};
 
+pub use aer_route::{
+    AER_ENTRY_NEXT_MASK, AER_ENTRY_RESERVED_MASK, AER_ENTRY_TERMINAL, AER_ENTRY_VALID,
+    AER_ROUTE_ADDRESS_WIDTH, AER_ROUTE_ENTRY_COUNT, AER_ROUTE_ENTRY_WIDTH, AER_ROUTE_FILENAME,
+    AER_ROUTE_MAX_HOPS, AER_ROUTE_SCHEMA, AerRouteEntry, AerRouteError, AerRouteSource,
+    AerRouteTable,
+};
+
 pub use fpga_codec::{
-    CodecError, DENSE_Q88_SYNC, DenseQ88Layout, MAX_DENSE_CHANNELS, SILICON_BRIDGE_V3_CHANNELS,
-    SILICON_BRIDGE_V3_RX_LEN, SILICON_BRIDGE_V3_TX_LEN, StimulusResponse, decode_response,
-    encode_stimuli, encode_stimuli_legacy_v3,
+    CodecError, DENSE_Q88_SYNC, DenseQ88Layout, MAX_DENSE_CHANNELS, ROUTE_TABLE_TARGET,
+    ROUTE_WRITE_COMMAND, ROUTE_WRITE_LEN, SILICON_BRIDGE_V3_CHANNELS, SILICON_BRIDGE_V3_RX_LEN,
+    SILICON_BRIDGE_V3_TX_LEN, StimulusResponse, decode_response, encode_route_table,
+    encode_route_write, encode_route_write_word, encode_stimuli, encode_stimuli_legacy_v3,
 };
 pub use fpga_codec_v4::{
     UART_V4_CRC_BYTES, UART_V4_HEADER_BYTES, UART_V4_SYNC, UART_V4_VERSION, crc16_ccitt_false,

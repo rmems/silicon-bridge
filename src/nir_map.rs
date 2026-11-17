@@ -139,6 +139,8 @@ pub enum MapError {
         /// What is wrong with the graph shape.
         reason: String,
     },
+    /// An explicit `aer-route-v1` hardware plan failed validation.
+    Route(crate::AerRouteError),
     /// A parameter is malformed (wrong rank, size mismatch, non-finite,
     /// non-positive time constant, …).
     InvalidParameter {
@@ -155,6 +157,7 @@ impl fmt::Display for MapError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Graph(err) => write!(f, "invalid NIR graph: {err}"),
+            Self::Route(err) => write!(f, "{err}"),
             Self::Unsupported {
                 node,
                 node_type,
@@ -174,6 +177,7 @@ impl std::error::Error for MapError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Graph(err) => Some(err),
+            Self::Route(err) => Some(err),
             _ => None,
         }
     }
@@ -241,39 +245,8 @@ impl FpgaParameterExporter {
         if !dt.is_finite() || dt <= 0.0 {
             return Err(invalid("<options>", "dt", "must be finite and > 0"));
         }
-        graph.validate_structure().map_err(MapError::Graph)?;
-
-        // Reject unsupported kinds in insertion order first so the report
-        // names the most fundamental problem (a CubaLIF, not the recurrence
-        // that usually accompanies it).
-        for (name, node) in &graph.nodes {
-            if let Role::Unsupported(reason) = role(node) {
-                return Err(unsupported(name, node, reason));
-            }
-        }
-
-        let chain = walk_chain(graph)?;
-        let layers = split_layers(&chain)?;
-
-        let (hidden, input_count) = hidden_weights(layers.weights.0, layers.weights.1)?;
+        let (layers, hidden) = checked_layers(graph)?;
         let neuron_count = hidden.rows;
-        // `Linear`/`Affine` act on the last axis, so a multi-axis input only
-        // feeds one dense layer once `Flatten` has collapsed it to one axis.
-        let mut shape = input_shape(layers.input.1).to_vec();
-        for (name, node) in &layers.flattens {
-            shape = flatten_shape(name, node, &shape)?;
-        }
-        if shape.len() > 1 {
-            return Err(invalid(
-                layers.input.0,
-                "shape",
-                &format!(
-                    "shape {shape:?} still has several axes before the weights; Linear/Affine \
-                     act on the last axis, so a Flatten must collapse them all"
-                ),
-            ));
-        }
-        check_endpoint_shape(layers.input.0, &shape, input_count, "input size")?;
 
         let neurons = map_neuron(layers.neuron.0, layers.neuron.1, neuron_count, dt)?;
         let weights = scale_rows(&hidden, &neurons.gain, layers.weights.0)?;
@@ -312,6 +285,99 @@ impl FpgaParameterExporter {
         )?;
         Ok(exporter)
     }
+
+    /// `silicon-hdl-v3 + aer-route-v1` export config for `graph`.
+    ///
+    /// The graph is validated with the same rules as [`Self::from_nir`]
+    /// (structure, supported chain, endpoint shapes); quantizing the
+    /// parameters is still [`Self::from_nir`]'s job. Routing never reads NIR
+    /// edges:
+    ///
+    /// - `plan: None` derives the identity table from the canonical input
+    ///   ordering. The input width must be exactly
+    ///   [`crate::AER_ROUTE_ENTRY_COUNT`].
+    /// - `plan: Some(table)` accepts an explicit hardware routing plan,
+    ///   validated against the `aer-route-v1` bounds (reserved bits,
+    ///   addresses, four-lookup budget, dangling chains).
+    ///
+    /// Either way the manifest records `nir_derived: true`.
+    ///
+    /// # Errors
+    ///
+    /// [`MapError`] as for [`Self::from_nir`], plus
+    /// [`MapError::InvalidParameter`] when the input width is not 16 for the
+    /// identity derivation and [`MapError::Route`] when an explicit plan
+    /// fails `aer-route-v1` validation.
+    pub fn aer_export_config_from_nir(
+        graph: &NirGraph,
+        plan: Option<crate::AerRouteTable>,
+    ) -> Result<crate::ExportConfig, MapError> {
+        let (_layers, hidden) = checked_layers(graph)?;
+        let config = match plan {
+            None => {
+                if hidden.cols != crate::AER_ROUTE_ENTRY_COUNT {
+                    return Err(invalid(
+                        "<aer-route>",
+                        "identity",
+                        &format!(
+                            "identity routing from canonical input order needs exactly \
+                             {} input lanes; the graph's input width is {}",
+                            crate::AER_ROUTE_ENTRY_COUNT,
+                            hidden.cols
+                        ),
+                    ));
+                }
+                crate::ExportConfig::silicon_hdl_v3_aer_route_v1()
+            }
+            Some(table) => crate::ExportConfig::silicon_hdl_v3_aer_route_v1()
+                .with_aer_route_table(table, crate::AerRouteSource::ExplicitHardwarePlan)
+                .map_err(|err| match err {
+                    crate::ExportError::Routing(route) => MapError::Route(route),
+                    other => invalid("<aer-route>", "plan", &other.to_string()),
+                })?,
+        };
+        Ok(config.with_nir_route_provenance())
+    }
+}
+
+/// Structural validation plus the chain/shape analysis shared by
+/// [`FpgaParameterExporter::from_nir_with`] and
+/// [`FpgaParameterExporter::aer_export_config_from_nir`]. Returns the layer
+/// split and the hidden `(out, in)` weight matrix.
+fn checked_layers<'a>(graph: &'a NirGraph) -> Result<(Layers<'a>, Matrix), MapError> {
+    graph.validate_structure().map_err(MapError::Graph)?;
+
+    // Reject unsupported kinds in insertion order first so the report
+    // names the most fundamental problem (a CubaLIF, not the recurrence
+    // that usually accompanies it).
+    for (name, node) in &graph.nodes {
+        if let Role::Unsupported(reason) = role(node) {
+            return Err(unsupported(name, node, reason));
+        }
+    }
+
+    let chain = walk_chain(graph)?;
+    let layers = split_layers(&chain)?;
+
+    let (hidden, input_count) = hidden_weights(layers.weights.0, layers.weights.1)?;
+    // `Linear`/`Affine` act on the last axis, so a multi-axis input only
+    // feeds one dense layer once `Flatten` has collapsed it to one axis.
+    let mut shape = input_shape(layers.input.1).to_vec();
+    for (name, node) in &layers.flattens {
+        shape = flatten_shape(name, node, &shape)?;
+    }
+    if shape.len() > 1 {
+        return Err(invalid(
+            layers.input.0,
+            "shape",
+            &format!(
+                "shape {shape:?} still has several axes before the weights; Linear/Affine \
+                 act on the last axis, so a Flatten must collapse them all"
+            ),
+        ));
+    }
+    check_endpoint_shape(layers.input.0, &shape, input_count, "input size")?;
+    Ok((layers, hidden))
 }
 
 /// What a node means to the dense FPGA mapping.

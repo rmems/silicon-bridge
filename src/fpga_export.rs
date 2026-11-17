@@ -74,10 +74,12 @@ use std::path::{Path, PathBuf};
 mod export_profile;
 
 pub use export_profile::{
-    BlockShape, BundleShapes, CompatibilityDimensions, CompatibilityFiles, CompatibilityMetadata,
-    ContractReference, ExportConfig, ExportContract, ExportFileLayout, ExportProfile, ExportReport,
-    GENERIC_DENSE_PROFILE_ID, GENERIC_DENSE_SCHEMA_VERSION, OverwritePolicy, PRODUCER_CRATE,
-    ReadoutContract, ReadoutShape, SILICON_HDL_V3_CONTRACT_ID, SILICON_HDL_V3_HIDDEN_NEURONS,
+    AerRouting, AerRoutingMetadata, BlockShape, BundleShapes, CompatibilityDimensions,
+    CompatibilityFiles, CompatibilityMetadata, ContractReference, ExportConfig, ExportContract,
+    ExportFileLayout, ExportProfile, ExportReport, GENERIC_DENSE_PROFILE_ID,
+    GENERIC_DENSE_SCHEMA_VERSION, OverwritePolicy, PRODUCER_CRATE, ReadoutContract, ReadoutShape,
+    SILICON_HDL_AER_CONTRACT_ID, SILICON_HDL_AER_PROFILE_ID, SILICON_HDL_AER_SCHEMA_VERSION,
+    SILICON_HDL_AER_SUPPORTED_REVISION, SILICON_HDL_V3_CONTRACT_ID, SILICON_HDL_V3_HIDDEN_NEURONS,
     SILICON_HDL_V3_INPUT_CHANNELS, SILICON_HDL_V3_OUTPUT_CLASSES, SILICON_HDL_V3_PROFILE_ID,
     SILICON_HDL_V3_READOUT_FILENAME, SILICON_HDL_V3_SCHEMA_VERSION,
     SILICON_HDL_V3_SUPPORTED_REVISION, SPIKENAUT_LEGACY_TARGET_LATENCY_US,
@@ -859,6 +861,12 @@ pub enum ExportError {
     MissingReadoutFilename,
     /// [`ExportConfig::with_declared_target_latency_us`] was given NaN or inf.
     NonFiniteDeclaredLatency,
+    /// An `aer-route-v1` table or plan failed validation.
+    Routing(crate::AerRouteError),
+    /// The contract carries route data but
+    /// [`ExportFileLayout::aer_routes`] is `None`, so the bundle would have
+    /// no file for the table.
+    MissingRouteFilename,
     /// A pinned compatibility profile was selected for unsupported dimensions.
     UnsupportedCompatibilityShape {
         /// Profile that rejected the shape.
@@ -921,6 +929,12 @@ impl fmt::Display for ExportError {
                 f,
                 "declared target_latency_us must be finite (not NaN or inf)"
             ),
+            Self::Routing(err) => write!(f, "{err}"),
+            Self::MissingRouteFilename => write!(
+                f,
+                "route table is present but ExportFileLayout::aer_routes is None; \
+                 refusing to write a bundle without a route image"
+            ),
             Self::UnsupportedCompatibilityShape {
                 profile,
                 expected,
@@ -946,6 +960,7 @@ impl std::error::Error for ExportError {
             Self::InvalidParameters(err) => Some(err),
             Self::Io { source, .. } => Some(source),
             Self::Serialize { source, .. } => Some(source),
+            Self::Routing(err) => Some(err),
             Self::UnsignedHardwareEncoding { .. }
             | Self::UnsafeFilename { .. }
             | Self::DuplicateFilename { .. }
@@ -956,6 +971,7 @@ impl std::error::Error for ExportError {
             | Self::MissingRequiredReadout { .. }
             | Self::MissingReadoutFilename
             | Self::NonFiniteDeclaredLatency
+            | Self::MissingRouteFilename
             | Self::UnsupportedCompatibilityShape { .. } => None,
         }
     }
@@ -1102,6 +1118,17 @@ pub struct FpgaMetadata {
     /// Optional machine-readable profile compatibility contract.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compatibility: Option<CompatibilityMetadata>,
+    /// `aer-route-v1` route-table provenance, present only in bundles that
+    /// emit a route image (`silicon-hdl-v3 + aer-route-v1` profile).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aer_routing: Option<AerRoutingMetadata>,
+    /// Lowercase SHA-256 of each staged `.mem` artifact, keyed by filename.
+    ///
+    /// Present only when the contract emits a route image; hashes cover the
+    /// exact staged bytes of every `.mem` file and exclude
+    /// `parameters.json` itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact_hashes: Option<std::collections::BTreeMap<String, String>>,
 }
 
 impl<'de> Deserialize<'de> for FpgaParameters {
@@ -1757,6 +1784,24 @@ impl FpgaParameterExporter {
             // `as u16` cast is what pins the field to 16 bits regardless of the
             // element type, which is the width `$readmemh` expects.
             writeln!(file, "{:04X}", *value as u16).map_err(|source| ExportError::Io {
+                path: path.to_path_buf(),
+                source,
+            })?;
+        }
+        Ok(())
+    }
+
+    /// Same `{:04X}`-per-line `$readmemh` format for already-unsigned words
+    /// (the `aer-route-v1` table). Route words are never Q8.8-quantized.
+    fn write_mem_file_u16(
+        path: impl AsRef<Path>,
+        values: &[u16],
+        overwrite: OverwritePolicy,
+    ) -> Result<(), ExportError> {
+        let path = path.as_ref();
+        let mut file = Self::create_output_file(path, overwrite)?;
+        for value in values {
+            writeln!(file, "{value:04X}").map_err(|source| ExportError::Io {
                 path: path.to_path_buf(),
                 source,
             })?;

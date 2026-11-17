@@ -103,6 +103,19 @@ jobs:
       - name: Test (nir feature)
         run: cargo test --features nir
 
+      - name: Clippy (nir feature)
+        run: cargo clippy --all-targets --features nir -- -D warnings
+
+      # #79: HDF5 must only ever arrive through `nir-rs/hdf5` (`nir-io`), never
+      # as a direct or transitive dependency of the `nir` feature alone.
+      - name: No HDF5 under `nir` feature
+        run: |
+          if cargo tree --features nir -e normal | grep -qi '^hdf5\| hdf5'; then
+            echo "hdf5 must not appear in the --features nir dependency tree" >&2
+            cargo tree --features nir -e normal | grep -i hdf5 >&2
+            exit 1
+          fi
+
   # Formatting is OS-independent, so it runs once on Linux to save runner minutes.
   fmt:
     name: fmt (ubuntu-latest)
