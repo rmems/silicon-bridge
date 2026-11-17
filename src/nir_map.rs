@@ -312,23 +312,66 @@ impl FpgaParameterExporter {
         graph: &NirGraph,
         plan: Option<crate::AerRouteTable>,
     ) -> Result<crate::ExportConfig, MapError> {
-        let (_layers, hidden) = checked_layers(graph)?;
-        let config = match plan {
+        let (layers, hidden) = checked_layers(graph)?;
+        // `checked_layers` only covers structure and the input endpoint;
+        // run the complete `from_nir` rules so neuron parameters, the
+        // readout weight shape, and the output endpoint are rejected here
+        // rather than at export time.
+        let _ = Self::from_nir(graph)?;
+        // The pinned profile is exactly 16 input lanes, 16 hidden neurons,
+        // and a required 3-class readout; a graph outside that shape cannot
+        // produce this bundle. The 16-lane input bound is also what makes
+        // identity routing from canonical input order well-defined (it is
+        // `AER_ROUTE_ENTRY_COUNT`).
+        if hidden.cols != crate::SILICON_HDL_V3_INPUT_CHANNELS {
+            return Err(invalid(
+                "<aer-route>",
+                "profile",
+                &format!(
+                    "the pinned silicon-hdl profile needs exactly {} input lanes; \
+                     the graph's input width is {}",
+                    crate::SILICON_HDL_V3_INPUT_CHANNELS,
+                    hidden.cols
+                ),
+            ));
+        }
+        if hidden.rows != crate::SILICON_HDL_V3_HIDDEN_NEURONS {
+            return Err(invalid(
+                "<aer-route>",
+                "profile",
+                &format!(
+                    "the pinned silicon-hdl profile needs exactly {} hidden neurons; \
+                     the graph's neuron layer has {}",
+                    crate::SILICON_HDL_V3_HIDDEN_NEURONS,
+                    hidden.rows
+                ),
+            ));
+        }
+        let readout_rows = match layers.readout {
+            Some((name, node)) => hidden_weights(name, node)?.0.rows,
             None => {
-                if hidden.cols != crate::AER_ROUTE_ENTRY_COUNT {
-                    return Err(invalid(
-                        "<aer-route>",
-                        "identity",
-                        &format!(
-                            "identity routing from canonical input order needs exactly \
-                             {} input lanes; the graph's input width is {}",
-                            crate::AER_ROUTE_ENTRY_COUNT,
-                            hidden.cols
-                        ),
-                    ));
-                }
-                crate::ExportConfig::silicon_hdl_v3_aer_route_v1()
+                return Err(invalid(
+                    "<aer-route>",
+                    "profile",
+                    "the pinned silicon-hdl profile requires a Linear/Affine \
+                     readout layer before Output",
+                ));
             }
+        };
+        if readout_rows != crate::SILICON_HDL_V3_OUTPUT_CLASSES {
+            return Err(invalid(
+                "<aer-route>",
+                "profile",
+                &format!(
+                    "the pinned silicon-hdl profile needs exactly {} output classes; \
+                     the graph's readout has {}",
+                    crate::SILICON_HDL_V3_OUTPUT_CLASSES,
+                    readout_rows
+                ),
+            ));
+        }
+        let config = match plan {
+            None => crate::ExportConfig::silicon_hdl_v3_aer_route_v1(),
             Some(table) => crate::ExportConfig::silicon_hdl_v3_aer_route_v1()
                 .with_aer_route_table(table, crate::AerRouteSource::ExplicitHardwarePlan)
                 .map_err(|err| match err {

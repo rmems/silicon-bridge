@@ -47,7 +47,7 @@ command; no new framing is introduced.
 |---|---|
 | 0 | `0xA5` (`ROUTE_WRITE_COMMAND`) |
 | 1 | `0x03` (`ROUTE_TABLE_TARGET`) |
-| 2 | address (low four bits used; `≥ 16` is rejected) |
+| 2 | address (the HDL uses the low four bits; the host refuses `≥ 16` before writing) |
 | 3 | entry `data_hi` (big-endian) |
 | 4 | entry `data_lo` |
 
@@ -57,9 +57,14 @@ command; no new framing is introduced.
   `write_route_table` (feature `uart`) send the frame(s) and return. There
   is no response field and no retry; a failed write latches
   `needs_recovery` like any other I/O failure.
-- Reserved bits set in `data` or an address `≥ 16` are rejected with
-  `route_fault` by the hardware and refused host-side with
-  `AerRouteError` before any byte is written.
+- The HDL drops a route write that arrives while a lookup is in flight,
+  and sends no acknowledgement, so a successful flush does not prove the
+  table changed. Quiesce event traffic (no stimuli in flight) before
+  writing routes; `write_route_table` can also leave the table partly old
+  if a mid-sequence I/O failure occurs.
+- Reserved bits set in `data` are rejected with `route_fault` by the
+  hardware; the host additionally refuses reserved bits and an address
+  `≥ 16` with `AerRouteError` before any byte is written.
 - The stimulus contract is unchanged: 33-byte `0xAA` request, 36-byte
   response (`SILICON_BRIDGE_V3_TX_LEN` / `SILICON_BRIDGE_V3_RX_LEN`).
 
@@ -71,7 +76,8 @@ use silicon_bridge::{ExportConfig, FpgaParameterExporter};
 // Pinned profile: 16 inputs, 16 hidden, 3 outputs, immutable filenames.
 let config = ExportConfig::silicon_hdl_v3_aer_route_v1();
 // Or an explicit hardware plan:
-//   config.with_aer_route_table(table, AerRouteSource::ExplicitHardwarePlan)?;
+//   let config = ExportConfig::silicon_hdl_v3_aer_route_v1()
+//       .with_aer_route_table(table, AerRouteSource::ExplicitHardwarePlan)?;
 
 let report = exporter.write_with_config("out/", &config)?;
 // out/ now contains aer_routes.mem plus the usual parameter images.
@@ -95,13 +101,15 @@ bridge.write_route_entry(0, 0x8001)?; // one entry
 
 ## Manifest fields
 
-`parameters.json` gains two fields only for this profile:
+`parameters.json` gains routing fields for this profile:
 
 - `metadata.aer_routing`: `schema` (`aer-route-v1`), `filename`
   (`aer_routes.mem`), `entry_width` (16), `address_width` (4),
   `entry_count` (16), `max_hops` (4), `bit_layout`, `hdl_revision` (the pin
   above), `route_source` (`canonical_input_order` or
   `explicit_hardware_plan`), `nir_derived`.
+- `metadata.compatibility.aer_routes`: the route image filename recorded
+  in the compatibility block.
 - `metadata.artifact_hashes`: lowercase SHA-256 of each staged `.mem`
   artifact's exact bytes, keyed by filename. Covers every `.mem` in the
   bundle; excludes `parameters.json` itself.

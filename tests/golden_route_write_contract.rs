@@ -50,7 +50,7 @@ fn identity_table_frames_match_independent_bytes() {
     assert_eq!(fix.frame_bytes, ROUTE_WRITE_LEN);
     assert_eq!(fix.identity_frames.len(), AER_ROUTE_ENTRY_COUNT);
 
-    let frames = encode_route_table(&AerRouteTable::identity());
+    let frames = encode_route_table(&AerRouteTable::identity()).unwrap();
     for (address, expected_hex) in fix.identity_frames.iter().enumerate() {
         let expected = parse_hex(expected_hex);
         assert_eq!(expected.len(), ROUTE_WRITE_LEN);
@@ -81,7 +81,8 @@ fn multi_hop_example_frames_match_independent_bytes() {
         .unwrap();
     table.validate().expect("0 -> 1 -> 2 fits the hop budget");
 
-    let frames = encode_route_table(&table);
+    let frames = encode_route_table(&table).unwrap();
+    assert_eq!(fix.multi_hop_example.frames.len(), 3);
     for (address, expected_hex) in fix.multi_hop_example.frames.iter().enumerate() {
         assert_eq!(
             frames[address].as_slice(),

@@ -279,8 +279,8 @@ fn identity_derivation_requires_sixteen_input_lanes() {
         ),
     ]);
     match FpgaParameterExporter::aer_export_config_from_nir(&graph, None) {
-        Err(MapError::InvalidParameter { field, .. }) => assert_eq!(field, "identity"),
-        other => panic!("expected InvalidParameter(identity), got {other:?}"),
+        Err(MapError::InvalidParameter { field, .. }) => assert_eq!(field, "profile"),
+        other => panic!("expected InvalidParameter(profile), got {other:?}"),
     }
 }
 

@@ -20,7 +20,7 @@ knob for text hex.
 | Custom contract | caller-supplied | caller-supplied | optional, required `K×N`, or required `K×N` plus HDL-native `N×K` | omitted unless supplied | omitted unless declared | refuse unless `allow_replace` |
 | Required readout | `spikenaut-signed-output-v1` | `spikenaut-signed-output-v1` | **required** `K×N` | omitted unless supplied | omitted unless declared | refuse unless `allow_replace` |
 | silicon-hdl v3 reference | `silicon-hdl-v3-compatible` | `silicon-hdl-v3-profile-v2` | **required** `K×N` plus HDL-native `N×K` | omitted unless supplied | omitted unless declared | refuse unless `allow_replace` |
-| silicon-hdl v3 + aer-route-v1 | `silicon-hdl-v3-aer-route-v1` | `silicon-hdl-v3-aer-route-v1-profile` | **required** `K×N` plus HDL-native `N×K`, plus `aer_routes.mem` | omitted unless supplied | omitted unless declared | refuse unless `allow_replace` |
+| silicon-hdl v3 + aer-route-v1 | `silicon-hdl-v3-aer-route-v1` | `silicon-hdl-v3-aer-route-v1-profile-v1` | **required** `K×N` plus HDL-native `N×K`, plus `aer_routes.mem` | omitted unless supplied | omitted unless declared | refuse unless `allow_replace` |
 | Legacy Spikenaut-v2 | `spikenaut-v2-legacy` | `Spikenaut-v2` (historical tag) | optional | wall-clock RFC 3339 | declared `35.0` (not measured) | replace (historical) |
 
 Schema version, producer crate / crate version, and profile / model

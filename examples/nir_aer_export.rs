@@ -79,7 +79,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // `None` derives the identity table from canonical input ordering; an
     // `Some(table)` explicit hardware plan is validated instead — ordinary
     // NIR edges never become FPGA hops.
-    let config = FpgaParameterExporter::aer_export_config_from_nir(&g, None)?;
+    // `allow_replace` keeps the demo idempotent across runs.
+    let config = FpgaParameterExporter::aer_export_config_from_nir(&g, None)?.allow_replace();
     let exporter = FpgaParameterExporter::from_nir(&g)?;
 
     let dir = std::path::Path::new("nir_aer_out");

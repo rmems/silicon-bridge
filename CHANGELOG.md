@@ -25,7 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   explicit hardware routing plan.
 - Host route-table writes: `ROUTE_WRITE_COMMAND` (`0xA5`) target 3
   five-byte frames via `encode_route_write` /
-  `encode_route_table_writes` (default features) and
+  `encode_route_table` (default features) and
   `FpgaBridge::write_route_entry` / `write_route_table` (`uart` feature).
   The write is unacknowledged and leaves the 33-byte request / 36-byte
   response stimulus framing unchanged.
@@ -38,6 +38,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `tests/golden/uart/route_write_target3.json`.
 - Contract documentation in `docs/aer-route-v1.md`; `docs/` additions to
   `export-profiles.md`, `host-hdl-contract.md`, and `boundary-matrix.md`.
+
+### Changed
+
+- Public structs gained fields for the AER profile, so exhaustive
+  downstream struct literals need updating: `ExportFileLayout::aer_routes`
+  and `CompatibilityMetadata::aer_routes` (both `Option<String>`), plus
+  the optional `aer_routing` / `artifact_hashes` fields on
+  `FpgaMetadata` (#79).
 
 ## [0.4.0] - 2026-11-13
 

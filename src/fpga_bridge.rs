@@ -926,13 +926,14 @@ impl FpgaBridge {
     /// cannot produce [`ExchangeError::InvalidRoute`]; the table is also
     /// re-checked with [`AerRouteTable::validate`] before the first byte.
     ///
-    /// Same no-acknowledgement contract as [`Self::write_route_entry`]. A
+    /// Same no-acknowledgement contract as [`Self::write_route_entry`]. The
+    /// HDL drops a write that overlaps an in-flight lookup without any
+    /// signal back, so quiesce event traffic before writing. A
     /// mid-sequence I/O failure leaves a partially-written table on the
     /// FPGA; the crate does not resend and latches [`Self::needs_recovery`].
     pub fn write_route_table(&mut self, table: &AerRouteTable) -> Result<(), ExchangeError> {
         self.ensure_ready()?;
-        table.validate()?;
-        for frame in encode_route_table(table) {
+        for frame in encode_route_table(table)? {
             self.write_frame(&frame)?;
         }
         Ok(())

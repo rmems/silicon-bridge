@@ -1458,12 +1458,17 @@ impl FpgaParameterExporter {
             // re-export must not leave a stale `$readmemh` image.
             Self::remove_mem_file_if_present(output_dir.join(name))?;
         }
-        if config.contract.routing.is_none()
-            && matches!(config.overwrite, OverwritePolicy::Replace)
-            && let Some(name) = &config.files().aer_routes
+        if config.contract.routing.is_none() && matches!(config.overwrite, OverwritePolicy::Replace)
         {
-            // A route-less re-export must not leave a stale route image.
-            Self::remove_mem_file_if_present(output_dir.join(name))?;
+            // A route-less re-export must not leave a stale route image,
+            // even when the new layout has no aer_routes slot: only this
+            // crate's canonical name is a candidate for removal.
+            let stale = config
+                .files()
+                .aer_routes
+                .as_deref()
+                .unwrap_or(crate::AER_ROUTE_FILENAME);
+            Self::remove_mem_file_if_present(output_dir.join(stale))?;
         }
 
         Ok(ExportReport {

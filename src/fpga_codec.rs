@@ -494,8 +494,15 @@ pub fn encode_route_write_word(
 }
 
 /// Encode a whole table: 16 frames in ascending address order.
-#[must_use]
-pub fn encode_route_table(table: &AerRouteTable) -> [[u8; ROUTE_WRITE_LEN]; AER_ROUTE_ENTRY_COUNT] {
+///
+/// # Errors
+///
+/// [`AerRouteError`] when `table` fails [`AerRouteTable::validate`]
+/// (over-budget or dangling routes); malformed tables are never framed.
+pub fn encode_route_table(
+    table: &AerRouteTable,
+) -> Result<[[u8; ROUTE_WRITE_LEN]; AER_ROUTE_ENTRY_COUNT], AerRouteError> {
+    table.validate()?;
     let mut frames = [[0u8; ROUTE_WRITE_LEN]; AER_ROUTE_ENTRY_COUNT];
     for (address, frame) in frames.iter_mut().enumerate() {
         let entry = table
@@ -503,7 +510,7 @@ pub fn encode_route_table(table: &AerRouteTable) -> [[u8; ROUTE_WRITE_LEN]; AER_
             .expect("address is within the fixed table");
         *frame = encode_route_write(address as u8, entry);
     }
-    frames
+    Ok(frames)
 }
 
 /// Interpret `mask` as a big-endian integer; bit `i` is neuron `i`.
@@ -545,7 +552,7 @@ mod tests {
 
     #[test]
     fn route_table_encodes_sixteen_frames_in_address_order() {
-        let frames = encode_route_table(&AerRouteTable::identity());
+        let frames = encode_route_table(&AerRouteTable::identity()).unwrap();
         assert_eq!(frames.len(), 16);
         for (address, frame) in frames.iter().enumerate() {
             let a = address as u8;
