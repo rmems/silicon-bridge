@@ -501,7 +501,7 @@ impl fmt::Display for ExchangeError {
             ),
             Self::Codec(err) => write!(f, "{err}"),
             Self::InvalidRoute(err) => write!(f, "{err}"),
-            Self::Write { source } => write!(f, "failed to write stimulus frame: {source}"),
+            Self::Write { source } => write!(f, "failed to write frame: {source}"),
             Self::Read { source } => write!(f, "failed to read stimulus reply: {source}"),
             Self::Recover { source } => write!(f, "failed to recover serial buffers: {source}"),
         }

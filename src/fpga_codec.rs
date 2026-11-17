@@ -455,25 +455,25 @@ pub const ROUTE_WRITE_LEN: usize = 5;
 /// entry word). `address` is the table index written, not the route's
 /// delivered address.
 ///
-/// # Panics
+/// # Errors
 ///
-/// `address` must be below [`crate::AER_ROUTE_ENTRY_COUNT`]; use
-/// [`encode_route_write_word`] for checked callers.
-#[must_use]
-pub fn encode_route_write(address: u8, entry: AerRouteEntry) -> [u8; ROUTE_WRITE_LEN] {
-    assert!(
-        (address as usize) < crate::AER_ROUTE_ENTRY_COUNT,
-        "route-write address {address} outside 0..{}",
-        crate::AER_ROUTE_ENTRY_COUNT
-    );
+/// [`AerRouteError::AddressOutOfRange`] when `address` is 16 or above.
+/// [`encode_route_write_word`] additionally checks the entry word.
+pub fn encode_route_write(
+    address: u8,
+    entry: AerRouteEntry,
+) -> Result<[u8; ROUTE_WRITE_LEN], AerRouteError> {
+    if (address as usize) >= crate::AER_ROUTE_ENTRY_COUNT {
+        return Err(AerRouteError::AddressOutOfRange { address });
+    }
     let word = entry.word();
-    [
+    Ok([
         ROUTE_WRITE_COMMAND,
         ROUTE_TABLE_TARGET,
         address,
         (word >> 8) as u8,
         word as u8,
-    ]
+    ])
 }
 
 /// Checked [`encode_route_write`] from a raw `(address, word)` pair.
@@ -490,7 +490,7 @@ pub fn encode_route_write_word(
         return Err(AerRouteError::AddressOutOfRange { address });
     }
     let entry = AerRouteEntry::from_word(word, address)?;
-    Ok(encode_route_write(address, entry))
+    encode_route_write(address, entry)
 }
 
 /// Encode a whole table: 16 frames in ascending address order.
@@ -508,7 +508,8 @@ pub fn encode_route_table(
         let entry = table
             .entry(address as u8)
             .expect("address is within the fixed table");
-        *frame = encode_route_write(address as u8, entry);
+        *frame =
+            encode_route_write(address as u8, entry).expect("address is within the fixed table");
     }
     Ok(frames)
 }
@@ -531,7 +532,7 @@ mod tests {
 
     #[test]
     fn route_write_frame_is_five_bytes_big_endian() {
-        let frame = encode_route_write(3, AerRouteEntry::from_word(0xC003, 3).unwrap());
+        let frame = encode_route_write(3, AerRouteEntry::from_word(0xC003, 3).unwrap()).unwrap();
         assert_eq!(frame, [0xA5, 0x03, 0x03, 0xC0, 0x03]);
     }
 

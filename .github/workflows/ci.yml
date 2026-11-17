@@ -111,9 +111,10 @@ jobs:
       # as a direct or transitive dependency of the `nir` feature alone.
       - name: No HDF5 under `nir` feature
         run: |
-          if cargo tree --features nir -e normal | grep -qi '^hdf5\| hdf5'; then
+          tree="$(cargo tree --features nir -e normal)" || exit 1
+          if printf '%s\n' "$tree" | grep -qi '^hdf5\| hdf5'; then
             echo "hdf5 must not appear in the --features nir dependency tree" >&2
-            cargo tree --features nir -e normal | grep -i hdf5 >&2
+            printf '%s\n' "$tree" | grep -i hdf5 >&2
             exit 1
           fi
 

@@ -981,7 +981,8 @@ pub struct ExportReport {
     /// Directory the files were written under.
     pub output_dir: PathBuf,
     /// Basenames actually written, in a stable order (thresholds, weights,
-    /// decay, optional readout, optional HDL-native readout, metadata).
+    /// decay, optional readout, optional HDL-native readout, optional
+    /// `aer_routes.mem`, metadata).
     pub written: Vec<String>,
     /// Whether replacement of existing files was permitted for this write.
     pub overwrite: OverwritePolicy,
@@ -1462,13 +1463,16 @@ impl FpgaParameterExporter {
         {
             // A route-less re-export must not leave a stale route image,
             // even when the new layout has no aer_routes slot: only this
-            // crate's canonical name is a candidate for removal.
+            // crate's canonical name is a candidate for removal, and never
+            // when a custom layout assigned that name to another artifact.
             let stale = config
                 .files()
                 .aer_routes
                 .as_deref()
                 .unwrap_or(crate::AER_ROUTE_FILENAME);
-            Self::remove_mem_file_if_present(output_dir.join(stale))?;
+            if !names.iter().any(|name| name.eq_ignore_ascii_case(stale)) {
+                Self::remove_mem_file_if_present(output_dir.join(stale))?;
+            }
         }
 
         Ok(ExportReport {

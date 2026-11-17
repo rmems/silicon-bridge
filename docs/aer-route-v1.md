@@ -64,7 +64,11 @@ command; no new framing is introduced.
   if a mid-sequence I/O failure occurs.
 - Reserved bits set in `data` are rejected with `route_fault` by the
   hardware; the host additionally refuses reserved bits and an address
-  `≥ 16` with `AerRouteError` before any byte is written.
+  `≥ 16` before any byte is written — `AerRouteError` from
+  `encode_route_write` / `encode_route_table` /
+  `FpgaParameterExporter::aer_export_config_from_nir`, and
+  `ExchangeError::InvalidRoute` (wrapping `AerRouteError`) from
+  `FpgaBridge::write_route_entry` / `write_route_table`.
 - The stimulus contract is unchanged: 33-byte `0xAA` request, 36-byte
   response (`SILICON_BRIDGE_V3_TX_LEN` / `SILICON_BRIDGE_V3_RX_LEN`).
 
