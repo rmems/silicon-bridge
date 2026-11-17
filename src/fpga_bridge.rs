@@ -75,9 +75,9 @@
 //! stale same-length buffer; there is no checksum.
 
 use crate::{
-    CodecError, DenseQ88Layout, SILICON_BRIDGE_V3_RX_LEN, StimulusResponse, decode_response,
-    decode_response_v4, encode_request_v4, encode_stimuli, encode_stimuli_legacy_v3,
-    rx_frame_len_v4,
+    AerRouteError, AerRouteTable, CodecError, DenseQ88Layout, SILICON_BRIDGE_V3_RX_LEN,
+    StimulusResponse, decode_response, decode_response_v4, encode_request_v4, encode_route_table,
+    encode_route_write_word, encode_stimuli, encode_stimuli_legacy_v3, rx_frame_len_v4,
 };
 use serialport::{ClearBuffer, SerialPort, SerialPortInfo, SerialPortType};
 use std::fmt;
@@ -464,6 +464,10 @@ pub enum ExchangeError {
     /// Encode or decode failed. No bytes were written when this comes from
     /// [`encode_stimuli`].
     Codec(CodecError),
+    /// A route-write frame failed `aer-route-v1` validation. Returned by
+    /// [`FpgaBridge::write_route_entry`] / [`FpgaBridge::write_route_table`]
+    /// before any byte is written.
+    InvalidRoute(AerRouteError),
     /// Writing or flushing the request failed. The peer may have seen a
     /// prefix; the stimulus is not retried.
     Write {
@@ -496,7 +500,8 @@ impl fmt::Display for ExchangeError {
                 "UART v4 exchange refused: call enable_uart_v4() only for matching v4 firmware"
             ),
             Self::Codec(err) => write!(f, "{err}"),
-            Self::Write { source } => write!(f, "failed to write stimulus frame: {source}"),
+            Self::InvalidRoute(err) => write!(f, "{err}"),
+            Self::Write { source } => write!(f, "failed to write frame: {source}"),
             Self::Read { source } => write!(f, "failed to read stimulus reply: {source}"),
             Self::Recover { source } => write!(f, "failed to recover serial buffers: {source}"),
         }
@@ -507,6 +512,7 @@ impl std::error::Error for ExchangeError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Codec(err) => Some(err),
+            Self::InvalidRoute(err) => Some(err),
             Self::Write { source } | Self::Read { source } | Self::Recover { source } => {
                 Some(source)
             }
@@ -518,6 +524,12 @@ impl std::error::Error for ExchangeError {
 impl From<CodecError> for ExchangeError {
     fn from(err: CodecError) -> Self {
         Self::Codec(err)
+    }
+}
+
+impl From<AerRouteError> for ExchangeError {
+    fn from(err: AerRouteError) -> Self {
+        Self::InvalidRoute(err)
     }
 }
 
@@ -887,6 +899,44 @@ impl FpgaBridge {
             self.needs_recovery = true;
             ExchangeError::from(err)
         })
+    }
+
+    /// Write one `aer-route-v1` table entry: a five-byte `0xA5` target-3
+    /// frame `[0xA5, 0x03, address, data_hi, data_lo]`.
+    ///
+    /// Contract facts (silicon-hdl `SocProtocolFsm.sv`, pinned revision
+    /// `bcdf630c01016ea0ba4d4637af4911b81e30a592`): target 3 selects the route
+    /// table, only the low four address bits are used, an entry with
+    /// reserved bits set is rejected and pulses `route_fault`, writes during
+    /// an in-flight lookup are rejected, and **no acknowledgement byte is
+    /// returned** — this method never reads.
+    ///
+    /// Validation happens before any write: an out-of-range address or a
+    /// word with reserved bits set returns [`ExchangeError::InvalidRoute`]
+    /// without touching the port. I/O failures keep [`ExchangeError::Write`]
+    /// semantics and latch [`Self::needs_recovery`]; the frame is not resent.
+    pub fn write_route_entry(&mut self, address: u8, word: u16) -> Result<(), ExchangeError> {
+        self.ensure_ready()?;
+        let frame = encode_route_write_word(address, word)?;
+        self.write_frame(&frame)
+    }
+
+    /// Write all 16 entries of `table`, in ascending address order, as 16
+    /// target-3 frames. Table entries are always structurally valid, so this
+    /// cannot produce [`ExchangeError::InvalidRoute`]; the table is also
+    /// re-checked with [`AerRouteTable::validate`] before the first byte.
+    ///
+    /// Same no-acknowledgement contract as [`Self::write_route_entry`]. The
+    /// HDL drops a write that overlaps an in-flight lookup without any
+    /// signal back, so quiesce event traffic before writing. A
+    /// mid-sequence I/O failure leaves a partially-written table on the
+    /// FPGA; the crate does not resend and latches [`Self::needs_recovery`].
+    pub fn write_route_table(&mut self, table: &AerRouteTable) -> Result<(), ExchangeError> {
+        self.ensure_ready()?;
+        for frame in encode_route_table(table)? {
+            self.write_frame(&frame)?;
+        }
+        Ok(())
     }
 
     fn ensure_ready(&self) -> Result<(), ExchangeError> {
@@ -1867,5 +1917,86 @@ mod tests {
             Err(ExchangeError::Codec(CodecError::WrongInputLength { .. }))
         ));
         assert!(writes.lock().expect("log").is_empty());
+    }
+
+    #[test]
+    fn route_entry_write_emits_one_five_byte_frame_and_never_reads() {
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let mut bridge = FpgaBridge::from_port(Box::new(MockPort::scripted(Arc::clone(&writes))));
+        bridge.write_route_entry(3, 0xC003).expect("route write");
+        let log = writes.lock().expect("log");
+        assert_eq!(log.len(), 1);
+        assert_eq!(log[0], vec![0xA5, 0x03, 0x03, 0xC0, 0x03]);
+    }
+
+    #[test]
+    fn route_entry_rejects_bad_input_before_any_write() {
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let mut bridge = FpgaBridge::from_port(Box::new(MockPort::scripted(Arc::clone(&writes))));
+        assert!(matches!(
+            bridge.write_route_entry(16, 0xC000),
+            Err(ExchangeError::InvalidRoute(
+                crate::AerRouteError::AddressOutOfRange { address: 16 }
+            ))
+        ));
+        assert!(matches!(
+            bridge.write_route_entry(2, 0xC010),
+            Err(ExchangeError::InvalidRoute(
+                crate::AerRouteError::ReservedBits { address: 2, .. }
+            ))
+        ));
+        assert!(writes.lock().expect("log").is_empty());
+        assert!(!bridge.needs_recovery());
+    }
+
+    #[test]
+    fn route_table_write_sends_sixteen_frames_in_address_order() {
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let mut bridge = FpgaBridge::from_port(Box::new(MockPort::scripted(Arc::clone(&writes))));
+        bridge
+            .write_route_table(&AerRouteTable::identity())
+            .expect("identity table");
+        let log = writes.lock().expect("log");
+        assert_eq!(log.len(), 16);
+        for (address, frame) in log.iter().enumerate() {
+            let a = address as u8;
+            assert_eq!(frame[..3], [0xA5, 0x03, a]);
+            assert_eq!(frame[3..5], (0xC000 | a as u16).to_be_bytes());
+        }
+    }
+
+    #[test]
+    fn route_table_rejects_over_budget_plan_before_any_write() {
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let mut words = [0xC000u16; 16];
+        words[0] = 0x8001;
+        words[1] = 0x8000; // 0 <-> 1 cycle
+        let table = AerRouteTable::from_words(&words).expect("words parse");
+        let mut bridge = FpgaBridge::from_port(Box::new(MockPort::scripted(Arc::clone(&writes))));
+        assert!(matches!(
+            bridge.write_route_table(&table),
+            Err(ExchangeError::InvalidRoute(
+                crate::AerRouteError::OverBudget { .. }
+            ))
+        ));
+        assert!(writes.lock().expect("log").is_empty());
+    }
+
+    #[test]
+    fn route_write_io_failure_latches_recovery_without_resend() {
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let mut mock = MockPort::scripted(Arc::clone(&writes));
+        mock.write_err = Some(io::ErrorKind::BrokenPipe);
+        let mut bridge = FpgaBridge::from_port(Box::new(mock));
+        assert!(matches!(
+            bridge.write_route_entry(0, 0xC000),
+            Err(ExchangeError::Write { .. })
+        ));
+        assert!(bridge.needs_recovery());
+        assert!(matches!(
+            bridge.write_route_entry(0, 0xC000),
+            Err(ExchangeError::NeedsRecovery)
+        ));
+        assert_eq!(writes.lock().expect("log").len(), 0);
     }
 }

@@ -17,6 +17,7 @@ use crate::fpga_codec::{
     DENSE_Q88_SYNC, SILICON_BRIDGE_V3_CHANNELS, SILICON_BRIDGE_V3_RX_LEN, SILICON_BRIDGE_V3_TX_LEN,
 };
 use serde::{Deserialize, Serialize};
+use sha2::Digest;
 use std::collections::BTreeSet;
 use std::fs;
 use std::io::{self, ErrorKind};
@@ -76,6 +77,21 @@ pub const SILICON_HDL_V3_OUTPUT_CLASSES: usize = 3;
 
 /// HDL-native readout image emitted by [`ExportConfig::silicon_hdl_v3`].
 pub const SILICON_HDL_V3_READOUT_FILENAME: &str = "hdl_readout_neuron_major.mem";
+
+/// Profile identity for the pinned silicon-hdl v3 + `aer-route-v1` bundle.
+pub const SILICON_HDL_AER_PROFILE_ID: &str = "silicon-hdl-v3-aer-route-v1";
+
+/// Metadata schema for the `silicon-hdl-v3 + aer-route-v1` profile.
+pub const SILICON_HDL_AER_SCHEMA_VERSION: &str = "silicon-hdl-v3-aer-route-v1-profile-v1";
+
+/// Explicit host/HDL contract id recorded by
+/// [`ExportConfig::silicon_hdl_v3_aer_route_v1`].
+pub const SILICON_HDL_AER_CONTRACT_ID: &str =
+    "silicon-bridge-silicon-hdl-v3-aer-route-v1-contract-v1";
+
+/// Pinned silicon-hdl revision whose `AerRouteTable` and `SocProtocolFsm`
+/// implement `aer-route-v1` and target-3 writes.
+pub const SILICON_HDL_AER_SUPPORTED_REVISION: &str = "bcdf630c01016ea0ba4d4637af4911b81e30a592";
 
 /// Historical per-tick design target recorded by the legacy Spikenaut-v2
 /// writer, in microseconds. A declared target, never a measured latency.
@@ -177,6 +193,40 @@ pub struct CompatibilityMetadata {
     pub timestep_assumption: String,
     /// UART frame contract that must remain unchanged for this profile.
     pub uart: UartContractMetadata,
+    /// `aer-route-v1` route-table image filename, when the bundle carries one.
+    ///
+    /// Route writes add no UART response field: the five-byte `0xA5` target-3
+    /// frame is never acknowledged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aer_routes: Option<String>,
+}
+
+/// `aer-route-v1` provenance recorded in `parameters.json` by the
+/// `silicon-hdl-v3 + aer-route-v1` profile.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AerRoutingMetadata {
+    /// Route-table schema (`aer-route-v1`).
+    pub schema: String,
+    /// `$readmemh` image filename inside the bundle.
+    pub filename: String,
+    /// Bits per table entry (16).
+    pub entry_width: u8,
+    /// Address bits inside an entry and table index (4).
+    pub address_width: u8,
+    /// Number of table entries (16).
+    pub entry_count: usize,
+    /// Maximum lookups per routed event (4).
+    pub max_hops: usize,
+    /// Human-readable bit-field layout of one entry.
+    pub bit_layout: String,
+    /// silicon-hdl revision the route image is compatible with.
+    pub hdl_revision: String,
+    /// How the table contents were chosen.
+    pub route_source: crate::AerRouteSource,
+    /// `true` when the table was lowered from a `nir_rs::NirGraph` through
+    /// the `nir` feature. Identity routing derived from canonical input
+    /// ordering — never from NIR edges.
+    pub nir_derived: bool,
 }
 
 /// Named dense-parameter export contract.
@@ -256,6 +306,22 @@ impl ReadoutContract {
     }
 }
 
+/// Route-table payload carried by a contract that emits `aer_routes.mem`.
+///
+/// `table` is always structurally valid and hop-budget checked; `source`
+/// records how its contents were chosen (identity from canonical input
+/// ordering, or an explicit hardware plan). `nir_derived` marks tables
+/// lowered through the `nir` feature for manifest provenance.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AerRouting {
+    /// Validated 16-entry route table.
+    pub table: crate::AerRouteTable,
+    /// Provenance of the table contents.
+    pub source: crate::AerRouteSource,
+    /// Whether the table was derived through a `nir_rs::NirGraph` lowering.
+    pub nir_derived: bool,
+}
+
 /// A dense Q8.8 export contract selected by [`ExportConfig`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExportContract {
@@ -268,6 +334,7 @@ pub struct ExportContract {
     legacy_version: Option<String>,
     default_target_latency_us: Option<f32>,
     supported_dimensions: Option<CompatibilityDimensions>,
+    routing: Option<AerRouting>,
 }
 
 impl ExportContract {
@@ -300,6 +367,7 @@ impl ExportContract {
             legacy_version: None,
             default_target_latency_us: None,
             supported_dimensions: None,
+            routing: None,
         };
         contract.validate_file_names(true)?;
         Ok(contract)
@@ -353,7 +421,44 @@ impl ExportContract {
             legacy_version: None,
             default_target_latency_us: None,
             supported_dimensions: Some(CompatibilityDimensions::SILICON_HDL_V3),
+            routing: None,
         }
+    }
+
+    /// Pinned silicon-hdl v3 + `aer-route-v1` contract.
+    ///
+    /// Same 16/16/3 dimensions, immutable filenames, `K×N` plus HDL-native
+    /// `N×K` readout as [`Self::silicon_hdl_v3`], plus an `aer_routes.mem`
+    /// image written from `routing`. The default routing is the identity
+    /// table sourced from canonical input ordering; replace it with
+    /// [`ExportConfig::with_aer_route_table`]. Routing adds no UART response
+    /// field.
+    pub fn silicon_hdl_v3_aer_route_v1() -> Self {
+        let mut files = ExportFileLayout::spikenaut_deployment();
+        files.aer_routes = Some(crate::AER_ROUTE_FILENAME.to_string());
+        Self {
+            profile_id: SILICON_HDL_AER_PROFILE_ID.to_string(),
+            schema_version: SILICON_HDL_AER_SCHEMA_VERSION.to_string(),
+            compatibility: Some(silicon_hdl_aer_metadata_for_files(&files)),
+            files,
+            readout: ReadoutContract::RequiredKxNAndHdlNxK {
+                filename: SILICON_HDL_V3_READOUT_FILENAME.to_string(),
+            },
+            immutable_files: true,
+            legacy_version: None,
+            default_target_latency_us: None,
+            supported_dimensions: Some(CompatibilityDimensions::SILICON_HDL_V3),
+            routing: Some(AerRouting {
+                table: crate::AerRouteTable::identity(),
+                source: crate::AerRouteSource::CanonicalInputOrder,
+                nir_derived: false,
+            }),
+        }
+    }
+
+    /// Route-table payload this contract will emit, if any.
+    pub fn routing(&self) -> Option<&AerRouting> {
+        self.routing.as_ref()
     }
 
     fn known(
@@ -372,6 +477,7 @@ impl ExportContract {
             legacy_version: None,
             default_target_latency_us: None,
             supported_dimensions: None,
+            routing: None,
         }
     }
 
@@ -412,6 +518,9 @@ impl ExportContract {
                 });
             }
             seen.push(name);
+        }
+        if self.routing.is_some() && self.files.aer_routes.is_none() {
+            return Err(ExportError::MissingRouteFilename);
         }
         Ok(())
     }
@@ -462,6 +571,12 @@ pub struct ExportFileLayout {
     pub metadata: String,
     /// Optional readout image. `None` means “do not write a readout file”.
     pub output_weights: Option<String>,
+    /// Optional `aer-route-v1` route-table image (`16` words).
+    ///
+    /// `None` for every pre-existing profile; the file is written only when
+    /// the contract also carries route data (see
+    /// [`ExportConfig::silicon_hdl_v3_aer_route_v1`]).
+    pub aer_routes: Option<String>,
 }
 
 impl ExportFileLayout {
@@ -474,6 +589,7 @@ impl ExportFileLayout {
             decay: "parameters_decay.mem".into(),
             metadata: "parameters.json".into(),
             output_weights: Some("parameters_output_weights.mem".into()),
+            aer_routes: None,
         }
     }
 
@@ -496,6 +612,9 @@ impl ExportFileLayout {
         if has_readout && let Some(name) = self.output_weights.as_deref() {
             names.push(name);
         }
+        if let Some(name) = self.aer_routes.as_deref() {
+            names.push(name);
+        }
         names.push(self.metadata.as_str());
         names
     }
@@ -515,6 +634,9 @@ impl ExportFileLayout {
             self.metadata.as_str(),
         ];
         if include_optional_readout_name && let Some(name) = self.output_weights.as_deref() {
+            names.push(name);
+        }
+        if let Some(name) = self.aer_routes.as_deref() {
             names.push(name);
         }
         for name in names {
@@ -618,6 +740,78 @@ impl ExportConfig {
     /// [`SILICON_HDL_V3_CONTRACT_ID`].
     pub fn silicon_hdl_v3() -> Self {
         Self::from_contract(ExportContract::silicon_hdl_v3())
+    }
+
+    /// Pinned silicon-hdl v3 + `aer-route-v1` profile.
+    ///
+    /// Everything [`Self::silicon_hdl_v3`] emits, plus an
+    /// [`AER_ROUTE_FILENAME`](crate::AER_ROUTE_FILENAME) image of the
+    /// identity route table and `aer_routing` / `artifact_hashes` manifest
+    /// fields. Routing adds no UART response field: the five-byte `0xA5`
+    /// target-3 write is never acknowledged.
+    ///
+    /// ```
+    /// use silicon_bridge::{ExportConfig, FpgaParameterExporter};
+    ///
+    /// let mut exporter = FpgaParameterExporter::from_params(
+    ///     vec![1.0; 16],
+    ///     vec![vec![0.5; 16]; 16],
+    ///     vec![0.85; 16],
+    /// );
+    /// exporter.set_output_weights(vec![vec![0.25; 16]; 3]);
+    /// let dir = tempfile::tempdir().unwrap();
+    /// let report = exporter
+    ///     .write_with_config(dir.path(), &ExportConfig::silicon_hdl_v3_aer_route_v1())
+    ///     .unwrap();
+    /// assert!(report.written.iter().any(|n| n == "aer_routes.mem"));
+    /// ```
+    pub fn silicon_hdl_v3_aer_route_v1() -> Self {
+        Self::from_contract(ExportContract::silicon_hdl_v3_aer_route_v1())
+    }
+
+    /// Replace the route table this config will emit.
+    ///
+    /// The table is validated against `aer-route-v1` bounds (reserved bits,
+    /// addresses, hop budget, dangling chains) before this returns.
+    /// `source` records how the plan was chosen in the manifest.
+    ///
+    /// # Errors
+    ///
+    /// [`ExportError::Routing`] when the table fails validation;
+    /// [`ExportError::MissingRouteFilename`] when this contract's file
+    /// layout has no `aer_routes` slot (every pre-existing profile).
+    pub fn with_aer_route_table(
+        mut self,
+        table: crate::AerRouteTable,
+        source: crate::AerRouteSource,
+    ) -> Result<Self, ExportError> {
+        table.validate().map_err(ExportError::Routing)?;
+        if self.contract.files.aer_routes.is_none() {
+            return Err(ExportError::MissingRouteFilename);
+        }
+        self.contract.routing = Some(AerRouting {
+            table,
+            source,
+            nir_derived: false,
+        });
+        Ok(self)
+    }
+
+    /// Mark the route table as lowered from a `nir_rs::NirGraph`.
+    ///
+    /// Used by the `nir` feature helper; records `nir_derived: true` in the
+    /// manifest. Does nothing when the contract carries no routing.
+    #[must_use]
+    pub fn with_nir_route_provenance(mut self) -> Self {
+        if let Some(routing) = self.contract.routing.as_mut() {
+            routing.nir_derived = true;
+        }
+        self
+    }
+
+    /// Route-table payload this config will emit, if any.
+    pub fn aer_routing(&self) -> Option<&AerRouting> {
+        self.contract.routing()
     }
 
     /// Build a config from a user-defined or predefined export contract.
@@ -754,6 +948,11 @@ impl ExportConfig {
         if has_readout && let Some(name) = self.contract.readout.hdl_filename() {
             names.push(name);
         }
+        if self.contract.routing.is_some()
+            && let Some(name) = self.contract.files.aer_routes.as_deref()
+        {
+            names.push(name);
+        }
         names.push(self.contract.files.metadata.as_str());
         names
     }
@@ -782,7 +981,8 @@ pub struct ExportReport {
     /// Directory the files were written under.
     pub output_dir: PathBuf,
     /// Basenames actually written, in a stable order (thresholds, weights,
-    /// decay, optional readout, optional HDL-native readout, metadata).
+    /// decay, optional readout, optional HDL-native readout, optional
+    /// `aer_routes.mem`, metadata).
     pub written: Vec<String>,
     /// Whether replacement of existing files was permitted for this write.
     pub overwrite: OverwritePolicy,
@@ -996,6 +1196,27 @@ pub(super) fn stamp_profile_metadata(
     };
 
     metadata.compatibility = config.contract.compatibility.clone();
+    metadata.aer_routing = config
+        .contract
+        .routing
+        .as_ref()
+        .map(|routing| AerRoutingMetadata {
+            schema: crate::AER_ROUTE_SCHEMA.to_string(),
+            filename: config
+                .contract
+                .files
+                .aer_routes
+                .clone()
+                .unwrap_or_else(|| crate::AER_ROUTE_FILENAME.to_string()),
+            entry_width: crate::AER_ROUTE_ENTRY_WIDTH,
+            address_width: crate::AER_ROUTE_ADDRESS_WIDTH,
+            entry_count: crate::AER_ROUTE_ENTRY_COUNT,
+            max_hops: crate::AER_ROUTE_MAX_HOPS,
+            bit_layout: "valid[15],terminal[14],reserved[13:4]=0,next_addr[3:0]".to_string(),
+            hdl_revision: SILICON_HDL_AER_SUPPORTED_REVISION.to_string(),
+            route_source: routing.source,
+            nir_derived: routing.nir_derived,
+        });
 
     params.metadata = metadata;
 }
@@ -1039,7 +1260,19 @@ fn silicon_hdl_v3_metadata_for_files(files: &ExportFileLayout) -> CompatibilityM
             sync_byte: format!("0x{DENSE_Q88_SYNC:02X}"),
             word_byte_order: "big_endian_16_bit_words".to_string(),
         },
+        aer_routes: files.aer_routes.clone(),
     }
+}
+
+fn silicon_hdl_aer_metadata_for_files(files: &ExportFileLayout) -> CompatibilityMetadata {
+    let mut metadata = silicon_hdl_v3_metadata_for_files(files);
+    metadata.contract_id = SILICON_HDL_AER_CONTRACT_ID.to_string();
+    metadata.contract_version = SILICON_HDL_AER_SCHEMA_VERSION.to_string();
+    metadata.profile = SILICON_HDL_AER_PROFILE_ID.to_string();
+    if let Some(reference) = metadata.reference.as_mut() {
+        reference.revision = SILICON_HDL_AER_SUPPORTED_REVISION.to_string();
+    }
+    metadata
 }
 
 impl FpgaParameterExporter {
@@ -1108,12 +1341,6 @@ impl FpgaParameterExporter {
             }
         }
 
-        let metadata_json =
-            serde_json::to_string_pretty(&params).map_err(|source| ExportError::Serialize {
-                path: output_dir.join(&config.files().metadata),
-                source,
-            })?;
-
         fs::create_dir_all(output_dir).map_err(|source| ExportError::Io {
             path: output_dir.to_path_buf(),
             source,
@@ -1162,6 +1389,46 @@ impl FpgaParameterExporter {
                 Self::write_mem_file(staging.path.join(hdl_name), &hdl_readout, staged_overwrite)?;
             }
         }
+        if let Some(routing) = &config.contract.routing {
+            let name = config
+                .files()
+                .aer_routes
+                .as_deref()
+                .ok_or(ExportError::MissingRouteFilename)?;
+            Self::write_mem_file_u16(
+                staging.path.join(name),
+                &routing.table.words(),
+                staged_overwrite,
+            )?;
+            // Artifact hashes cover every staged `.mem` (exact bytes after
+            // staging, before promotion) so a consumer can pin the bundle.
+            // `parameters.json` is excluded: it carries this manifest.
+            let mut hashes = std::collections::BTreeMap::new();
+            for name in config.names_for(has_readout) {
+                if name == config.files().metadata.as_str() {
+                    continue;
+                }
+                let path = staging.path.join(name);
+                let bytes = fs::read(&path).map_err(|source| ExportError::Io {
+                    path: path.clone(),
+                    source,
+                })?;
+                let digest = sha2::Sha256::digest(&bytes);
+                hashes.insert(
+                    name.to_string(),
+                    digest
+                        .iter()
+                        .map(|b| format!("{b:02x}"))
+                        .collect::<String>(),
+                );
+            }
+            params.metadata.artifact_hashes = Some(hashes);
+        }
+        let metadata_json =
+            serde_json::to_string_pretty(&params).map_err(|source| ExportError::Serialize {
+                path: output_dir.join(&config.files().metadata),
+                source,
+            })?;
         Self::write_json_file(
             staging.path.join(&config.files().metadata),
             &metadata_json,
@@ -1191,6 +1458,21 @@ impl FpgaParameterExporter {
             // Same leftover-delete as the legacy writer: a readout-less
             // re-export must not leave a stale `$readmemh` image.
             Self::remove_mem_file_if_present(output_dir.join(name))?;
+        }
+        if config.contract.routing.is_none() && matches!(config.overwrite, OverwritePolicy::Replace)
+        {
+            // A route-less re-export must not leave a stale route image,
+            // even when the new layout has no aer_routes slot: only this
+            // crate's canonical name is a candidate for removal, and never
+            // when a custom layout assigned that name to another artifact.
+            let stale = config
+                .files()
+                .aer_routes
+                .as_deref()
+                .unwrap_or(crate::AER_ROUTE_FILENAME);
+            if !names.iter().any(|name| name.eq_ignore_ascii_case(stale)) {
+                Self::remove_mem_file_if_present(output_dir.join(stale))?;
+            }
         }
 
         Ok(ExportReport {
@@ -1645,6 +1927,7 @@ mod tests {
             decay: "parameters_decay.mem".into(),
             metadata: "parameters.json".into(),
             output_weights: None,
+            aer_routes: None,
         };
         let err = ExportConfig::generic()
             .with_files(absolute)
@@ -1662,6 +1945,7 @@ mod tests {
             weights: "parameters_weights.mem".into(),
             decay: "parameters_decay.mem".into(),
             metadata: "parameters.json".into(),
+            aer_routes: None,
             output_weights: None,
         };
         let err = ExportConfig::generic()
@@ -1679,6 +1963,7 @@ mod tests {
             thresholds: "nested/thresholds.mem".into(),
             weights: "parameters_weights.mem".into(),
             decay: "parameters_decay.mem".into(),
+            aer_routes: None,
             metadata: "parameters.json".into(),
             output_weights: None,
         };
@@ -1696,6 +1981,7 @@ mod tests {
         let colliding = ExportFileLayout {
             thresholds: "same.mem".into(),
             weights: "same.mem".into(),
+            aer_routes: None,
             decay: "parameters_decay.mem".into(),
             metadata: "parameters.json".into(),
             output_weights: None,
@@ -1711,6 +1997,7 @@ mod tests {
             decay: "parameters_decay.mem".into(),
             metadata: "parameters.json".into(),
             output_weights: None,
+            aer_routes: None,
         };
         let err = ExportConfig::generic()
             .with_files(case_fold)
@@ -1728,6 +2015,7 @@ mod tests {
             decay: "custom_decay.mem".into(),
             metadata: "custom_metadata.json".into(),
             output_weights: Some("custom_readout.mem".into()),
+            aer_routes: None,
         };
 
         let err = ExportConfig::silicon_hdl_v3()
@@ -1826,6 +2114,7 @@ mod tests {
     fn required_readout_contract_rejects_missing_output_filename() {
         let files = ExportFileLayout {
             thresholds: "thresholds.mem".into(),
+            aer_routes: None,
             weights: "weights.mem".into(),
             decay: "decay.mem".into(),
             metadata: "parameters.json".into(),
@@ -1991,6 +2280,7 @@ mod tests {
     fn generic_readout_without_filename_is_rejected_before_write() {
         let dir = tempfile::tempdir().unwrap();
         let layout = ExportFileLayout {
+            aer_routes: None,
             thresholds: "parameters.mem".into(),
             weights: "parameters_weights.mem".into(),
             decay: "parameters_decay.mem".into(),
@@ -2127,6 +2417,245 @@ mod tests {
             "dangling symlink must remain"
         );
         assert_eq!(fs::read(&from).unwrap(), b"NEW");
+    }
+
+    fn aer_exporter() -> FpgaParameterExporter {
+        let mut exporter = FpgaParameterExporter::from_params(
+            vec![1.0; 16],
+            vec![vec![0.5; 16]; 16],
+            vec![0.85; 16],
+        );
+        exporter.set_output_weights(vec![vec![0.25; 16]; 3]);
+        exporter
+    }
+
+    #[test]
+    fn aer_profile_writes_route_image_and_manifest_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        let report = aer_exporter()
+            .write_with_config(dir.path(), &ExportConfig::silicon_hdl_v3_aer_route_v1())
+            .expect("aer export");
+        assert_eq!(report.profile, SILICON_HDL_AER_PROFILE_ID);
+        assert!(
+            report
+                .written
+                .iter()
+                .any(|name| name == crate::AER_ROUTE_FILENAME)
+        );
+        // aer_routes.mem is promoted before parameters.json.
+        let aer_pos = report
+            .written
+            .iter()
+            .position(|n| n == crate::AER_ROUTE_FILENAME)
+            .unwrap();
+        let json_pos = report
+            .written
+            .iter()
+            .position(|n| n == "parameters.json")
+            .unwrap();
+        assert!(aer_pos < json_pos);
+
+        let image = fs::read_to_string(dir.path().join(crate::AER_ROUTE_FILENAME)).unwrap();
+        let lines: Vec<&str> = image.lines().collect();
+        assert_eq!(lines.len(), 16);
+        for (i, line) in lines.iter().enumerate() {
+            assert_eq!(*line, format!("{:04X}", 0xC000 | i as u16));
+        }
+
+        let json: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(dir.path().join("parameters.json")).unwrap())
+                .unwrap();
+        let routing = &json["metadata"]["aer_routing"];
+        assert_eq!(routing["schema"], crate::AER_ROUTE_SCHEMA);
+        assert_eq!(routing["filename"], crate::AER_ROUTE_FILENAME);
+        assert_eq!(routing["entry_width"], 16);
+        assert_eq!(routing["address_width"], 4);
+        assert_eq!(routing["entry_count"], 16);
+        assert_eq!(routing["max_hops"], 4);
+        assert_eq!(routing["hdl_revision"], SILICON_HDL_AER_SUPPORTED_REVISION);
+        assert_eq!(routing["route_source"], "canonical_input_order");
+        assert_eq!(routing["nir_derived"], false);
+        assert_eq!(
+            json["metadata"]["compatibility"]["contract_id"],
+            SILICON_HDL_AER_CONTRACT_ID
+        );
+        assert_eq!(
+            json["metadata"]["compatibility"]["aer_routes"],
+            crate::AER_ROUTE_FILENAME
+        );
+        assert_eq!(json["metadata"]["profile"], SILICON_HDL_AER_PROFILE_ID);
+        assert_eq!(
+            json["metadata"]["schema_version"],
+            SILICON_HDL_AER_SCHEMA_VERSION
+        );
+        // UART framing is unchanged: routing adds no response field.
+        assert_eq!(
+            json["metadata"]["compatibility"]["uart"]["request_bytes"],
+            33
+        );
+        assert_eq!(
+            json["metadata"]["compatibility"]["uart"]["response_bytes"],
+            36
+        );
+    }
+
+    #[test]
+    fn aer_profile_artifact_hashes_match_staged_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        aer_exporter()
+            .write_with_config(dir.path(), &ExportConfig::silicon_hdl_v3_aer_route_v1())
+            .expect("aer export");
+        let json: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(dir.path().join("parameters.json")).unwrap())
+                .unwrap();
+        let hashes = json["metadata"]["artifact_hashes"]
+            .as_object()
+            .expect("hash map");
+        let expected_files = [
+            "parameters.mem",
+            "parameters_weights.mem",
+            "parameters_decay.mem",
+            "parameters_output_weights.mem",
+            SILICON_HDL_V3_READOUT_FILENAME,
+            crate::AER_ROUTE_FILENAME,
+        ];
+        assert_eq!(hashes.len(), expected_files.len());
+        for name in expected_files {
+            let digest = sha2::Sha256::digest(fs::read(dir.path().join(name)).unwrap());
+            let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+            assert_eq!(hashes[name].as_str().unwrap(), hex, "hash for {name}");
+        }
+        assert!(!hashes.contains_key("parameters.json"));
+    }
+
+    #[test]
+    fn aer_profile_repeat_export_is_byte_identical() {
+        let dir1 = tempfile::tempdir().unwrap();
+        let dir2 = tempfile::tempdir().unwrap();
+        let config = ExportConfig::silicon_hdl_v3_aer_route_v1();
+        aer_exporter()
+            .write_with_config(dir1.path(), &config)
+            .expect("first");
+        aer_exporter()
+            .write_with_config(dir2.path(), &config)
+            .expect("second");
+        for name in [
+            "parameters.mem",
+            "parameters_weights.mem",
+            "parameters_decay.mem",
+            "parameters_output_weights.mem",
+            SILICON_HDL_V3_READOUT_FILENAME,
+            crate::AER_ROUTE_FILENAME,
+            "parameters.json",
+        ] {
+            assert_eq!(
+                fs::read(dir1.path().join(name)).unwrap(),
+                fs::read(dir2.path().join(name)).unwrap(),
+                "{name} must be deterministic"
+            );
+        }
+    }
+
+    #[test]
+    fn aer_profile_explicit_multi_hop_plan_is_written_as_supplied() {
+        let mut words = [0xC000u16; 16];
+        words[0] = 0x8001;
+        words[1] = 0x8002;
+        words[2] = 0xC002;
+        let table = crate::AerRouteTable::from_words(&words).unwrap();
+        let config = ExportConfig::silicon_hdl_v3_aer_route_v1()
+            .with_aer_route_table(table, crate::AerRouteSource::ExplicitHardwarePlan)
+            .expect("plan validates");
+
+        let dir = tempfile::tempdir().unwrap();
+        aer_exporter()
+            .write_with_config(dir.path(), &config)
+            .expect("aer export");
+        let image = fs::read_to_string(dir.path().join(crate::AER_ROUTE_FILENAME)).unwrap();
+        let lines: Vec<&str> = image.lines().collect();
+        assert_eq!(lines[0], "8001");
+        assert_eq!(lines[1], "8002");
+        assert_eq!(lines[2], "C002");
+        let json: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(dir.path().join("parameters.json")).unwrap())
+                .unwrap();
+        assert_eq!(
+            json["metadata"]["aer_routing"]["route_source"],
+            "explicit_hardware_plan"
+        );
+    }
+
+    #[test]
+    fn aer_profile_malformed_plan_fails_before_destination_write() {
+        let mut words = [0xC000u16; 16];
+        words[0] = 0x8001;
+        words[1] = 0x8000; // cycle
+        let table = crate::AerRouteTable::from_words(&words).unwrap();
+        assert!(matches!(
+            ExportConfig::silicon_hdl_v3_aer_route_v1()
+                .with_aer_route_table(table, crate::AerRouteSource::ExplicitHardwarePlan),
+            Err(ExportError::Routing(
+                crate::AerRouteError::OverBudget { .. }
+            ))
+        ));
+
+        // Reserved bits fail even earlier, inside AerRouteTable::from_words.
+        assert_eq!(
+            crate::AerRouteTable::from_words(&[0xC010; 16]),
+            Err(crate::AerRouteError::ReservedBits {
+                address: 0,
+                word: 0xC010
+            })
+        );
+    }
+
+    #[test]
+    fn aer_profile_rejects_file_layout_overrides() {
+        let err = ExportConfig::silicon_hdl_v3_aer_route_v1()
+            .with_files(ExportFileLayout::generic_default())
+            .expect_err("aer filenames are contract fields");
+        assert!(matches!(
+            err,
+            ExportError::ImmutableFileLayout { profile } if profile == SILICON_HDL_AER_PROFILE_ID
+        ));
+    }
+
+    #[test]
+    fn route_table_on_non_routing_profile_fails_typed() {
+        let err = ExportConfig::generic()
+            .with_aer_route_table(
+                crate::AerRouteTable::identity(),
+                crate::AerRouteSource::CanonicalInputOrder,
+            )
+            .expect_err("generic layout has no aer_routes slot");
+        assert!(matches!(err, ExportError::MissingRouteFilename));
+    }
+
+    #[test]
+    fn other_profiles_emit_no_aer_fields() {
+        for config in [
+            ExportConfig::generic(),
+            ExportConfig::silicon_hdl_v3(),
+            ExportConfig::generic_with_required_readout(),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let exporter = aer_exporter();
+            let exporter = if config.profile() == GENERIC_DENSE_PROFILE_ID {
+                dense_4x6()
+            } else {
+                exporter
+            };
+            exporter
+                .write_with_config(dir.path(), &config)
+                .expect("profile export");
+            let json: serde_json::Value = serde_json::from_str(
+                &fs::read_to_string(dir.path().join("parameters.json")).unwrap(),
+            )
+            .unwrap();
+            assert!(json["metadata"].get("aer_routing").is_none());
+            assert!(json["metadata"].get("artifact_hashes").is_none());
+            assert!(!dir.path().join(crate::AER_ROUTE_FILENAME).exists());
+        }
     }
 
     #[cfg(unix)]
