@@ -7,9 +7,10 @@
 
 use serde::Deserialize;
 use silicon_bridge::{
-    AER_ROUTE_ENTRY_COUNT, AerRouteEntry, AerRouteError, AerRouteTable, ROUTE_TABLE_TARGET,
-    ROUTE_WRITE_COMMAND, ROUTE_WRITE_LEN, SILICON_BRIDGE_V3_RX_LEN, SILICON_BRIDGE_V3_TX_LEN,
-    encode_route_table, encode_route_write_word,
+    AER_ROUTE_ENTRY_COUNT, AerRouteEntry, AerRouteError, AerRouteTable, DenseQ88Layout,
+    ROUTE_TABLE_TARGET, ROUTE_WRITE_COMMAND, ROUTE_WRITE_LEN, SILICON_BRIDGE_V3_RX_LEN,
+    SILICON_BRIDGE_V3_TX_LEN, decode_response, encode_route_table, encode_route_write_word,
+    encode_stimuli,
 };
 use std::{fs, path::PathBuf};
 
@@ -132,7 +133,14 @@ fn route_write_rejects_contract_violations() {
 #[test]
 fn v3_stimulus_framing_is_unchanged() {
     // Route writes are a separate 0xA5 command; the 33-byte request and
-    // 36-byte response contract must not move.
+    // 36-byte response contract must not move. Assert the constants AND the
+    // actual codec frames so a wire regression cannot pass silently.
     assert_eq!(SILICON_BRIDGE_V3_TX_LEN, 33);
     assert_eq!(SILICON_BRIDGE_V3_RX_LEN, 36);
+    let layout = DenseQ88Layout::silicon_bridge_v3();
+    let tx = encode_stimuli(&layout, &[0.5f32; 16]).expect("v3 request encodes");
+    assert_eq!(tx.len(), SILICON_BRIDGE_V3_TX_LEN);
+    let rx = vec![0u8; SILICON_BRIDGE_V3_RX_LEN];
+    let response = decode_response(&layout, &rx).expect("36-byte response decodes");
+    assert_eq!(response.potentials.len(), 16);
 }
