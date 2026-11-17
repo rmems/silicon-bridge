@@ -198,6 +198,7 @@ fn run() -> i32 {
 
         match bridge.exchange(&layout, &stimuli) {
             Ok(resp) => {
+                errors = 0;
                 let n_spikes = resp.spikes.iter().filter(|b| **b).count();
                 let pot_min = resp
                     .potentials
