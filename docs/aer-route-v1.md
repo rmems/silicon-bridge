@@ -62,6 +62,13 @@ command; no new framing is introduced.
   table changed. Quiesce event traffic (no stimuli in flight) before
   writing routes; `write_route_table` can also leave the table partly old
   if a mid-sequence I/O failure occurs.
+- `FpgaBridge::recover()` only clears host-side state — it does **not**
+  resynchronize the FPGA command receiver. After a failed write that may
+  have delivered a partial `0xA5` frame, wait out the receiver's
+  inter-byte idle timeout (`SocProtocolFsm.sv`, silicon-hdl pin
+  `bcdf630c…`) or reset the FPGA before issuing further commands, or the
+  next frame's first byte can be consumed as the previous frame's
+  payload.
 - Reserved bits set in `data` are rejected with `route_fault` by the
   hardware; the host additionally refuses reserved bits and an address
   `≥ 16` before any byte is written — `AerRouteError` from

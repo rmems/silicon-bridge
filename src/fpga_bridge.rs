@@ -922,9 +922,10 @@ impl FpgaBridge {
     }
 
     /// Write all 16 entries of `table`, in ascending address order, as 16
-    /// target-3 frames. Table entries are always structurally valid, so this
-    /// cannot produce [`ExchangeError::InvalidRoute`]; the table is also
-    /// re-checked with [`AerRouteTable::validate`] before the first byte.
+    /// target-3 frames. [`ExchangeError::InvalidRoute`] is returned before
+    /// any byte is written when `table` fails
+    /// [`AerRouteTable::validate`] — `OverBudget` or `DanglingRoute` — or
+    /// when its words carry reserved bits.
     ///
     /// Same no-acknowledgement contract as [`Self::write_route_entry`]. The
     /// HDL drops a write that overlaps an in-flight lookup without any
@@ -974,7 +975,14 @@ impl FpgaBridge {
     /// recovery also clears the inactive ping latch so the handle can exchange
     /// again without being reconstructed.
     /// Clearing the host buffers cannot detect a stale same-length reply
-    /// already sitting in the FPGA UART.
+    /// already sitting in the FPGA UART, and it does not resynchronize the
+    /// FPGA command receiver: after a failed write that may have delivered
+    /// only a partial frame (for example a truncated `0xA5` route write),
+    /// the receiver FSM keeps consuming the next bytes as that frame's
+    /// payload until its inter-byte idle timeout expires
+    /// (`SocProtocolFsm.sv`, silicon-hdl pin `bcdf630c…`). Wait out that
+    /// idle interval — or reset the FPGA — before issuing further
+    /// commands; [`Self::recover`] only clears host-side state.
     pub fn recover(&mut self) -> Result<(), ExchangeError> {
         self.port
             .clear(ClearBuffer::All)

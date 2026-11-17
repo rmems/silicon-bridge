@@ -1463,15 +1463,19 @@ impl FpgaParameterExporter {
         {
             // A route-less re-export must not leave a stale route image,
             // even when the new layout has no aer_routes slot: only this
-            // crate's canonical name is a candidate for removal, and never
-            // when a custom layout assigned that name to another artifact.
-            let stale = config
-                .files()
-                .aer_routes
-                .as_deref()
-                .unwrap_or(crate::AER_ROUTE_FILENAME);
-            if !names.iter().any(|name| name.eq_ignore_ascii_case(stale)) {
-                Self::remove_mem_file_if_present(output_dir.join(stale))?;
+            // crate's canonical name and the configured route filename are
+            // candidates for removal, and never a name the new bundle just
+            // wrote (a custom layout may assign it to another artifact).
+            let mut stale_names = vec![crate::AER_ROUTE_FILENAME];
+            if let Some(name) = config.files().aer_routes.as_deref()
+                && !stale_names.iter().any(|n| n.eq_ignore_ascii_case(name))
+            {
+                stale_names.push(name);
+            }
+            for stale in stale_names {
+                if !names.iter().any(|name| name.eq_ignore_ascii_case(stale)) {
+                    Self::remove_mem_file_if_present(output_dir.join(stale))?;
+                }
             }
         }
 
