@@ -67,7 +67,7 @@ fn parse_gpu_row(line: &str) -> Option<[f32; 5]> {
     for (dst, src) in f.iter_mut().zip(cols) {
         *dst = src.parse().ok()?;
     }
-    if f[1] <= 0.0 {
+    if f[1] <= 0.0 || f.iter().any(|v| !v.is_finite()) {
         return None;
     }
     Some([100.0 * f[0] / f[1], f[2], f[3], f[4], f[5]])
@@ -192,6 +192,7 @@ fn run() -> i32 {
             }
             continue;
         };
+        poll_errors = 0;
         let norm = normalize(fields);
         let mut stimuli = vec![0.0_f32; layout.input_channels()];
         stimuli[..5].copy_from_slice(&norm);
@@ -228,14 +229,11 @@ fn run() -> i32 {
                 errors += 1;
                 eprintln!("==> exchange failed at tick {tick}: {e} (errors={errors})");
                 let _ = writeln!(log, "{{\"tick\":{tick},\"event\":\"exchange_error\"}}");
-                if bridge.needs_recovery() {
-                    match bridge.recover() {
-                        Ok(()) => errors = 0,
-                        Err(re) => {
-                            eprintln!("==> recover failed: {re}");
-                            return 1;
-                        }
-                    }
+                if bridge.needs_recovery()
+                    && let Err(re) = bridge.recover()
+                {
+                    eprintln!("==> recover failed: {re}");
+                    return 1;
                 }
                 if errors > 50 {
                     eprintln!("==> too many exchange errors, giving up");
@@ -272,6 +270,8 @@ mod tests {
     #[test]
     fn parse_gpu_row_rejects_bad_fields() {
         assert!(parse_gpu_row("12000, 24576, N/A, 62, 1980, 9501").is_none());
+        assert!(parse_gpu_row("12000, 24576, inf, 62, 1980, 9501").is_none());
+        assert!(parse_gpu_row("12000, 24576, NaN, 62, 1980, 9501").is_none());
         assert!(parse_gpu_row("12000, 0, 185.5, 62, 1980, 9501").is_none());
         assert!(parse_gpu_row("12000, 24576, 185.5, 62, 1980").is_none());
         assert!(parse_gpu_row("12000, 24576, 185.5, 62, 1980, 9501, extra").is_none());
