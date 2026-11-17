@@ -128,7 +128,7 @@ because `nir-rs` carries its own `rust-version`.
 |------|------------|
 | Old “Spikenaut-Hardware” naming | Prefer **silicon-hdl** in all new docs |
 | Trait drift vs HDL RAM layout | Define export traits in silicon-bridge; HDL alignment issues track parity |
-| NIR reimplementation per crate | Keep NIR parsing and HDF5 out of this crate; `nir` / `nir-io` consume `nir-rs` and only map the graph to Q8.8 parameters |
+| NIR reimplementation per crate | Keep NIR parsing and HDF5 out of this crate; `nir` / `nir-io` consume `nir-rs` and map the graph to Q8.8 parameters plus `aer-route-v1` routing — identity from canonical input ordering or an explicit hardware plan; ordinary NIR edges are never treated as FPGA hops |
 | CI with `uart` / serialport | Feature-gate; avoid requiring `libudev` on all runners |
 | Cargo `docs/` exclude | Boundary doc lives in git under `docs/` for humans; crate package may exclude it |
 

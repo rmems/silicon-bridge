@@ -20,6 +20,7 @@ knob for text hex.
 | Custom contract | caller-supplied | caller-supplied | optional, required `K×N`, or required `K×N` plus HDL-native `N×K` | omitted unless supplied | omitted unless declared | refuse unless `allow_replace` |
 | Required readout | `spikenaut-signed-output-v1` | `spikenaut-signed-output-v1` | **required** `K×N` | omitted unless supplied | omitted unless declared | refuse unless `allow_replace` |
 | silicon-hdl v3 reference | `silicon-hdl-v3-compatible` | `silicon-hdl-v3-profile-v2` | **required** `K×N` plus HDL-native `N×K` | omitted unless supplied | omitted unless declared | refuse unless `allow_replace` |
+| silicon-hdl v3 + aer-route-v1 | `silicon-hdl-v3-aer-route-v1` | `silicon-hdl-v3-aer-route-v1-profile-v1` | **required** `K×N` plus HDL-native `N×K`, plus `aer_routes.mem` | omitted unless supplied | omitted unless declared | refuse unless `allow_replace` |
 | Legacy Spikenaut-v2 | `spikenaut-v2-legacy` | `Spikenaut-v2` (historical tag) | optional | wall-clock RFC 3339 | declared `35.0` (not measured) | replace (historical) |
 
 Schema version, producer crate / crate version, and profile / model
@@ -67,6 +68,14 @@ let report = exporter.write_generic("out")?;
   `parameters_output_weights.mem` as generic class-major `K×N` and emits
   `hdl_readout_neuron_major.mem` as the reference HDL `OutputLayer`
   neuron-major `N×K` image. See [host-hdl-contract.md](host-hdl-contract.md).
+- **Pinned silicon-hdl v3 + aer-route-v1 profile**:
+  `ExportConfig::silicon_hdl_v3_aer_route_v1()`. Same dimensions and
+  immutable filenames as the v3 reference profile, plus
+  `aer_routes.mem` — the 16-entry AER route-table image — and
+  `metadata.aer_routing` / `metadata.artifact_hashes` provenance in
+  `parameters.json`. `.with_aer_route_table(table, AerRouteSource)` swaps in
+  an explicit hardware routing plan; the default is the identity table.
+  See [aer-route-v1.md](aer-route-v1.md).
 - **Existing Spikenaut-v2 tooling** that keys on `version: "Spikenaut-v2"`,
   the documented filenames, overwrite-in-place, and a declared 35 µs
   target: `MemFileWriter::write_mem_files` /
