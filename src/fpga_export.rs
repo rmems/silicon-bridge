@@ -551,6 +551,9 @@ impl std::error::Error for MetadataTimestampError {}
 /// `YYYY-MM-DD` `T` `HH:MM:SS[.frac]` `(Z|z|±HH:MM)` shape before storing a
 /// caller-supplied string.
 fn is_rfc3339_shape(s: &str) -> bool {
+    if !s.is_ascii() {
+        return false;
+    }
     let digits = |t: &str| !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit());
     let Some((date, rest)) = s.split_once('T') else {
         return false;
@@ -2310,6 +2313,8 @@ mod tests {
             "2025-08-20 17:35:00Z",
             "2025-08-20t17:35:00z",
             "2025-08-20T17:35:00+0000",
+            "2025\u{00e9}-08-20T00:00:00Z",
+            "2025-08-2\u{00e9}T00:00:00Z",
         ] {
             assert_eq!(
                 exporter.set_timestamp(relaxed),
