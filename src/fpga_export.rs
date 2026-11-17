@@ -545,6 +545,47 @@ impl fmt::Display for MetadataTimestampError {
 
 impl std::error::Error for MetadataTimestampError {}
 
+/// Strict RFC 3339 grammar gate for [`FpgaParameterExporter::set_timestamp`].
+/// `jiff::Timestamp`'s parser accepts ISO 8601 forms the previous chrono
+/// parser rejected (missing seconds, `+0000`); this re-establishes the
+/// `YYYY-MM-DD` `T` `HH:MM:SS[.frac]` `(Z|z|±HH:MM)` shape before storing a
+/// caller-supplied string.
+fn is_rfc3339_shape(s: &str) -> bool {
+    let digits = |t: &str| !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit());
+    let Some((date, rest)) = s.split_once('T') else {
+        return false;
+    };
+    if date.len() != 10
+        || &date[4..5] != "-"
+        || &date[7..8] != "-"
+        || !digits(&date[..4])
+        || !digits(&date[5..7])
+        || !digits(&date[8..10])
+    {
+        return false;
+    }
+    let (time, off) = match rest.rfind(['+', '-']) {
+        Some(i) => rest.split_at(i),
+        None if rest.ends_with(['Z', 'z']) => rest.split_at(rest.len() - 1),
+        None => return false,
+    };
+    let time_ok = time.len() >= 8
+        && &time[2..3] == ":"
+        && &time[5..6] == ":"
+        && digits(&time[..2])
+        && digits(&time[3..5])
+        && digits(&time[6..8])
+        && (time.len() == 8 || time[8..].strip_prefix('.').is_some_and(digits));
+    let off_ok = off == "Z"
+        || off == "z"
+        || (off.len() == 6
+            && off.starts_with(['+', '-'])
+            && &off[3..4] == ":"
+            && digits(&off[1..3])
+            && digits(&off[4..6]));
+    time_ok && off_ok
+}
+
 /// One value that [`RangePolicy::Saturate`] clamped before encoding.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SaturationEvent {
@@ -1232,6 +1273,9 @@ impl FpgaParameterExporter {
         timestamp: impl AsRef<str>,
     ) -> Result<(), MetadataTimestampError> {
         let timestamp = timestamp.as_ref();
+        if !is_rfc3339_shape(timestamp) {
+            return Err(MetadataTimestampError::InvalidRfc3339);
+        }
         timestamp
             .parse::<jiff::Timestamp>()
             .map_err(|_| MetadataTimestampError::InvalidRfc3339)?;
@@ -2261,6 +2305,18 @@ mod tests {
             exporter.set_timestamp("not-a-timestamp"),
             Err(MetadataTimestampError::InvalidRfc3339)
         );
+        for relaxed in [
+            "2025-08-20T17:35Z",
+            "2025-08-20 17:35:00Z",
+            "2025-08-20t17:35:00z",
+            "2025-08-20T17:35:00+0000",
+        ] {
+            assert_eq!(
+                exporter.set_timestamp(relaxed),
+                Err(MetadataTimestampError::InvalidRfc3339),
+                "relaxed ISO 8601 form must not pass: {relaxed}"
+            );
+        }
         assert_eq!(
             exporter.set_timestamp("2020-01-01T00:00:00-05:00"),
             Err(MetadataTimestampError::NotUtc)
