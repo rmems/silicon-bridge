@@ -26,7 +26,10 @@
 //!
 //! Environment: `SILICON_BRIDGE_PORT`, `SILICON_BRIDGE_BAUD`, `TICK_MS`,
 //! `LIVE_LOG`, `GPU_INDEX` (nvidia-smi `--id`, default 0), `NVIDIA_SMI`
-//! (nvidia-smi binary override).
+//! (nvidia-smi binary override), `STIMULUS_GAIN` (default 2.5). The
+//! normalized 0..1 stimuli are multiplied by `STIMULUS_GAIN` before
+//! encoding: shipped neuron thresholds sit near 1.6 while unit drive only
+//! reached ~1.23 membrane potential, so raw 0..1 stimuli never crossed.
 
 #[cfg(not(feature = "uart"))]
 fn main() {
@@ -141,6 +144,11 @@ fn run() -> i32 {
         .and_then(|t| t.trim().parse().ok())
         .unwrap_or(500)
         .max(50);
+    let stimulus_gain: f32 = std::env::var("STIMULUS_GAIN")
+        .ok()
+        .and_then(|g| g.trim().parse::<f32>().ok())
+        .unwrap_or(2.5)
+        .max(0.0);
     let log_path = std::env::var("LIVE_LOG").unwrap_or_else(|_| "live-fpga-log.jsonl".into());
 
     eprintln!("==> live telemetry loop: port={port} baud={baud} tick={tick_ms}ms log={log_path}");
@@ -194,8 +202,14 @@ fn run() -> i32 {
         };
         poll_errors = 0;
         let norm = normalize(fields);
+        // The flashed SoC decodes only the LOWEST nonzero stimulus lane as
+        // the frame's input event (Basys3_Top.sv), so a dense 0..5 vector
+        // would pin every tick to axon 0 forever. Rotate one lane per tick so
+        // each live axon fires in turn; the on-chip event ignores amplitude,
+        // so carry the gain-scaled normalized value on the active lane.
         let mut stimuli = vec![0.0_f32; layout.input_channels()];
-        stimuli[..5].copy_from_slice(&norm);
+        let lane = (tick as usize) % 5;
+        stimuli[lane] = norm[lane] * stimulus_gain;
 
         match bridge.exchange(&layout, &stimuli) {
             Ok(resp) => {
@@ -214,8 +228,8 @@ fn run() -> i32 {
                     .reduce(f32::max)
                     .unwrap_or(0.0);
                 let line = format!(
-                    "{{\"tick\":{tick},\"stim\":[{:.4},{:.4},{:.4},{:.4},{:.4}],\"spikes\":{n_spikes},\"pot_min\":{pot_min:.4},\"pot_max\":{pot_max:.4}}}",
-                    norm[0], norm[1], norm[2], norm[3], norm[4],
+                    "{{\"tick\":{tick},\"stim\":[{:.4},{:.4},{:.4},{:.4},{:.4}],\"gain\":{stimulus_gain:.2},\"spikes\":{n_spikes},\"pot_min\":{pot_min:.4},\"pot_max\":{pot_max:.4}}}",
+                    stimuli[0], stimuli[1], stimuli[2], stimuli[3], stimuli[4],
                 );
                 if let Err(e) = writeln!(log, "{line}") {
                     eprintln!("==> log write failed at tick {tick}: {e}");
