@@ -2266,11 +2266,11 @@ mod tests {
             Err(MetadataTimestampError::NotUtc)
         );
         exporter
-            .set_timestamp("1970-01-01T00:00:00+00:00")
-            .expect("explicit zero offset is UTC");
-        exporter
             .set_timestamp("2020-01-01T00:00:00z")
             .expect("lowercase z is UTC");
+        exporter
+            .set_timestamp("1970-01-01T00:00:00+00:00")
+            .expect("explicit zero offset is UTC");
         let params = exporter.try_export().expect("checked");
         assert_eq!(params.metadata.timestamp, "1970-01-01T00:00:00+00:00");
     }
