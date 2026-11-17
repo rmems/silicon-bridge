@@ -545,6 +545,50 @@ impl fmt::Display for MetadataTimestampError {
 
 impl std::error::Error for MetadataTimestampError {}
 
+/// Strict RFC 3339 grammar gate for [`FpgaParameterExporter::set_timestamp`].
+/// `jiff::Timestamp`'s parser accepts ISO 8601 forms the previous chrono
+/// parser rejected (missing seconds, `+0000`); this re-establishes the
+/// `YYYY-MM-DD` `T` `HH:MM:SS[.frac]` `(Z|z|±HH:MM)` shape before storing a
+/// caller-supplied string.
+fn is_rfc3339_shape(s: &str) -> bool {
+    if !s.is_ascii() {
+        return false;
+    }
+    let digits = |t: &str| !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit());
+    let Some((date, rest)) = s.split_once('T') else {
+        return false;
+    };
+    if date.len() != 10
+        || &date[4..5] != "-"
+        || &date[7..8] != "-"
+        || !digits(&date[..4])
+        || !digits(&date[5..7])
+        || !digits(&date[8..10])
+    {
+        return false;
+    }
+    let (time, off) = match rest.rfind(['+', '-']) {
+        Some(i) => rest.split_at(i),
+        None if rest.ends_with(['Z', 'z']) => rest.split_at(rest.len() - 1),
+        None => return false,
+    };
+    let time_ok = time.len() >= 8
+        && &time[2..3] == ":"
+        && &time[5..6] == ":"
+        && digits(&time[..2])
+        && digits(&time[3..5])
+        && digits(&time[6..8])
+        && (time.len() == 8 || time[8..].strip_prefix('.').is_some_and(digits));
+    let off_ok = off == "Z"
+        || off == "z"
+        || (off.len() == 6
+            && off.starts_with(['+', '-'])
+            && &off[3..4] == ":"
+            && digits(&off[1..3])
+            && digits(&off[4..6]));
+    time_ok && off_ok
+}
+
 /// One value that [`RangePolicy::Saturate`] clamped before encoding.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SaturationEvent {
@@ -975,7 +1019,7 @@ pub struct FpgaMetadata {
     pub version: String,
     /// Export timestamp. Empty when omitted (checked / generic default).
     /// Legacy `ParameterExport::export` and `write_mem_files` use
-    /// `chrono::Utc::now()`; the generic path copies a caller-supplied
+    /// `jiff::Timestamp::now()`; the generic path copies a caller-supplied
     /// string or omits the field so repeats stay byte-identical.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub timestamp: String,
@@ -1212,7 +1256,7 @@ impl FpgaParameterExporter {
     /// The caller’s spelling is stored unchanged so repeated exports stay
     /// byte-identical. Non-UTC offsets and unparsable strings return
     /// [`MetadataTimestampError`]. The default is to **omit** the timestamp.
-    /// Call [`Self::use_wall_clock_timestamp`] to record `chrono::Utc::now`
+    /// Call [`Self::use_wall_clock_timestamp`] to record `jiff::Timestamp::now`
     /// at export time (legacy behaviour).
     ///
     /// This affects the in-memory [`FpgaParameters`] returned by
@@ -1232,16 +1276,23 @@ impl FpgaParameterExporter {
         timestamp: impl AsRef<str>,
     ) -> Result<(), MetadataTimestampError> {
         let timestamp = timestamp.as_ref();
-        let parsed = chrono::DateTime::parse_from_rfc3339(timestamp)
+        if !is_rfc3339_shape(timestamp) {
+            return Err(MetadataTimestampError::InvalidRfc3339);
+        }
+        timestamp
+            .parse::<jiff::Timestamp>()
             .map_err(|_| MetadataTimestampError::InvalidRfc3339)?;
-        if parsed.offset().local_minus_utc() != 0 {
+        if !(timestamp.ends_with(['Z', 'z'])
+            || timestamp.ends_with("+00:00")
+            || timestamp.ends_with("-00:00"))
+        {
             return Err(MetadataTimestampError::NotUtc);
         }
         self.timestamp = TimestampPolicy::Supplied(timestamp.to_owned());
         Ok(())
     }
 
-    /// Record a wall-clock timestamp (`chrono::Utc::now` at export time).
+    /// Record a wall-clock timestamp (`jiff::Timestamp::now` at export time).
     ///
     /// This is opt-in. The default checked path omits timestamps so repeats
     /// stay byte-identical. Like [`Self::set_timestamp`], this shapes the
@@ -1260,7 +1311,7 @@ impl FpgaParameterExporter {
         match &self.timestamp {
             TimestampPolicy::Omit => String::new(),
             TimestampPolicy::Supplied(value) => value.clone(),
-            TimestampPolicy::Now => chrono::Utc::now().to_rfc3339(),
+            TimestampPolicy::Now => jiff::Timestamp::now().to_string(),
         }
     }
 
@@ -1874,7 +1925,7 @@ impl ParameterExport for FpgaParameterExporter {
         };
         let timestamp = match &self.timestamp {
             TimestampPolicy::Supplied(value) => value.clone(),
-            TimestampPolicy::Omit | TimestampPolicy::Now => chrono::Utc::now().to_rfc3339(),
+            TimestampPolicy::Omit | TimestampPolicy::Now => jiff::Timestamp::now().to_string(),
         };
 
         let metadata = FpgaMetadata {
@@ -2257,10 +2308,27 @@ mod tests {
             exporter.set_timestamp("not-a-timestamp"),
             Err(MetadataTimestampError::InvalidRfc3339)
         );
+        for relaxed in [
+            "2025-08-20T17:35Z",
+            "2025-08-20 17:35:00Z",
+            "2025-08-20t17:35:00z",
+            "2025-08-20T17:35:00+0000",
+            "2025\u{00e9}-08-20T00:00:00Z",
+            "2025-08-2\u{00e9}T00:00:00Z",
+        ] {
+            assert_eq!(
+                exporter.set_timestamp(relaxed),
+                Err(MetadataTimestampError::InvalidRfc3339),
+                "relaxed ISO 8601 form must not pass: {relaxed}"
+            );
+        }
         assert_eq!(
             exporter.set_timestamp("2020-01-01T00:00:00-05:00"),
             Err(MetadataTimestampError::NotUtc)
         );
+        exporter
+            .set_timestamp("2020-01-01T00:00:00z")
+            .expect("lowercase z is UTC");
         exporter
             .set_timestamp("1970-01-01T00:00:00+00:00")
             .expect("explicit zero offset is UTC");
