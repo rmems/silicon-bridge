@@ -40,7 +40,7 @@ fn main() {
 #[cfg(feature = "uart")]
 const LIVE_RANGES: [(&str, f32, f32); 5] = [
     ("mem_util_pct", 0.0, 75.0),
-    ("power_w", 8.5270004, 302.845),
+    ("power_w", 8.527, 302.845),
     ("gpu_temp_c", 0.0, 69.0),
     ("sm_clock_mhz", 180.0, 2910.0),
     ("mem_clock_mhz", 405.0, 14801.0),
