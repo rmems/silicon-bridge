@@ -50,11 +50,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 - `live_telemetry_loop` example rotates one live stimulus lane per tick
-  (`tick % 5`): the flashed SoC decodes only the lowest nonzero lane per
+: the flashed SoC decodes only the lowest nonzero lane per
   `0xAA` frame, so the dense vector fired axon 0 forever and axons 1–4
   never spiked (#151). Adds `STIMULUS_GAIN` (default 2.5; non-finite values
-  fall back to the default), floors the active lane at one Q8.8 step, and
-  logs `gain` in the JSONL session log.
+  fall back to the default), floors the active lane at one Q8.8 step, logs
+  the Q8.8 values actually sent plus `gain` in the JSONL session log, and
+  advances the rotation only on sent samples so failed polls never skip a lane.
 
 ## [0.4.0] - 2026-11-13
 

@@ -31,7 +31,7 @@
 //!
 //! The flashed SoC decodes only the lowest nonzero stimulus lane of each
 //! `0xAA` frame as one input event and ignores its amplitude (silicon-hdl#112).
-//! The loop therefore rotates one live lane per tick (`tick % 5`) so every
+//! The loop therefore rotates one live lane per sent sample so every
 //! telemetry axon fires in turn. `STIMULUS_GAIN` scales the value carried on
 //! the active lane; it does not change on-chip membrane drive, it only
 //! affects the logged value and whether the lane survives Q8.8 encoding. The
@@ -111,18 +111,27 @@ fn parse_gain(raw: &str) -> Option<f32> {
         .map(|g| g.max(0.0))
 }
 
-/// Build one frame's stimulus vector: only lane `tick % LIVE_RANGES.len()`
-/// is nonzero, because the SoC decodes just the lowest nonzero lane per frame.
-/// The active lane carries the gain-scaled normalized value, floored at one
-/// Q8.8 step so it always registers as an event (unless `gain` is 0).
+/// Build one frame's stimulus vector for the `seq`-th sent sample: only lane
+/// `seq % LIVE_RANGES.len()` is nonzero, because the SoC decodes just the
+/// lowest nonzero lane per frame. The active lane carries the gain-scaled
+/// normalized value, floored at one Q8.8 step so it always encodes as an
+/// event (a gain of 0 disables stimulation).
 #[cfg(feature = "uart")]
-fn live_stimuli(tick: u64, norm: &[f32; 5], gain: f32, channels: usize) -> Vec<f32> {
+fn live_stimuli(seq: u64, norm: &[f32; 5], gain: f32, channels: usize) -> Vec<f32> {
     let mut stimuli = vec![0.0_f32; channels];
-    let lane = (tick % LIVE_RANGES.len() as u64) as usize;
-    if let Some(slot) = stimuli.get_mut(lane) {
-        *slot = norm[lane].max(Q88_STEP) * gain;
+    let lane = (seq % LIVE_RANGES.len() as u64) as usize;
+    if let Some(slot) = stimuli.get_mut(lane)
+        && gain > 0.0
+    {
+        *slot = (norm[lane] * gain).max(Q88_STEP);
     }
     stimuli
+}
+
+/// Value the FPGA actually receives for `v` after signed Q8.8 encoding.
+#[cfg(feature = "uart")]
+fn as_sent(v: f32) -> f32 {
+    silicon_bridge::q88_signed_to_f32(silicon_bridge::encode_q88_signed(v))
 }
 
 /// Poll the live GPU fields via `nvidia-smi` for `GPU_INDEX` (default 0).
@@ -219,6 +228,7 @@ fn run() -> i32 {
     let mut tick: u64 = 0;
     let mut errors: u64 = 0;
     let mut poll_errors: u64 = 0;
+    let mut sent: u64 = 0;
     loop {
         let start = Instant::now();
         tick += 1;
@@ -240,7 +250,9 @@ fn run() -> i32 {
         };
         poll_errors = 0;
         let norm = normalize(fields);
-        let stimuli = live_stimuli(tick, &norm, stimulus_gain, layout.input_channels());
+        // Rotate on sent samples, not ticks, so failed polls never skip a lane.
+        let stimuli = live_stimuli(sent, &norm, stimulus_gain, layout.input_channels());
+        sent += 1;
 
         match bridge.exchange(&layout, &stimuli) {
             Ok(resp) => {
@@ -259,8 +271,12 @@ fn run() -> i32 {
                     .reduce(f32::max)
                     .unwrap_or(0.0);
                 let line = format!(
-                    "{{\"tick\":{tick},\"stim\":[{:.4},{:.4},{:.4},{:.4},{:.4}],\"gain\":{stimulus_gain:.2},\"spikes\":{n_spikes},\"pot_min\":{pot_min:.4},\"pot_max\":{pot_max:.4}}}",
-                    stimuli[0], stimuli[1], stimuli[2], stimuli[3], stimuli[4],
+                    "{{\"tick\":{tick},\"stim\":[{:.4},{:.4},{:.4},{:.4},{:.4}],\"gain\":{stimulus_gain},\"spikes\":{n_spikes},\"pot_min\":{pot_min:.4},\"pot_max\":{pot_max:.4}}}",
+                    as_sent(stimuli[0]),
+                    as_sent(stimuli[1]),
+                    as_sent(stimuli[2]),
+                    as_sent(stimuli[3]),
+                    as_sent(stimuli[4]),
                 );
                 if let Err(e) = writeln!(log, "{line}") {
                     eprintln!("==> log write failed at tick {tick}: {e}");
@@ -338,11 +354,11 @@ mod tests {
     fn live_stimuli_rotates_one_lane_per_tick() {
         let norm = [0.1, 0.2, 0.3, 0.4, 0.5];
         let mut hits = [0_u32; 5];
-        for tick in 1..=10_u64 {
-            let s = live_stimuli(tick, &norm, 2.0, 16);
+        for seq in 0..10_u64 {
+            let s = live_stimuli(seq, &norm, 2.0, 16);
             assert_eq!(s.len(), 16);
             let active: Vec<usize> = (0..16).filter(|&i| s[i] != 0.0).collect();
-            assert_eq!(active, vec![(tick % 5) as usize]);
+            assert_eq!(active, vec![(seq % 5) as usize]);
             let lane = active[0];
             assert!((s[lane] - norm[lane] * 2.0).abs() < 1e-6);
             hits[lane] += 1;
@@ -355,6 +371,9 @@ mod tests {
         let s = live_stimuli(0, &[0.0; 5], 1.0, 16);
         assert_eq!(s[0], Q88_STEP);
         assert!(s[1..].iter().all(|v| *v == 0.0));
+        let s = live_stimuli(1, &[0.001; 5], 0.5, 16);
+        assert_eq!(s[1], Q88_STEP);
+        assert_eq!(as_sent(s[1]), Q88_STEP);
         assert!(
             live_stimuli(0, &[0.0; 5], 0.0, 16)
                 .iter()
@@ -365,6 +384,13 @@ mod tests {
     #[test]
     fn live_stimuli_ignores_lanes_beyond_layout() {
         assert_eq!(live_stimuli(4, &[1.0; 5], 1.0, 3), vec![0.0; 3]);
+    }
+
+    #[test]
+    fn as_sent_matches_q88_truncation_and_saturation() {
+        assert_eq!(as_sent(0.0025), 0.0);
+        assert_eq!(as_sent(1.0), 1.0);
+        assert!(as_sent(1000.0) < 128.0);
     }
 
     #[test]
