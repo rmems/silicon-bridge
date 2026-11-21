@@ -82,6 +82,7 @@ jobs:
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # stable
         with:
           toolchain: 1.98.1
+          components: clippy
 
       - name: Verify toolchain
         run: rustc --version | grep -F '1.98.1'
@@ -102,6 +103,20 @@ jobs:
 
       - name: Test (nir feature)
         run: cargo test --features nir
+
+      - name: Clippy (nir feature)
+        run: cargo clippy --all-targets --features nir -- -D warnings
+
+      # #79: HDF5 must only ever arrive through `nir-rs/hdf5` (`nir-io`), never
+      # as a direct or transitive dependency of the `nir` feature alone.
+      - name: No HDF5 under `nir` feature
+        run: |
+          tree="$(cargo tree --features nir -e normal,build)" || exit 1
+          if printf '%s\n' "$tree" | grep -qi '^hdf5\| hdf5'; then
+            echo "hdf5 must not appear in the --features nir dependency tree" >&2
+            printf '%s\n' "$tree" | grep -i hdf5 >&2
+            exit 1
+          fi
 
   # Formatting is OS-independent, so it runs once on Linux to save runner minutes.
   fmt:
