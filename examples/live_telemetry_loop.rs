@@ -271,7 +271,7 @@ fn run() -> i32 {
                     .reduce(f32::max)
                     .unwrap_or(0.0);
                 let line = format!(
-                    "{{\"tick\":{tick},\"stim\":[{:.4},{:.4},{:.4},{:.4},{:.4}],\"gain\":{stimulus_gain},\"spikes\":{n_spikes},\"pot_min\":{pot_min:.4},\"pot_max\":{pot_max:.4}}}",
+                    "{{\"tick\":{tick},\"stim\":[{},{},{},{},{}],\"gain\":{stimulus_gain},\"spikes\":{n_spikes},\"pot_min\":{pot_min:.4},\"pot_max\":{pot_max:.4}}}",
                     as_sent(stimuli[0]),
                     as_sent(stimuli[1]),
                     as_sent(stimuli[2]),
