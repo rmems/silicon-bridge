@@ -34,9 +34,8 @@
 //! The loop therefore rotates one live lane per sent sample so every
 //! telemetry axon fires in turn. `STIMULUS_GAIN` scales the value carried on
 //! the active lane; it does not change on-chip membrane drive, it only
-//! affects the logged value and whether the lane survives Q8.8 encoding. The
-//! active lane is floored at one Q8.8 step so a telemetry field at its range
-//! floor still produces an event.
+//! affects the logged value. The active lane is floored at one Q8.8 step, so
+//! any positive gain still produces an event.
 
 #[cfg(not(feature = "uart"))]
 fn main() {
@@ -250,12 +249,13 @@ fn run() -> i32 {
         };
         poll_errors = 0;
         let norm = normalize(fields);
-        // Rotate on sent samples, not ticks, so failed polls never skip a lane.
+        // Rotate on delivered samples, not ticks, so failed polls or exchanges
+        // never skip a lane.
         let stimuli = live_stimuli(sent, &norm, stimulus_gain, layout.input_channels());
-        sent += 1;
 
         match bridge.exchange(&layout, &stimuli) {
             Ok(resp) => {
+                sent += 1;
                 errors = 0;
                 let n_spikes = resp.spikes.iter().filter(|b| **b).count();
                 let pot_min = resp
@@ -272,11 +272,11 @@ fn run() -> i32 {
                     .unwrap_or(0.0);
                 let line = format!(
                     "{{\"tick\":{tick},\"stim\":[{},{},{},{},{}],\"gain\":{stimulus_gain},\"spikes\":{n_spikes},\"pot_min\":{pot_min:.4},\"pot_max\":{pot_max:.4}}}",
-                    as_sent(stimuli[0]),
-                    as_sent(stimuli[1]),
-                    as_sent(stimuli[2]),
-                    as_sent(stimuli[3]),
-                    as_sent(stimuli[4]),
+                    as_sent(stimuli.get(0).copied().unwrap_or(0.0)),
+                    as_sent(stimuli.get(1).copied().unwrap_or(0.0)),
+                    as_sent(stimuli.get(2).copied().unwrap_or(0.0)),
+                    as_sent(stimuli.get(3).copied().unwrap_or(0.0)),
+                    as_sent(stimuli.get(4).copied().unwrap_or(0.0)),
                 );
                 if let Err(e) = writeln!(log, "{line}") {
                     eprintln!("==> log write failed at tick {tick}: {e}");
@@ -390,7 +390,7 @@ mod tests {
     fn as_sent_matches_q88_truncation_and_saturation() {
         assert_eq!(as_sent(0.0025), 0.0);
         assert_eq!(as_sent(1.0), 1.0);
-        assert!(as_sent(1000.0) < 128.0);
+        assert_eq!(as_sent(1000.0), 32765.0 / 256.0);
     }
 
     #[test]
