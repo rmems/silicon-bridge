@@ -15,7 +15,7 @@ casual `cargo run --example …`).
 | `dense_codec` | SiliconBridge v3 **example layout** and a host-only dense-8 frame (golden bytes, never opens a port) |
 | `spikenaut_profile_export` | Opt-in synthetic 16-neuron bundle + signed readout under the historical `Spikenaut-v2` layout tag |
 | `uart_host_smoke` | **Live UART** (`--features uart` only): one Basys 3 host-session exchange on an explicit port; see `scripts/smoke-hardware-uart.sh` |
-| `live_telemetry_loop` | **Live UART** (`--features uart` only): continuous GPU telemetry → stimuli loop with JSONL logging; requires `SILICON_BRIDGE_PORT` |
+| `live_telemetry_loop` | **Live UART** (`--features uart` only): continuous GPU telemetry → stimuli loop with JSONL logging; rotates one live lane per delivered sample (the SoC decodes only the lowest nonzero lane per frame); requires `SILICON_BRIDGE_PORT`, optional `STIMULUS_GAIN` |
 
 ```bash
 cargo run --example generic_mem_export
