@@ -75,9 +75,11 @@
 //! stale same-length buffer; there is no checksum.
 
 use crate::{
-    AerRouteError, AerRouteTable, CodecError, DenseQ88Layout, SILICON_BRIDGE_V3_RX_LEN,
-    StimulusResponse, decode_response, decode_response_v4, encode_request_v4, encode_route_table,
-    encode_route_write_word, encode_stimuli, encode_stimuli_legacy_v3, rx_frame_len_v4,
+    AerRouteError, AerRouteTable, CodecError, DenseQ88Layout, RamDump, RamReadTarget,
+    SILICON_BRIDGE_V3_RX_LEN, StimulusResponse, decode_ram_dump, decode_response,
+    decode_response_v4, encode_ram_read, encode_request_v4, encode_route_table,
+    encode_route_write_word, encode_stimuli, encode_stimuli_legacy_v3, ram_dump_frame_len,
+    rx_frame_len_v4,
 };
 use serialport::{ClearBuffer, SerialPort, SerialPortInfo, SerialPortType};
 use std::fmt;
@@ -938,6 +940,53 @@ impl FpgaBridge {
             self.write_frame(&frame)?;
         }
         Ok(())
+    }
+
+    /// Read `word_count` consecutive Q8.8 words from a runtime RAM bank: a
+    /// five-byte `0xA6` request `[0xA6, target, address, len_hi, len_lo]`,
+    /// answered by a dump frame of `5 + 2 * word_count` bytes — the echoed
+    /// request as a header, then the words big-endian (silicon-hdl #113).
+    ///
+    /// Contract facts (`SocProtocolFsm.sv`):
+    ///
+    /// - Readable targets are [`RamReadTarget::Weight`],
+    ///   [`RamReadTarget::Threshold`], and [`RamReadTarget::Leak`]. The AER
+    ///   route table has no config read port and cannot be selected.
+    /// - The read borrows each RAM's single port for one fabric cycle under
+    ///   the same gating as a `0xA5` write (LIF sweep, STDP writeback, and
+    ///   routing all idle). A dump that spans a 1 ms tick may stall
+    ///   mid-frame — `read_exact` still completes — but it is **not an
+    ///   atomic snapshot**: a bank the fabric keeps writing (STDP weights
+    ///   with SW14 high) can return words straddling a writeback. Quiesce
+    ///   learning or dump after the session for parity/re-flash fidelity.
+    /// - Dumps share the TX serializer with stimulus responses. A response
+    ///   already in flight when the request lands streams **first**, so the
+    ///   echoed header is the only synchronization marker: a mismatch means
+    ///   the byte stream is desynchronized, not a partial dump. Finish any
+    ///   in-flight [`Self::exchange`] before reading.
+    /// - `word_count == 0` is rejected before any write — the RTL consumes
+    ///   it silently and the ensuing `read_exact` would hit the port
+    ///   timeout instead.
+    ///
+    /// Validation happens before any write. I/O failures keep
+    /// [`ExchangeError::Write`] / [`ExchangeError::Read`] semantics and
+    /// latch [`Self::needs_recovery`]; the request is not resent. An echo
+    /// mismatch returns [`ExchangeError::Codec`] and latches recovery —
+    /// like a v4 integrity failure, the stream may be out of sync.
+    pub fn read_ram_words(
+        &mut self,
+        target: RamReadTarget,
+        start_address: u8,
+        word_count: u16,
+    ) -> Result<RamDump, ExchangeError> {
+        self.ensure_ready()?;
+        let tx = encode_ram_read(target, start_address, word_count)?;
+        self.write_frame(&tx)?;
+        let rx = self.read_frame(ram_dump_frame_len(word_count))?;
+        decode_ram_dump(target, start_address, word_count, &rx).map_err(|err| {
+            self.needs_recovery = true;
+            ExchangeError::from(err)
+        })
     }
 
     fn ensure_ready(&self) -> Result<(), ExchangeError> {
@@ -2006,5 +2055,83 @@ mod tests {
             Err(ExchangeError::NeedsRecovery)
         ));
         assert_eq!(writes.lock().expect("log").len(), 0);
+    }
+
+    fn scripted_ram_dump(target: RamReadTarget, address: u8, words: &[i16]) -> Vec<u8> {
+        let mut frame =
+            encode_ram_read(target, address, words.len() as u16).expect("scripted request").to_vec();
+        for word in words {
+            frame.extend_from_slice(&word.to_be_bytes());
+        }
+        frame
+    }
+
+    #[test]
+    fn ram_read_writes_five_bytes_and_decodes_the_echoed_dump() {
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let mut mock = MockPort::scripted(Arc::clone(&writes));
+        mock.read_chunks.push_back(Ok(scripted_ram_dump(
+            RamReadTarget::Weight,
+            0x10,
+            &[0xBEEF_u16 as i16, -256, 0x0080, 0x7FFF],
+        )));
+        let mut bridge = FpgaBridge::from_port(Box::new(mock));
+        let dump = bridge
+            .read_ram_words(RamReadTarget::Weight, 0x10, 4)
+            .expect("scripted dump");
+        assert_eq!(dump.target, RamReadTarget::Weight);
+        assert_eq!(dump.start_address, 0x10);
+        assert_eq!(dump.words, vec![0xBEEF_u16 as i16, -256, 0x0080, 0x7FFF]);
+        let log = writes.lock().expect("log");
+        assert_eq!(log.len(), 1);
+        assert_eq!(log[0], vec![0xA6, 0x00, 0x10, 0x00, 0x04]);
+        assert!(!bridge.needs_recovery());
+    }
+
+    #[test]
+    fn ram_read_rejects_zero_count_before_any_write() {
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let mut bridge = FpgaBridge::from_port(Box::new(MockPort::scripted(Arc::clone(&writes))));
+        assert!(matches!(
+            bridge.read_ram_words(RamReadTarget::Leak, 0x00, 0),
+            Err(ExchangeError::Codec(CodecError::ZeroReadLength))
+        ));
+        assert!(writes.lock().expect("log").is_empty());
+        assert!(!bridge.needs_recovery());
+    }
+
+    #[test]
+    fn ram_read_echo_mismatch_latches_recovery_without_resend() {
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let mut mock = MockPort::scripted(Arc::clone(&writes));
+        // Bytes that are not the echoed request: a stale 36-byte response
+        // streamed ahead of the dump reads exactly the same way on the wire.
+        mock.read_chunks
+            .push_back(Ok(vec![0x11; ram_dump_frame_len(2)]));
+        let mut bridge = FpgaBridge::from_port(Box::new(mock));
+        assert!(matches!(
+            bridge.read_ram_words(RamReadTarget::Threshold, 0x03, 2),
+            Err(ExchangeError::Codec(CodecError::ReadEchoMismatch { .. }))
+        ));
+        assert!(bridge.needs_recovery());
+        assert_eq!(writes.lock().expect("log").len(), 1);
+        assert!(matches!(
+            bridge.read_ram_words(RamReadTarget::Threshold, 0x03, 2),
+            Err(ExchangeError::NeedsRecovery)
+        ));
+    }
+
+    #[test]
+    fn ram_read_io_failure_latches_recovery() {
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let mut mock = MockPort::scripted(Arc::clone(&writes));
+        mock.read_chunks
+            .push_back(Err(io::Error::new(io::ErrorKind::TimedOut, "mock timeout")));
+        let mut bridge = FpgaBridge::from_port(Box::new(mock));
+        assert!(matches!(
+            bridge.read_ram_words(RamReadTarget::Weight, 0x00, 4),
+            Err(ExchangeError::Read { .. })
+        ));
+        assert!(bridge.needs_recovery());
     }
 }

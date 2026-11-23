@@ -281,6 +281,21 @@ pub enum CodecError {
         /// CRC carried by the reply.
         actual: u16,
     },
+    /// A `0xA6` read request asked for zero words. The RTL consumes a
+    /// zero-length request silently and emits no dump, so framing one would
+    /// deadlock a host blocked in `read_exact`.
+    ZeroReadLength,
+    /// A `0xA6` dump frame did not echo the request's five-byte header.
+    /// The echo is the only synchronization marker on this wire, so a
+    /// mismatch means the byte stream is desynchronized — a stale 36-byte
+    /// response streamed ahead of the dump, or the peer did not understand
+    /// the read command — not a partial dump.
+    ReadEchoMismatch {
+        /// The five request bytes the dump was expected to echo.
+        expected: [u8; RAM_READ_HEADER_LEN],
+        /// The five header bytes actually received.
+        actual: [u8; RAM_READ_HEADER_LEN],
+    },
 }
 
 impl fmt::Display for CodecError {
@@ -334,6 +349,16 @@ impl fmt::Display for CodecError {
             Self::ChecksumMismatch { expected, actual } => write!(
                 f,
                 "reply CRC-16 is 0x{actual:04X}, computed 0x{expected:04X}"
+            ),
+            Self::ZeroReadLength => write!(
+                f,
+                "RAM read of zero words is refused: the FPGA emits no dump for it"
+            ),
+            Self::ReadEchoMismatch { expected, actual } => write!(
+                f,
+                "RAM dump header is {:02X?}, expected echo of {:02X?} \
+                 (byte stream is desynchronized)",
+                actual, expected
             ),
         }
     }
@@ -512,6 +537,190 @@ pub fn encode_route_table(
             encode_route_write(address as u8, entry).expect("address is within the fixed table");
     }
     Ok(frames)
+}
+
+/// Read-command byte of the `0xA6` runtime RAM read (silicon-hdl #113).
+///
+/// The five-byte request is `[0xA6, target, address, len_hi, len_lo]`; a
+/// valid request streams back a **dump frame**: the same five bytes as an
+/// echoed header, then `len` big-endian signed Q8.8 words in ascending
+/// address order (the 8-bit address wraps at 256, the RAM depth). The echo
+/// is the only synchronization marker — dumps share the UART serializer
+/// with 36-byte stimulus responses, and a response already in flight when
+/// the request lands is streamed first, so a dump may legitimately start
+/// later than the request that caused it.
+pub const RAM_READ_COMMAND: u8 = 0xA6;
+
+/// Byte length of one `0xA6` read-request frame.
+pub const RAM_READ_REQ_LEN: usize = 5;
+
+/// Byte length of the echoed header that opens every `0xA6` dump frame.
+pub const RAM_READ_HEADER_LEN: usize = 5;
+
+/// Readable `0xA6` target, sharing the `0xA5` write-target numbering.
+///
+/// Target 3 (the AER route table) is intentionally absent: it has no
+/// config read port on the FPGA, so it can never be selected here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum RamReadTarget {
+    /// `WeightRam` — the learned 16×16 bank (target 0).
+    Weight = 0,
+    /// Threshold `NeuronParamRam` (target 1).
+    Threshold = 1,
+    /// Leak `NeuronParamRam` (target 2).
+    Leak = 2,
+}
+
+impl RamReadTarget {
+    /// `0xA5`/`0xA6` target byte for this bank.
+    pub const fn code(self) -> u8 {
+        self as u8
+    }
+
+    /// The bank a target byte selects, or `None` for 3 (AER route table,
+    /// write-only) and anything above.
+    pub const fn from_code(code: u8) -> Option<Self> {
+        match code {
+            0 => Some(Self::Weight),
+            1 => Some(Self::Threshold),
+            2 => Some(Self::Leak),
+            _ => None,
+        }
+    }
+
+    /// Lowercase bank name, matching `FpgaParameters` field naming and the
+    /// `.mem` bank files (`weights`/`thresholds`/`decay` use their own
+    /// names; this is the wire target's).
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Weight => "weight",
+            Self::Threshold => "threshold",
+            Self::Leak => "leak",
+        }
+    }
+}
+
+impl fmt::Display for RamReadTarget {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+/// One decoded `0xA6` dump frame: the bank, the first address, and the raw
+/// words in read order.
+///
+/// `words` carries the signed two's-complement Q8.8 patterns exactly as
+/// they left the RAM — the same interpretation `FpgaParameters` vectors
+/// and `.mem` images use, so the dump can feed parity comparisons and
+/// `.mem` re-emission without further decoding (silicon-hdl #113).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RamDump {
+    /// Bank the words were read from.
+    pub target: RamReadTarget,
+    /// First address the dump covered.
+    pub start_address: u8,
+    /// Raw Q8.8 words, `start_address` ascending (wrapping at 256).
+    pub words: Vec<i16>,
+}
+
+impl RamDump {
+    /// `$readmemh` lines for [`Self::words`]: uppercase `{:04X}`
+    /// two's-complement hex, one word per line — the format
+    /// `WeightRam`/`NeuronParamRam` `INIT_FILE` images and
+    /// [`crate::MemFileWriter`] output already use, so a dumped bank can be
+    /// diffed against or re-flashed as `.mem` verbatim.
+    pub fn mem_lines(&self) -> impl Iterator<Item = String> + '_ {
+        self.words
+            .iter()
+            .map(|word| format!("{:04X}", *word as u16))
+    }
+}
+
+/// Encode one `0xA6` read-request frame.
+///
+/// Bytes are `[0xA6, target, address, len_hi, len_lo]` (big-endian 16-bit
+/// word count).
+///
+/// # Errors
+///
+/// [`CodecError::ZeroReadLength`] when `word_count` is 0: the FPGA consumes
+/// such a request silently and no dump follows, so refusing here keeps a
+/// host out of a guaranteed `read_exact` timeout.
+pub fn encode_ram_read(
+    target: RamReadTarget,
+    address: u8,
+    word_count: u16,
+) -> Result<[u8; RAM_READ_REQ_LEN], CodecError> {
+    if word_count == 0 {
+        return Err(CodecError::ZeroReadLength);
+    }
+    Ok([
+        RAM_READ_COMMAND,
+        target.code(),
+        address,
+        (word_count >> 8) as u8,
+        word_count as u8,
+    ])
+}
+
+/// Total byte length of the dump frame a `word_count`-word request
+/// returns: the five echoed header bytes plus two bytes per word.
+pub const fn ram_dump_frame_len(word_count: u16) -> usize {
+    RAM_READ_HEADER_LEN + 2 * (word_count as usize)
+}
+
+/// Decode a complete `0xA6` dump frame (echoed header + payload words).
+///
+/// `frame` must be exactly [`ram_dump_frame_len`]`(word_count)` bytes and
+/// its header must equal the request's five bytes. Anything else means the
+/// byte stream is desynchronized — there is no payload-level checksum —
+/// so the error is [`CodecError::ReadEchoMismatch`], not a best-effort
+/// decode.
+///
+/// # Errors
+///
+/// [`CodecError::WrongFrameLength`] for a wrong byte count;
+/// [`CodecError::ReadEchoMismatch`] for a header that does not echo the
+/// request.
+pub fn decode_ram_dump(
+    target: RamReadTarget,
+    start_address: u8,
+    word_count: u16,
+    frame: &[u8],
+) -> Result<RamDump, CodecError> {
+    let expected_len = ram_dump_frame_len(word_count);
+    if frame.len() != expected_len {
+        return Err(CodecError::WrongFrameLength {
+            expected: expected_len,
+            actual: frame.len(),
+        });
+    }
+    let expected_header: [u8; RAM_READ_HEADER_LEN] = [
+        RAM_READ_COMMAND,
+        target.code(),
+        start_address,
+        (word_count >> 8) as u8,
+        word_count as u8,
+    ];
+    let actual_header: [u8; RAM_READ_HEADER_LEN] = frame[..RAM_READ_HEADER_LEN]
+        .try_into()
+        .expect("length checked");
+    if actual_header != expected_header {
+        return Err(CodecError::ReadEchoMismatch {
+            expected: expected_header,
+            actual: actual_header,
+        });
+    }
+    let mut words = Vec::with_capacity(usize::from(word_count));
+    for i in 0..usize::from(word_count) {
+        let b = RAM_READ_HEADER_LEN + i * 2;
+        words.push(i16::from_be_bytes([frame[b], frame[b + 1]]));
+    }
+    Ok(RamDump {
+        target,
+        start_address,
+        words,
+    })
 }
 
 /// Interpret `mask` as a big-endian integer; bit `i` is neuron `i`.
@@ -796,5 +1005,83 @@ mod tests {
         assert!(decoded.spikes[7]);
         assert!(!decoded.spikes[1]);
         assert_eq!(decoded.switches, Some(0x0001));
+    }
+
+    #[test]
+    fn ram_read_frame_is_five_bytes_big_endian() {
+        let frame = encode_ram_read(RamReadTarget::Weight, 0x10, 0x0100).unwrap();
+        assert_eq!(frame, [0xA6, 0x00, 0x10, 0x01, 0x00]);
+        let frame = encode_ram_read(RamReadTarget::Leak, 0xFE, 3).unwrap();
+        assert_eq!(frame, [0xA6, 0x02, 0xFE, 0x00, 0x03]);
+    }
+
+    #[test]
+    fn ram_read_rejects_zero_word_count() {
+        assert_eq!(
+            encode_ram_read(RamReadTarget::Weight, 0, 0),
+            Err(CodecError::ZeroReadLength)
+        );
+    }
+
+    #[test]
+    fn ram_read_target_codes_match_write_targets_and_explain_missing_three() {
+        assert_eq!(RamReadTarget::Weight.code(), 0);
+        assert_eq!(RamReadTarget::Threshold.code(), 1);
+        assert_eq!(RamReadTarget::Leak.code(), 2);
+        for code in 0u8..=2 {
+            assert_eq!(RamReadTarget::from_code(code).unwrap().code(), code);
+        }
+        // The AER route table (write target 3) has no read port on the FPGA.
+        assert_eq!(RamReadTarget::from_code(3), None);
+        assert_eq!(RamReadTarget::from_code(0xFF), None);
+    }
+
+    #[test]
+    fn ram_dump_frame_len_counts_header_plus_two_bytes_per_word() {
+        assert_eq!(ram_dump_frame_len(1), 7);
+        assert_eq!(ram_dump_frame_len(256), 517);
+    }
+
+    #[test]
+    fn ram_dump_round_trip_decodes_echo_and_words() {
+        let request = encode_ram_read(RamReadTarget::Threshold, 0x03, 3).unwrap();
+        let mut frame = request.to_vec();
+        for word in [0x0200i16, -256i16, 0x7FFFu16 as i16] {
+            frame.extend_from_slice(&word.to_be_bytes());
+        }
+        let dump = decode_ram_dump(RamReadTarget::Threshold, 0x03, 3, &frame).unwrap();
+        assert_eq!(dump.target, RamReadTarget::Threshold);
+        assert_eq!(dump.start_address, 0x03);
+        assert_eq!(dump.words, vec![0x0200, -256, 0x7FFF]);
+    }
+
+    #[test]
+    fn ram_dump_rejects_wrong_length_and_bad_echo() {
+        let request = encode_ram_read(RamReadTarget::Weight, 0x00, 2).unwrap();
+        let mut frame = request.to_vec();
+        frame.extend_from_slice(&[0xBE, 0xEF, 0xCA, 0xFE]);
+        assert!(matches!(
+            decode_ram_dump(RamReadTarget::Weight, 0x00, 2, &frame[..8]),
+            Err(CodecError::WrongFrameLength {
+                expected: 9,
+                actual: 8
+            })
+        ));
+        frame[1] = 0x01; // echoes the wrong target — the only sync check there is
+        assert!(matches!(
+            decode_ram_dump(RamReadTarget::Weight, 0x00, 2, &frame),
+            Err(CodecError::ReadEchoMismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn ram_dump_mem_lines_match_readmemh_format() {
+        let dump = RamDump {
+            target: RamReadTarget::Leak,
+            start_address: 0x04,
+            words: vec![0x0080, -256, 0x7FFF],
+        };
+        let lines: Vec<String> = dump.mem_lines().collect();
+        assert_eq!(lines, vec!["0080", "FF00", "7FFF"]);
     }
 }
