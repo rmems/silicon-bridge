@@ -39,6 +39,12 @@
 //! log round-trips the exact wire values when used as input again.
 //! `gain` is `null` when replaying legacy captures that predate the
 //! field.
+//!
+//! Any exchange failure aborts the run: the UART protocol has no
+//! sequence numbers, so a timed-out exchange leaves ambiguous FPGA
+//! state — the stimulus may have been applied and a late reply could be
+//! mis-paired with the next sample. The output log still records an
+//! `exchange_error` event for the failed tick before exiting.
 
 #[cfg(not(feature = "uart"))]
 fn main() {
@@ -346,8 +352,6 @@ fn run() -> i32 {
         return 1;
     }
     let mut tick: u64 = 0;
-    let mut errors: u64 = 0;
-    let mut total_errors: u64 = 0;
     let mut delivered: u64 = 0;
     for pass in 1..=loops {
         for sample in &samples {
@@ -359,7 +363,6 @@ fn run() -> i32 {
             match bridge.exchange(&layout, &stimuli) {
                 Ok(resp) => {
                     delivered += 1;
-                    errors = 0;
                     let n_spikes = resp.spikes.iter().filter(|b| **b).count();
                     let pot_min = resp
                         .potentials
@@ -391,9 +394,7 @@ fn run() -> i32 {
                     }
                 }
                 Err(e) => {
-                    errors += 1;
-                    total_errors += 1;
-                    eprintln!("==> exchange failed at tick {tick}: {e} (errors={errors})");
+                    eprintln!("==> exchange failed at tick {tick}: {e}");
                     if let Err(we) = writeln!(
                         log,
                         "{{\"tick\":{tick},\"pass\":{pass},\"event\":\"exchange_error\"}}"
@@ -407,10 +408,17 @@ fn run() -> i32 {
                         eprintln!("==> recover failed: {re}");
                         return 1;
                     }
-                    if errors > 50 {
-                        eprintln!("==> too many consecutive exchange errors, giving up");
-                        return 1;
-                    }
+                    // The UART protocol has no sequence numbers, so a
+                    // failed exchange is ambiguous: the FPGA may have
+                    // applied the stimulus, and a late reply would be
+                    // consumed as the next sample's response. Continuing
+                    // would silently mis-pair responses and diverge the
+                    // on-chip training state — abort instead.
+                    eprintln!(
+                        "==> aborting replay at tick {tick}: exchange state is \
+                         ambiguous; restart to resynchronize"
+                    );
+                    return 1;
                 }
             }
             if let Err(e) = log.flush() {
@@ -424,10 +432,7 @@ fn run() -> i32 {
             }
         }
     }
-    eprintln!(
-        "==> replay complete: {delivered} delivered, {total_errors} failed, \
-         {tick} ticks over {loops} pass(es)"
-    );
+    eprintln!("==> replay complete: {delivered} delivered, {tick} ticks over {loops} pass(es)");
     if delivered == 0 {
         eprintln!("==> no successful FPGA exchanges");
         return 1;
