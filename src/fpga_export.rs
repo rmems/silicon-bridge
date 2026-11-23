@@ -2224,29 +2224,39 @@ fn push_mem_word(image: &mut String, value: u16) {
     writeln!(image, "{value:04X}").expect("writing to a String cannot fail");
 }
 
-/// Sibling temp path for an atomic `.mem` publish, next to the
-/// destination so the publish rename stays on one filesystem. The name
-/// is dot-prefixed and pid-suffixed — `.{name}.tmp-{pid}` — so it cannot
-/// collide with a configured artifact name such as `bank.mem.tmp`, does
-/// not block on a stale temp left by a crashed run of another process,
-/// and works for non-UTF-8 filenames.
-fn mem_tmp_path(path: &Path) -> Result<PathBuf, ExportError> {
+/// Sibling staging path `.{name}{tag}-{pid}` next to `path`, so a
+/// publish rename stays on one filesystem. The name is dot-prefixed and
+/// pid-suffixed — e.g. `.bank.mem.tmp-1234` — so it cannot collide with
+/// a configured artifact name such as `bank.mem.tmp`, does not block on
+/// a stale staging file left by a crashed run of another process, and
+/// works for non-UTF-8 filenames. The displayed portion is truncated on
+/// a char boundary when needed to stay under the common 255-byte
+/// filename limit.
+fn sibling_stage_path(path: &Path, tag: &str) -> Result<PathBuf, ExportError> {
     let file_name = path.file_name().ok_or_else(|| ExportError::Io {
         path: path.to_path_buf(),
         source: io::Error::new(ErrorKind::InvalidInput, "path has no file name"),
     })?;
-    let mut tmp_name = OsString::from(".");
-    tmp_name.push(file_name);
-    tmp_name.push(format!(".tmp-{}", std::process::id()));
-    Ok(path.with_file_name(tmp_name))
+    let suffix = format!("{tag}-{}", std::process::id());
+    let budget = 255usize.saturating_sub(suffix.len() + 1);
+    let name = file_name.to_string_lossy();
+    let mut end = name.len().min(budget);
+    while !name.is_char_boundary(end) {
+        end -= 1;
+    }
+    let mut stage_name = OsString::from(".");
+    stage_name.push(&name[..end]);
+    stage_name.push(&suffix);
+    Ok(path.with_file_name(stage_name))
 }
 
-/// Rename `tmp` over `path`, retrying once with remove+rename only when
-/// `rename` reports `AlreadyExists` — the signal that the platform
-/// refused to overwrite an existing destination. Any other error
-/// (`PermissionDenied` can mean a locked file or an unwritable
-/// directory) returns without touching the destination, so a failed
-/// publish can never delete the previous image.
+/// Publish `tmp` over `path` when `rename` refuses to overwrite an
+/// existing destination. Only `AlreadyExists` triggers the fallback —
+/// `PermissionDenied` can mean a locked file or an unwritable directory,
+/// where touching the destination would lose it. The fallback moves the
+/// old image to a sibling backup name, installs `tmp`, and restores the
+/// backup if the install fails, so the previous image is never deleted:
+/// the worst outcome is a crash window where the backup holds it.
 fn publish_replace(tmp: &Path, path: &Path) -> Result<(), ExportError> {
     match fs::rename(tmp, path) {
         Ok(()) => Ok(()),
@@ -2259,12 +2269,25 @@ fn publish_replace(tmp: &Path, path: &Path) -> Result<(), ExportError> {
                     source,
                 });
             }
-            fs::remove_file(path)
-                .and_then(|()| fs::rename(tmp, path))
-                .map_err(|source| ExportError::Io {
-                    path: path.to_path_buf(),
-                    source,
-                })
+            let backup = sibling_stage_path(path, ".bak")?;
+            fs::rename(path, &backup).map_err(|source| ExportError::Io {
+                path: path.to_path_buf(),
+                source,
+            })?;
+            match fs::rename(tmp, path) {
+                Ok(()) => {
+                    let _ = fs::remove_file(&backup);
+                    Ok(())
+                }
+                Err(source) => {
+                    // Restore the previous image before reporting.
+                    let _ = fs::rename(&backup, path);
+                    Err(ExportError::Io {
+                        path: path.to_path_buf(),
+                        source,
+                    })
+                }
+            }
         }
     }
 }
@@ -2272,16 +2295,29 @@ fn publish_replace(tmp: &Path, path: &Path) -> Result<(), ExportError> {
 /// Publish `tmp` at `path` without replacing an existing destination.
 /// A hard link is atomic and fails with `AlreadyExists` when `path`
 /// exists — including a dangling symlink. Filesystems without hard-link
-/// support (FAT, exFAT, some network shares) fall back to `create_new`
-/// plus a direct write of `image`, keeping the refuse-to-replace
-/// guarantee at the cost of atomicity — the same trade-off
-/// `promote_exclusive` makes for bundle promotion.
+/// support (FAT, exFAT, some network shares) surface `Unsupported` or
+/// `PermissionDenied` and fall back to `create_new` plus a direct write
+/// of `image`, keeping the refuse-to-replace guarantee at the cost of
+/// atomicity — the same trade-off `promote_exclusive` makes for bundle
+/// promotion. Any other hard-link error is returned rather than
+/// silently degrading atomicity.
 fn publish_exclusive(tmp: &Path, path: &Path, image: &str) -> Result<(), ExportError> {
     match fs::hard_link(tmp, path) {
         Ok(()) => Ok(()),
         Err(source) if source.kind() == ErrorKind::AlreadyExists => {
             Err(ExportError::OverwriteRefused {
                 path: path.to_path_buf(),
+            })
+        }
+        Err(source)
+            if !matches!(
+                source.kind(),
+                ErrorKind::Unsupported | ErrorKind::PermissionDenied
+            ) =>
+        {
+            Err(ExportError::Io {
+                path: path.to_path_buf(),
+                source,
             })
         }
         Err(_) => {
@@ -2324,9 +2360,13 @@ fn publish_exclusive(tmp: &Path, path: &Path, image: &str) -> Result<(), ExportE
 /// Windows; skipped there.
 #[cfg(unix)]
 fn sync_parent_dir(path: &Path) {
-    if let Some(dir) = path.parent()
-        && let Ok(dir) = fs::File::open(dir)
-    {
+    // `Path::parent` of a bare filename is `""`, which cannot be opened —
+    // map it to `.` so the directory entry is still synced.
+    let dir = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    if let Ok(dir) = fs::File::open(dir) {
         let _ = dir.sync_all();
     }
 }
@@ -2348,8 +2388,9 @@ fn sync_parent_dir(_path: &Path) {}
 /// failed `create_new` returns without touching a name another writer
 /// may own, and a successful `Replace` rename consumes the temp so its
 /// path is never unlinked (it may already name someone else's file).
-/// A crashed publish can leave `.{name}.tmp-{pid}` behind; it is never
-/// consumed as a `.mem` image, so delete it manually.
+/// A crashed publish can leave `.{name}.tmp-{pid}` or
+/// `.{name}.bak-{pid}` behind; neither is consumed as a `.mem` image,
+/// so delete them manually.
 ///
 /// # Errors
 ///
@@ -2359,7 +2400,7 @@ fn publish_mem_image(
     overwrite: OverwritePolicy,
     image: String,
 ) -> Result<(), ExportError> {
-    let tmp = mem_tmp_path(path)?;
+    let tmp = sibling_stage_path(path, ".tmp")?;
     // `create_new` fails if the name is taken — return immediately
     // without removing it: the file belongs to another writer or a
     // previous crashed run, not to this call.
@@ -2392,9 +2433,9 @@ fn publish_mem_image(
         sync_parent_dir(path);
     }
     // `tmp` is ours whenever it still exists: a hard-link publish leaves
-    // it behind, and a failed publish leaves it for inspection. A
-    // successful Replace rename already consumed it — the path may now
-    // name another writer's file, so do not unlink it.
+    // it behind, and a failed publish removes it along with the staging
+    // data. A successful Replace rename already consumed it — the path
+    // may now name another writer's file, so do not unlink it.
     if publish.is_err() || matches!(overwrite, OverwritePolicy::Prohibit) {
         let _ = fs::remove_file(&tmp);
     }
