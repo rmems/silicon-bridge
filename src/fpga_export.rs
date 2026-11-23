@@ -65,6 +65,7 @@
 //! silicon-hdl `OutputLayer`. See [`ExportConfig`].
 
 use serde::{Deserialize, Deserializer, Serialize};
+use std::ffi::OsString;
 use std::fmt;
 use std::fs;
 use std::io::{self, ErrorKind, Write};
@@ -1789,7 +1790,7 @@ impl FpgaParameterExporter {
     ) -> Result<(), ExportError> {
         let mut image = String::with_capacity(values.len() * 5);
         for value in values {
-            image.push_str(&format!("{value:04X}\n"));
+            push_mem_word(&mut image, *value);
         }
         publish_mem_image(path.as_ref(), overwrite, image)
     }
@@ -2212,37 +2213,46 @@ pub fn write_mem_words(
     for value in values {
         // `as u16` pins the field to the two's-complement 16-bit pattern
         // `$readmemh` expects; see MemFileWriter's own write_mem_file.
-        image.push_str(&format!("{:04X}\n", *value as u16));
+        push_mem_word(&mut image, *value as u16);
     }
     publish_mem_image(path, overwrite, image)
 }
 
-/// Sibling temp path for an atomic `.mem` publish: `<name>.tmp` next to
-/// the destination so the publish rename stays on one filesystem.
-fn mem_tmp_path(path: &Path) -> Result<PathBuf, ExportError> {
-    let file_name = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .ok_or_else(|| ExportError::Io {
-            path: path.to_path_buf(),
-            source: io::Error::new(ErrorKind::InvalidInput, "path has no usable file name"),
-        })?;
-    Ok(path.with_file_name(format!("{file_name}.tmp")))
+/// Append one `$readmemh` word (`{:04X}` plus newline) to `image`.
+fn push_mem_word(image: &mut String, value: u16) {
+    use std::fmt::Write as _;
+    writeln!(image, "{value:04X}").expect("writing to a String cannot fail");
 }
 
-/// Rename `tmp` over `path`, retrying once with remove+rename when the
-/// platform's `rename` refuses to overwrite an existing file (Windows).
-/// The retry only fires on an overwrite-looking failure while the
-/// destination is still present — it never deletes a path the first
-/// rename may have already replaced.
+/// Sibling temp path for an atomic `.mem` publish, next to the
+/// destination so the publish rename stays on one filesystem. The name
+/// is dot-prefixed and pid-suffixed — `.{name}.tmp-{pid}` — so it cannot
+/// collide with a configured artifact name such as `bank.mem.tmp`, does
+/// not block on a stale temp left by a crashed run of another process,
+/// and works for non-UTF-8 filenames.
+fn mem_tmp_path(path: &Path) -> Result<PathBuf, ExportError> {
+    let file_name = path.file_name().ok_or_else(|| ExportError::Io {
+        path: path.to_path_buf(),
+        source: io::Error::new(ErrorKind::InvalidInput, "path has no file name"),
+    })?;
+    let mut tmp_name = OsString::from(".");
+    tmp_name.push(file_name);
+    tmp_name.push(format!(".tmp-{}", std::process::id()));
+    Ok(path.with_file_name(tmp_name))
+}
+
+/// Rename `tmp` over `path`, retrying once with remove+rename only when
+/// `rename` reports `AlreadyExists` — the signal that the platform
+/// refused to overwrite an existing destination. Any other error
+/// (`PermissionDenied` can mean a locked file or an unwritable
+/// directory) returns without touching the destination, so a failed
+/// publish can never delete the previous image.
 fn publish_replace(tmp: &Path, path: &Path) -> Result<(), ExportError> {
     match fs::rename(tmp, path) {
         Ok(()) => Ok(()),
         Err(source) => {
-            let overwrite_refused = matches!(
-                source.kind(),
-                ErrorKind::AlreadyExists | ErrorKind::PermissionDenied
-            ) && path.try_exists().unwrap_or(false);
+            let overwrite_refused =
+                source.kind() == ErrorKind::AlreadyExists && path.try_exists().unwrap_or(false);
             if !overwrite_refused {
                 return Err(ExportError::Io {
                     path: path.to_path_buf(),
@@ -2259,18 +2269,87 @@ fn publish_replace(tmp: &Path, path: &Path) -> Result<(), ExportError> {
     }
 }
 
+/// Publish `tmp` at `path` without replacing an existing destination.
+/// A hard link is atomic and fails with `AlreadyExists` when `path`
+/// exists — including a dangling symlink. Filesystems without hard-link
+/// support (FAT, exFAT, some network shares) fall back to `create_new`
+/// plus a direct write of `image`, keeping the refuse-to-replace
+/// guarantee at the cost of atomicity — the same trade-off
+/// `promote_exclusive` makes for bundle promotion.
+fn publish_exclusive(tmp: &Path, path: &Path, image: &str) -> Result<(), ExportError> {
+    match fs::hard_link(tmp, path) {
+        Ok(()) => Ok(()),
+        Err(source) if source.kind() == ErrorKind::AlreadyExists => {
+            Err(ExportError::OverwriteRefused {
+                path: path.to_path_buf(),
+            })
+        }
+        Err(_) => {
+            let mut dest = match fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(path)
+            {
+                Ok(file) => file,
+                Err(source) if source.kind() == ErrorKind::AlreadyExists => {
+                    return Err(ExportError::OverwriteRefused {
+                        path: path.to_path_buf(),
+                    });
+                }
+                Err(source) => {
+                    return Err(ExportError::Io {
+                        path: path.to_path_buf(),
+                        source,
+                    });
+                }
+            };
+            let written = dest
+                .write_all(image.as_bytes())
+                .and_then(|()| dest.sync_all());
+            if written.is_err() {
+                // `dest` is a file this call just created — removing the
+                // partial image is safe.
+                let _ = fs::remove_file(path);
+            }
+            written.map_err(|source| ExportError::Io {
+                path: path.to_path_buf(),
+                source,
+            })
+        }
+    }
+}
+
+/// Best-effort fsync of `path`'s parent directory so the publish
+/// rename itself survives a crash. Directory fsync is not supported on
+/// Windows; skipped there.
+#[cfg(unix)]
+fn sync_parent_dir(path: &Path) {
+    if let Some(dir) = path.parent() {
+        if let Ok(dir) = fs::File::open(dir) {
+            let _ = dir.sync_all();
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn sync_parent_dir(_path: &Path) {}
+
 /// Publish a fully rendered `.mem` image at `path` through a sibling
 /// temp file, so an interrupted or concurrent write cannot leave a
 /// truncated bank image at the destination: the temp file holds the
 /// partial bytes and the destination only changes at the final publish
-/// step.
+/// step. The temp file is fsynced before publishing and the parent
+/// directory after, so the published image survives a power loss.
 ///
 /// [`OverwritePolicy::Prohibit`] keeps its refuse-to-replace guarantee —
-/// the hard-link publish fails if `path` already exists — while
-/// [`OverwritePolicy::Replace`] renames over the destination. A crashed
-/// publish can leave `<name>.tmp` behind; it is never consumed as a
-/// `.mem` image, so delete it manually. Two writers racing the same
-/// destination fail on the temp `create_new` instead of interleaving.
+/// the publish fails if `path` already exists — while
+/// [`OverwritePolicy::Replace`] renames over the destination. The temp
+/// is only removed when this call created it and it is still ours: a
+/// failed `create_new` returns without touching a name another writer
+/// may own, and a successful `Replace` rename consumes the temp so its
+/// path is never unlinked (it may already name someone else's file).
+/// A crashed publish can leave `.{name}.tmp-{pid}` behind; it is never
+/// consumed as a `.mem` image, so delete it manually.
 ///
 /// # Errors
 ///
@@ -2281,40 +2360,44 @@ fn publish_mem_image(
     image: String,
 ) -> Result<(), ExportError> {
     let tmp = mem_tmp_path(path)?;
-    let staged = (|| -> Result<(), ExportError> {
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&tmp)
-            .map_err(|source| ExportError::Io {
-                path: tmp.clone(),
-                source,
-            })?;
-        file.write_all(image.as_bytes())
-            .map_err(|source| ExportError::Io {
-                path: tmp.clone(),
-                source,
-            })
-    })();
-    if let Err(e) = staged {
+    // `create_new` fails if the name is taken — return immediately
+    // without removing it: the file belongs to another writer or a
+    // previous crashed run, not to this call.
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&tmp)
+        .map_err(|source| ExportError::Io {
+            path: tmp.clone(),
+            source,
+        })?;
+    if let Err(source) = file
+        .write_all(image.as_bytes())
+        .and_then(|()| file.sync_all())
+    {
+        drop(file);
+        // The temp is ours — a partial staging file is safe to remove.
         let _ = fs::remove_file(&tmp);
-        return Err(e);
+        return Err(ExportError::Io {
+            path: tmp.clone(),
+            source,
+        });
     }
+    drop(file);
     let publish = match overwrite {
-        OverwritePolicy::Prohibit => {
-            fs::hard_link(&tmp, path).map_err(|source| match source.kind() {
-                ErrorKind::AlreadyExists => ExportError::OverwriteRefused {
-                    path: path.to_path_buf(),
-                },
-                _ => ExportError::Io {
-                    path: path.to_path_buf(),
-                    source,
-                },
-            })
-        }
+        OverwritePolicy::Prohibit => publish_exclusive(&tmp, path, &image),
         OverwritePolicy::Replace => publish_replace(&tmp, path),
     };
-    let _ = fs::remove_file(&tmp);
+    if publish.is_ok() {
+        sync_parent_dir(path);
+    }
+    // `tmp` is ours whenever it still exists: a hard-link publish leaves
+    // it behind, and a failed publish leaves it for inspection. A
+    // successful Replace rename already consumed it — the path may now
+    // name another writer's file, so do not unlink it.
+    if publish.is_err() || matches!(overwrite, OverwritePolicy::Prohibit) {
+        let _ = fs::remove_file(&tmp);
+    }
     publish
 }
 
@@ -2333,6 +2416,11 @@ pub fn q88_to_f32(q88_value: u16) -> f32 {
 mod tests {
     use super::*;
 
+    /// The per-process staging name `publish_mem_image` derives for `name`.
+    fn staged_tmp(dir: &Path, name: &str) -> PathBuf {
+        dir.join(format!(".{name}.tmp-{}", std::process::id()))
+    }
+
     #[test]
     fn write_mem_words_replace_publishes_without_temp_leftover() {
         let dir = tempfile::tempdir().unwrap();
@@ -2340,7 +2428,7 @@ mod tests {
         write_mem_words(&path, &[0x0001, 0x0002], OverwritePolicy::Replace).unwrap();
         write_mem_words(&path, &[0x0003], OverwritePolicy::Replace).unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "0003\n");
-        assert!(!dir.path().join("bank.mem.tmp").exists());
+        assert!(!staged_tmp(dir.path(), "bank.mem").exists());
     }
 
     #[test]
@@ -2351,20 +2439,49 @@ mod tests {
         let err = write_mem_words(&path, &[0x0002], OverwritePolicy::Prohibit).unwrap_err();
         assert!(matches!(err, ExportError::OverwriteRefused { .. }));
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "0001\n");
-        assert!(!dir.path().join("bank.mem.tmp").exists());
+        assert!(!staged_tmp(dir.path(), "bank.mem").exists());
     }
 
     #[test]
-    fn write_mem_words_failed_stage_leaves_no_temp() {
+    fn write_mem_words_failed_stage_preserves_foreign_temp() {
         let dir = tempfile::tempdir().unwrap();
-        // a stale temp blocks the stage write; the error must not clobber
-        // the existing destination either
+        // A file already sitting at this process's staging name belongs
+        // to someone else — a failed `create_new` must not delete it.
         let path = dir.path().join("bank.mem");
         write_mem_words(&path, &[0x0001], OverwritePolicy::Replace).unwrap();
-        std::fs::write(dir.path().join("bank.mem.tmp"), "stale").unwrap();
+        let tmp = staged_tmp(dir.path(), "bank.mem");
+        std::fs::write(&tmp, "stale").unwrap();
         let err = write_mem_words(&path, &[0x0002], OverwritePolicy::Replace).unwrap_err();
         assert!(matches!(err, ExportError::Io { .. }));
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "0001\n");
+        assert_eq!(std::fs::read_to_string(&tmp).unwrap(), "stale");
+    }
+
+    #[test]
+    fn write_mem_words_temp_name_cannot_collide_with_artifact_names() {
+        let dir = tempfile::tempdir().unwrap();
+        // `bank.mem.tmp` is a valid configured artifact name; the staging
+        // name must not collide with it (or with `bank.mem` itself).
+        write_mem_words(
+            dir.path().join("bank.mem.tmp"),
+            &[0x1234],
+            OverwritePolicy::Replace,
+        )
+        .unwrap();
+        write_mem_words(
+            dir.path().join("bank.mem"),
+            &[0x0001],
+            OverwritePolicy::Replace,
+        )
+        .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("bank.mem.tmp")).unwrap(),
+            "1234\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("bank.mem")).unwrap(),
+            "0001\n"
+        );
     }
 
     #[test]
