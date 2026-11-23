@@ -55,13 +55,17 @@ fn main() {
 }
 
 /// One parsed input sample: the five recorded stimulus lanes plus the
-/// `gain` field the live loop writes. `gain` is absent in captures from
-/// before the field existed, which also logged `stim` rounded to four
-/// decimals — those replay approximately, not exactly.
+/// `gain` field the live loop writes. `legacy` marks records with no
+/// `gain` key at all — captures from before the field existed, which
+/// also logged `stim` rounded to four decimals and so replay
+/// approximately, not exactly. A `gain: null` record is *not* legacy:
+/// this example emits that form, and its `stim` is already the exact
+/// wire values.
 #[cfg(feature = "uart")]
 struct ReplaySample {
     stim: [f32; 5],
     gain: Option<f32>,
+    legacy: bool,
 }
 
 /// Find `key` (a JSON field name like `"stim":[`) only at a real key
@@ -113,6 +117,7 @@ fn parse_stim_line(line: &str) -> Option<ReplaySample> {
     Some(ReplaySample {
         stim,
         gain: parse_gain_field(line),
+        legacy: find_key(line, "\"gain\":").is_none(),
     })
 }
 
@@ -292,7 +297,7 @@ fn run() -> i32 {
         eprintln!("==> no stimulus samples found in {input_path}");
         return 1;
     }
-    let legacy = samples.iter().filter(|s| s.gain.is_none()).count();
+    let legacy = samples.iter().filter(|s| s.legacy).count();
     if legacy > 0 {
         eprintln!(
             "==> warning: {legacy}/{} samples carry no `gain` field (capture predates the \
@@ -481,6 +486,7 @@ mod tests {
         let s = parse_stim_line("{\"tick\":1,\"stim\":[0.7003,1.0,1.0,0.9476,1.0],\"spikes\":0}")
             .unwrap();
         assert_eq!(s.gain, None);
+        assert!(s.legacy);
         assert!((s.stim[0] - 0.7003).abs() < 1e-6);
     }
 
@@ -502,5 +508,8 @@ mod tests {
         assert!(line.contains("\"gain\":null"));
         let s = parse_stim_line(&line).unwrap();
         assert_eq!(s.gain, None);
+        // a replay output's `gain: null` is a known full-precision record,
+        // not a legacy capture, so re-replay must not warn about rounding
+        assert!(!s.legacy);
     }
 }
