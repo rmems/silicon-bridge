@@ -274,7 +274,11 @@ fn run() -> i32 {
                     .unwrap_or(0.0);
                 let line = format!(
                     "{{\"tick\":{tick},\"raw\":[{:.4},{:.4},{:.4},{:.4},{:.4}],\"stim\":[{},{},{},{},{}],\"gain\":{stimulus_gain},\"spikes\":{n_spikes},\"pot_min\":{pot_min:.4},\"pot_max\":{pot_max:.4}}}",
-                    fields[0], fields[1], fields[2], fields[3], fields[4],
+                    fields[0],
+                    fields[1],
+                    fields[2],
+                    fields[3],
+                    fields[4],
                     as_sent(stimuli.first().copied().unwrap_or(0.0)),
                     as_sent(stimuli.get(1).copied().unwrap_or(0.0)),
                     as_sent(stimuli.get(2).copied().unwrap_or(0.0)),
