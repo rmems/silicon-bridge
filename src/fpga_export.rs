@@ -1770,25 +1770,14 @@ impl FpgaParameterExporter {
     }
 
     /// Write one `$readmemh` image: the raw 16-bit two's-complement pattern of
-    /// each word, uppercase, one `{:04X}` per line.
+    /// each word, uppercase, one `{:04X}` per line — shared with the public
+    /// [`write_mem_words`] used by the runtime readback path (#113).
     fn write_mem_file(
         path: impl AsRef<Path>,
         values: &[i16],
         overwrite: OverwritePolicy,
     ) -> Result<(), ExportError> {
-        let path = path.as_ref();
-        let mut file = Self::create_output_file(path, overwrite)?;
-        for value in values {
-            // Rust formats a signed integer's hex as its two's-complement
-            // pattern (no `-` prefix), so `-256` already prints as `FF00`. The
-            // `as u16` cast is what pins the field to 16 bits regardless of the
-            // element type, which is the width `$readmemh` expects.
-            writeln!(file, "{:04X}", *value as u16).map_err(|source| ExportError::Io {
-                path: path.to_path_buf(),
-                source,
-            })?;
-        }
-        Ok(())
+        write_mem_words(path, values, overwrite)
     }
 
     /// Same `{:04X}`-per-line `$readmemh` format for already-unsigned words
@@ -2189,6 +2178,50 @@ pub fn q88_signed_to_f32(raw: i16) -> f32 {
 /// ```
 pub fn format_q88_hex(value: f32) -> String {
     format!("{:04X}", encode_q88_signed_full(value) as u16)
+}
+
+/// Write raw signed `i16` words as one `$readmemh` image: uppercase
+/// `{:04X}` two's-complement hex, one word per line — the same
+/// serialization [`MemFileWriter`] output and silicon-hdl `INIT_FILE`
+/// images use.
+///
+/// This is the emission half of the runtime-readback path (silicon-hdl
+/// #113): a [`crate::RamDump`] carries raw bank words that can be written
+/// here and later re-flashed. Verbatim bank reproduction needs a complete
+/// dump starting at address 0 — these lines always load from address 0,
+/// so a partial or nonzero-start dump written through this function lands
+/// at the wrong addresses; [`RamDump::mem_lines`](crate::RamDump::mem_lines)
+/// emits `@hh` address directives that preserve a partial dump's range.
+/// `overwrite` applies the same policy the exporters use (`Prohibit`
+/// refuses to truncate an existing file).
+///
+/// # Errors
+///
+/// [`ExportError::Io`] on filesystem failures, subject to `overwrite`.
+///
+/// ```rust
+/// # use silicon_bridge::{OverwritePolicy, write_mem_words};
+/// # let dir = tempfile::tempdir().unwrap();
+/// let path = dir.path().join("learned_weights.mem");
+/// write_mem_words(&path, &[0x0100, -256], OverwritePolicy::Prohibit).unwrap();
+/// assert_eq!(std::fs::read_to_string(&path).unwrap(), "0100\nFF00\n");
+/// ```
+pub fn write_mem_words(
+    path: impl AsRef<Path>,
+    values: &[i16],
+    overwrite: OverwritePolicy,
+) -> Result<(), ExportError> {
+    let path = path.as_ref();
+    let mut file = FpgaParameterExporter::create_output_file(path, overwrite)?;
+    for value in values {
+        // `as u16` pins the field to the two's-complement 16-bit pattern
+        // `$readmemh` expects; see MemFileWriter's own write_mem_file.
+        writeln!(file, "{:04X}", *value as u16).map_err(|source| ExportError::Io {
+            path: path.to_path_buf(),
+            source,
+        })?;
+    }
+    Ok(())
 }
 
 /// Convert **unsigned-magnitude** Q8.8 back to `f32`.

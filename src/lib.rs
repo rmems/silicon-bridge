@@ -213,7 +213,7 @@ pub use fpga_export::{
     SPIKENAUT_SIGNED_OUTPUT_SCHEMA_VERSION, SPIKENAUT_V2_LEGACY_PROFILE_ID, STIMULUS_Q88_MAX,
     STIMULUS_Q88_MIN, SaturationEvent, SaturationReport, TimestampPolicy, UartContractMetadata,
     encode_q88_signed, encode_q88_signed_full, encode_q88_unsigned, format_q88_hex,
-    q88_signed_to_f32, q88_to_f32,
+    q88_signed_to_f32, q88_to_f32, write_mem_words,
 };
 
 pub use fpga_metrics::FpgaMetrics;
@@ -240,10 +240,12 @@ pub use aer_route::{
 };
 
 pub use fpga_codec::{
-    CodecError, DENSE_Q88_SYNC, DenseQ88Layout, MAX_DENSE_CHANNELS, ROUTE_TABLE_TARGET,
-    ROUTE_WRITE_COMMAND, ROUTE_WRITE_LEN, SILICON_BRIDGE_V3_CHANNELS, SILICON_BRIDGE_V3_RX_LEN,
-    SILICON_BRIDGE_V3_TX_LEN, StimulusResponse, decode_response, encode_route_table,
-    encode_route_write, encode_route_write_word, encode_stimuli, encode_stimuli_legacy_v3,
+    CodecError, DENSE_Q88_SYNC, DenseQ88Layout, MAX_DENSE_CHANNELS, RAM_READ_COMMAND,
+    RAM_READ_HEADER_LEN, RAM_READ_REQ_LEN, ROUTE_TABLE_TARGET, ROUTE_WRITE_COMMAND,
+    ROUTE_WRITE_LEN, RamDump, RamReadTarget, SILICON_BRIDGE_V3_CHANNELS, SILICON_BRIDGE_V3_RX_LEN,
+    SILICON_BRIDGE_V3_TX_LEN, StimulusResponse, decode_ram_dump, decode_response, encode_ram_read,
+    encode_route_table, encode_route_write, encode_route_write_word, encode_stimuli,
+    encode_stimuli_legacy_v3, ram_dump_frame_len,
 };
 pub use fpga_codec_v4::{
     UART_V4_CRC_BYTES, UART_V4_HEADER_BYTES, UART_V4_SYNC, UART_V4_VERSION, crc16_ccitt_false,
