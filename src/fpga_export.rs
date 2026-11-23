@@ -2324,10 +2324,10 @@ fn publish_exclusive(tmp: &Path, path: &Path, image: &str) -> Result<(), ExportE
 /// Windows; skipped there.
 #[cfg(unix)]
 fn sync_parent_dir(path: &Path) {
-    if let Some(dir) = path.parent() {
-        if let Ok(dir) = fs::File::open(dir) {
-            let _ = dir.sync_all();
-        }
+    if let Some(dir) = path.parent()
+        && let Ok(dir) = fs::File::open(dir)
+    {
+        let _ = dir.sync_all();
     }
 }
 
