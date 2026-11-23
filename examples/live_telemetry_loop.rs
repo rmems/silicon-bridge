@@ -430,6 +430,10 @@ mod tests {
         let mut stimuli = vec![0.0_f32; 16];
         stimuli[2] = 0.625;
         let line = sample_line(7, &fields, &stimuli, 2.5, 3, -0.25, 0.875);
+        assert_eq!(
+            line,
+            "{\"tick\":7,\"raw\":[48.8281,185.5000,62.0000,1980.0000,9501.0000],\"stim\":[0,0,0.625,0,0],\"gain\":2.5,\"spikes\":3,\"pot_min\":-0.2500,\"pot_max\":0.8750}"
+        );
         let raw_start = line.find("\"raw\":[").unwrap() + 7;
         let raw_end = line[raw_start..].find(']').unwrap() + raw_start;
         let raw: Vec<f32> = line[raw_start..raw_end]
