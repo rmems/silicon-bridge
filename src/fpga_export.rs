@@ -67,7 +67,7 @@
 use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt;
 use std::fs;
-use std::io::{ErrorKind, Write};
+use std::io::{self, ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
 #[path = "export_profile.rs"]
@@ -1787,15 +1787,11 @@ impl FpgaParameterExporter {
         values: &[u16],
         overwrite: OverwritePolicy,
     ) -> Result<(), ExportError> {
-        let path = path.as_ref();
-        let mut file = Self::create_output_file(path, overwrite)?;
+        let mut image = String::with_capacity(values.len() * 5);
         for value in values {
-            writeln!(file, "{value:04X}").map_err(|source| ExportError::Io {
-                path: path.to_path_buf(),
-                source,
-            })?;
+            image.push_str(&format!("{value:04X}\n"));
         }
-        Ok(())
+        publish_mem_image(path.as_ref(), overwrite, image)
     }
 
     fn write_json_file(
@@ -2212,16 +2208,114 @@ pub fn write_mem_words(
     overwrite: OverwritePolicy,
 ) -> Result<(), ExportError> {
     let path = path.as_ref();
-    let mut file = FpgaParameterExporter::create_output_file(path, overwrite)?;
+    let mut image = String::with_capacity(values.len() * 5);
     for value in values {
         // `as u16` pins the field to the two's-complement 16-bit pattern
         // `$readmemh` expects; see MemFileWriter's own write_mem_file.
-        writeln!(file, "{:04X}", *value as u16).map_err(|source| ExportError::Io {
-            path: path.to_path_buf(),
-            source,
-        })?;
+        image.push_str(&format!("{:04X}\n", *value as u16));
     }
-    Ok(())
+    publish_mem_image(path, overwrite, image)
+}
+
+/// Sibling temp path for an atomic `.mem` publish: `<name>.tmp` next to
+/// the destination so the publish rename stays on one filesystem.
+fn mem_tmp_path(path: &Path) -> Result<PathBuf, ExportError> {
+    let file_name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| ExportError::Io {
+            path: path.to_path_buf(),
+            source: io::Error::new(ErrorKind::InvalidInput, "path has no usable file name"),
+        })?;
+    Ok(path.with_file_name(format!("{file_name}.tmp")))
+}
+
+/// Rename `tmp` over `path`, retrying once with remove+rename when the
+/// platform's `rename` refuses to overwrite an existing file (Windows).
+/// The retry only fires on an overwrite-looking failure while the
+/// destination is still present — it never deletes a path the first
+/// rename may have already replaced.
+fn publish_replace(tmp: &Path, path: &Path) -> Result<(), ExportError> {
+    match fs::rename(tmp, path) {
+        Ok(()) => Ok(()),
+        Err(source) => {
+            let overwrite_refused = matches!(
+                source.kind(),
+                ErrorKind::AlreadyExists | ErrorKind::PermissionDenied
+            ) && path.try_exists().unwrap_or(false);
+            if !overwrite_refused {
+                return Err(ExportError::Io {
+                    path: path.to_path_buf(),
+                    source,
+                });
+            }
+            fs::remove_file(path)
+                .and_then(|()| fs::rename(tmp, path))
+                .map_err(|source| ExportError::Io {
+                    path: path.to_path_buf(),
+                    source,
+                })
+        }
+    }
+}
+
+/// Publish a fully rendered `.mem` image at `path` through a sibling
+/// temp file, so an interrupted or concurrent write cannot leave a
+/// truncated bank image at the destination: the temp file holds the
+/// partial bytes and the destination only changes at the final publish
+/// step.
+///
+/// [`OverwritePolicy::Prohibit`] keeps its refuse-to-replace guarantee —
+/// the hard-link publish fails if `path` already exists — while
+/// [`OverwritePolicy::Replace`] renames over the destination. A crashed
+/// publish can leave `<name>.tmp` behind; it is never consumed as a
+/// `.mem` image, so delete it manually. Two writers racing the same
+/// destination fail on the temp `create_new` instead of interleaving.
+///
+/// # Errors
+///
+/// [`ExportError::Io`] on filesystem failures, subject to `overwrite`.
+fn publish_mem_image(
+    path: &Path,
+    overwrite: OverwritePolicy,
+    image: String,
+) -> Result<(), ExportError> {
+    let tmp = mem_tmp_path(path)?;
+    let staged = (|| -> Result<(), ExportError> {
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)
+            .map_err(|source| ExportError::Io {
+                path: tmp.clone(),
+                source,
+            })?;
+        file.write_all(image.as_bytes())
+            .map_err(|source| ExportError::Io {
+                path: tmp.clone(),
+                source,
+            })
+    })();
+    if let Err(e) = staged {
+        let _ = fs::remove_file(&tmp);
+        return Err(e);
+    }
+    let publish = match overwrite {
+        OverwritePolicy::Prohibit => {
+            fs::hard_link(&tmp, path).map_err(|source| match source.kind() {
+                ErrorKind::AlreadyExists => ExportError::OverwriteRefused {
+                    path: path.to_path_buf(),
+                },
+                _ => ExportError::Io {
+                    path: path.to_path_buf(),
+                    source,
+                },
+            })
+        }
+        OverwritePolicy::Replace => publish_replace(&tmp, path),
+    };
+    let _ = fs::remove_file(&tmp);
+    publish
 }
 
 /// Convert **unsigned-magnitude** Q8.8 back to `f32`.
@@ -2238,6 +2332,40 @@ pub fn q88_to_f32(q88_value: u16) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn write_mem_words_replace_publishes_without_temp_leftover() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bank.mem");
+        write_mem_words(&path, &[0x0001, 0x0002], OverwritePolicy::Replace).unwrap();
+        write_mem_words(&path, &[0x0003], OverwritePolicy::Replace).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "0003\n");
+        assert!(!dir.path().join("bank.mem.tmp").exists());
+    }
+
+    #[test]
+    fn write_mem_words_prohibit_refuses_existing_and_preserves_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bank.mem");
+        write_mem_words(&path, &[0x0001], OverwritePolicy::Replace).unwrap();
+        let err = write_mem_words(&path, &[0x0002], OverwritePolicy::Prohibit).unwrap_err();
+        assert!(matches!(err, ExportError::OverwriteRefused { .. }));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "0001\n");
+        assert!(!dir.path().join("bank.mem.tmp").exists());
+    }
+
+    #[test]
+    fn write_mem_words_failed_stage_leaves_no_temp() {
+        let dir = tempfile::tempdir().unwrap();
+        // a stale temp blocks the stage write; the error must not clobber
+        // the existing destination either
+        let path = dir.path().join("bank.mem");
+        write_mem_words(&path, &[0x0001], OverwritePolicy::Replace).unwrap();
+        std::fs::write(dir.path().join("bank.mem.tmp"), "stale").unwrap();
+        let err = write_mem_words(&path, &[0x0002], OverwritePolicy::Replace).unwrap_err();
+        assert!(matches!(err, ExportError::Io { .. }));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "0001\n");
+    }
 
     #[test]
     fn test_q88_conversion() {
