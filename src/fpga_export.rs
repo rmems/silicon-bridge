@@ -2280,8 +2280,23 @@ fn publish_replace(tmp: &Path, path: &Path) -> Result<(), ExportError> {
                     Ok(())
                 }
                 Err(source) => {
-                    // Restore the previous image before reporting.
-                    let _ = fs::rename(&backup, path);
+                    // Restore the previous image before reporting; if the
+                    // restore also fails, name the backup path so the old
+                    // image stays discoverable.
+                    if let Err(restore) = fs::rename(&backup, path) {
+                        return Err(ExportError::Io {
+                            path: path.to_path_buf(),
+                            source: io::Error::new(
+                                source.kind(),
+                                format!(
+                                    "publish failed ({source}) and restoring the \
+                                     previous image failed ({restore}); it is \
+                                     preserved at {}",
+                                    backup.display()
+                                ),
+                            ),
+                        });
+                    }
                     Err(ExportError::Io {
                         path: path.to_path_buf(),
                         source,
