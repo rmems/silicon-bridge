@@ -627,12 +627,27 @@ impl RamDump {
     /// `$readmemh` lines for [`Self::words`]: uppercase `{:04X}`
     /// two's-complement hex, one word per line — the format
     /// `WeightRam`/`NeuronParamRam` `INIT_FILE` images and
-    /// [`crate::MemFileWriter`] output already use, so a dumped bank can be
-    /// diffed against or re-flashed as `.mem` verbatim.
+    /// [`crate::MemFileWriter`] output already use.
+    ///
+    /// A dump that starts above address 0 is prefixed with a `@hh`
+    /// address directive so its words land at the captured addresses when
+    /// re-flashed, and a dump that wraps past 255 resumes behind a `@00`
+    /// directive. Only a complete, zero-start dump therefore reproduces a
+    /// bank image verbatim; a partial dump rewrites just the covered
+    /// range and leaves the rest to the image's other lines or RAM
+    /// initialization.
     pub fn mem_lines(&self) -> impl Iterator<Item = String> + '_ {
-        self.words
-            .iter()
-            .map(|word| format!("{:04X}", *word as u16))
+        let start = usize::from(self.start_address);
+        // Words past address 255 wrap to 0 in the RTL counter, so the
+        // image needs a second address directive at the wrap point.
+        let split = (256 - start).min(self.words.len());
+        let hex = |word: &i16| format!("{:04X}", *word as u16);
+        (start != 0)
+            .then(|| format!("@{start:02X}"))
+            .into_iter()
+            .chain(self.words[..split].iter().map(hex))
+            .chain((split < self.words.len()).then(|| "@00".to_string()))
+            .chain(self.words[split..].iter().map(hex))
     }
 }
 
@@ -640,6 +655,12 @@ impl RamDump {
 ///
 /// Bytes are `[0xA6, target, address, len_hi, len_lo]` (big-endian 16-bit
 /// word count).
+///
+/// The start address is a single byte and `address + word_count` past 255
+/// is deliberately **not** rejected: `SocProtocolFsm.sv` advances an
+/// 8-bit `dump_addr` counter per word, so the range wraps modulo 256 and
+/// reads the low addresses it crosses. Callers that want bank-linear
+/// output keep `address + word_count <= 256`.
 ///
 /// # Errors
 ///
@@ -679,6 +700,9 @@ pub const fn ram_dump_frame_len(word_count: u16) -> usize {
 ///
 /// # Errors
 ///
+/// [`CodecError::ZeroReadLength`] when `word_count` is 0 — the FPGA emits
+/// no dump for a zero-length request, so accepting a bare echoed header
+/// would pass an impossible response off as a successful read;
 /// [`CodecError::WrongFrameLength`] for a wrong byte count;
 /// [`CodecError::ReadEchoMismatch`] for a header that does not echo the
 /// request.
@@ -688,6 +712,9 @@ pub fn decode_ram_dump(
     word_count: u16,
     frame: &[u8],
 ) -> Result<RamDump, CodecError> {
+    if word_count == 0 {
+        return Err(CodecError::ZeroReadLength);
+    }
     let expected_len = ram_dump_frame_len(word_count);
     if frame.len() != expected_len {
         return Err(CodecError::WrongFrameLength {
@@ -1081,7 +1108,43 @@ mod tests {
             start_address: 0x04,
             words: vec![0x0080, -256, 0x7FFF],
         };
+        // a nonzero start carries an address directive so a re-flash lands
+        // the words back at 0x04 instead of silently shifting them to 0
         let lines: Vec<String> = dump.mem_lines().collect();
-        assert_eq!(lines, vec!["0080", "FF00", "7FFF"]);
+        assert_eq!(lines, vec!["@04", "0080", "FF00", "7FFF"]);
+    }
+
+    #[test]
+    fn ram_dump_mem_lines_zero_start_stays_plain() {
+        let dump = RamDump {
+            target: RamReadTarget::Weight,
+            start_address: 0x00,
+            words: vec![0x0080, -256],
+        };
+        let lines: Vec<String> = dump.mem_lines().collect();
+        assert_eq!(lines, vec!["0080", "FF00"]);
+    }
+
+    #[test]
+    fn ram_dump_mem_lines_resume_at_zero_after_wrap() {
+        let dump = RamDump {
+            target: RamReadTarget::Weight,
+            start_address: 0xFE,
+            words: vec![0x0001, 0x0002, 0x0003, 0x0004],
+        };
+        let lines: Vec<String> = dump.mem_lines().collect();
+        // 0xFE..0xFF under @FE, then the wrapped words under @00
+        assert_eq!(lines, vec!["@FE", "0001", "0002", "@00", "0003", "0004"]);
+    }
+
+    #[test]
+    fn decode_ram_dump_rejects_zero_word_count() {
+        let request = encode_ram_read(RamReadTarget::Weight, 0x00, 1).unwrap();
+        let mut echo = request;
+        echo[4] = 0; // fabricate a zero-length echoed header
+        assert_eq!(
+            decode_ram_dump(RamReadTarget::Weight, 0x00, 0, &echo),
+            Err(CodecError::ZeroReadLength)
+        );
     }
 }

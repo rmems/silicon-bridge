@@ -135,6 +135,34 @@ fn as_sent(v: f32) -> f32 {
     silicon_bridge::q88_signed_to_f32(silicon_bridge::encode_q88_signed(v))
 }
 
+/// Format one JSONL sample record: the raw poll in physical units
+/// (`raw`, in `LIVE_RANGES` order), the Q8.8 values actually sent on
+/// lanes 0-4, the applied `gain`, and the spike/potential summary.
+#[cfg(feature = "uart")]
+fn sample_line(
+    tick: u64,
+    fields: &[f32; 5],
+    stimuli: &[f32],
+    gain: f32,
+    n_spikes: usize,
+    pot_min: f32,
+    pot_max: f32,
+) -> String {
+    format!(
+        "{{\"tick\":{tick},\"raw\":[{:.4},{:.4},{:.4},{:.4},{:.4}],\"stim\":[{},{},{},{},{}],\"gain\":{gain},\"spikes\":{n_spikes},\"pot_min\":{pot_min:.4},\"pot_max\":{pot_max:.4}}}",
+        fields[0],
+        fields[1],
+        fields[2],
+        fields[3],
+        fields[4],
+        as_sent(stimuli.first().copied().unwrap_or(0.0)),
+        as_sent(stimuli.get(1).copied().unwrap_or(0.0)),
+        as_sent(stimuli.get(2).copied().unwrap_or(0.0)),
+        as_sent(stimuli.get(3).copied().unwrap_or(0.0)),
+        as_sent(stimuli.get(4).copied().unwrap_or(0.0)),
+    )
+}
+
 /// Poll the live GPU fields via `nvidia-smi` for `GPU_INDEX` (default 0).
 /// Returns [mem_util_pct, power_w, gpu_temp_c, sm_clock_mhz, mem_clock_mhz].
 #[cfg(feature = "uart")]
@@ -272,18 +300,14 @@ fn run() -> i32 {
                     .cloned()
                     .reduce(f32::max)
                     .unwrap_or(0.0);
-                let line = format!(
-                    "{{\"tick\":{tick},\"raw\":[{:.4},{:.4},{:.4},{:.4},{:.4}],\"stim\":[{},{},{},{},{}],\"gain\":{stimulus_gain},\"spikes\":{n_spikes},\"pot_min\":{pot_min:.4},\"pot_max\":{pot_max:.4}}}",
-                    fields[0],
-                    fields[1],
-                    fields[2],
-                    fields[3],
-                    fields[4],
-                    as_sent(stimuli.first().copied().unwrap_or(0.0)),
-                    as_sent(stimuli.get(1).copied().unwrap_or(0.0)),
-                    as_sent(stimuli.get(2).copied().unwrap_or(0.0)),
-                    as_sent(stimuli.get(3).copied().unwrap_or(0.0)),
-                    as_sent(stimuli.get(4).copied().unwrap_or(0.0)),
+                let line = sample_line(
+                    tick,
+                    &fields,
+                    &stimuli,
+                    stimulus_gain,
+                    n_spikes,
+                    pot_min,
+                    pot_max,
                 );
                 if let Err(e) = writeln!(log, "{line}") {
                     eprintln!("==> log write failed at tick {tick}: {e}");
@@ -398,6 +422,29 @@ mod tests {
         assert_eq!(as_sent(0.0025), 0.0);
         assert_eq!(as_sent(1.0), 1.0);
         assert_eq!(as_sent(1000.0), 32765.0 / 256.0);
+    }
+
+    #[test]
+    fn sample_line_logs_raw_in_live_ranges_order() {
+        let fields = [48.828_125, 185.5, 62.0, 1980.0, 9501.0];
+        let mut stimuli = vec![0.0_f32; 16];
+        stimuli[2] = 0.625;
+        let line = sample_line(7, &fields, &stimuli, 2.5, 3, -0.25, 0.875);
+        let raw_start = line.find("\"raw\":[").unwrap() + 7;
+        let raw_end = line[raw_start..].find(']').unwrap() + raw_start;
+        let raw: Vec<f32> = line[raw_start..raw_end]
+            .split(',')
+            .map(|v| v.parse().unwrap())
+            .collect();
+        assert_eq!(raw.len(), LIVE_RANGES.len());
+        for (v, expected) in raw.iter().zip(fields) {
+            assert!((v - expected).abs() < 5e-4);
+        }
+        assert!(line.contains("\"stim\":[0,0,0.625,0,0]"));
+        assert!(line.contains("\"gain\":2.5"));
+        assert!(line.contains("\"spikes\":3"));
+        assert!(line.contains("\"pot_min\":-0.2500"));
+        assert!(line.contains("\"pot_max\":0.8750"));
     }
 
     #[test]

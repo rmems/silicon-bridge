@@ -2187,9 +2187,13 @@ pub fn format_q88_hex(value: f32) -> String {
 ///
 /// This is the emission half of the runtime-readback path (silicon-hdl
 /// #113): a [`crate::RamDump`] carries raw bank words that can be written
-/// here and later re-flashed verbatim, and `overwrite` applies the same
-/// policy the exporters use (`Prohibit` refuses to truncate an existing
-/// file).
+/// here and later re-flashed. Verbatim bank reproduction needs a complete
+/// dump starting at address 0 — these lines always load from address 0,
+/// so a partial or nonzero-start dump written through this function lands
+/// at the wrong addresses; [`RamDump::mem_lines`](crate::RamDump::mem_lines)
+/// emits `@hh` address directives that preserve a partial dump's range.
+/// `overwrite` applies the same policy the exporters use (`Prohibit`
+/// refuses to truncate an existing file).
 ///
 /// # Errors
 ///
