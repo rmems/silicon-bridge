@@ -74,7 +74,7 @@ features = ["uart", "nir"]
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-jiff = { version = "0.2", default-features = false, features = ["std"] }
+jiff = { version = "1.0", default-features = false, features = ["std"] }
 # `artifact_hashes` in the manifest (aer-route-v1 profile) hashes staged
 # `.mem` bytes, so sha2 is a runtime dependency, not test-only.
 sha2 = "0.11"
