@@ -2058,8 +2058,9 @@ mod tests {
     }
 
     fn scripted_ram_dump(target: RamReadTarget, address: u8, words: &[i16]) -> Vec<u8> {
-        let mut frame =
-            encode_ram_read(target, address, words.len() as u16).expect("scripted request").to_vec();
+        let mut frame = encode_ram_read(target, address, words.len() as u16)
+            .expect("scripted request")
+            .to_vec();
         for word in words {
             frame.extend_from_slice(&word.to_be_bytes());
         }
