@@ -2404,8 +2404,12 @@ fn sync_parent_dir(_path: &Path) {}
 /// may own, and a successful `Replace` rename consumes the temp so its
 /// path is never unlinked (it may already name someone else's file).
 /// A crashed publish can leave `.{name}.tmp-{pid}` or
-/// `.{name}.bak-{pid}` behind; neither is consumed as a `.mem` image,
-/// so delete them manually.
+/// `.{name}.bak-{pid}` behind; neither is consumed as a `.mem` image.
+/// `.tmp` staging files are always safe to delete. A `.bak` file can
+/// hold the only surviving copy of the previous image (when a publish
+/// stopped between the backup rename and the install) — check that the
+/// destination exists and is complete before deleting it, or rename it
+/// back into place first.
 ///
 /// # Errors
 ///
