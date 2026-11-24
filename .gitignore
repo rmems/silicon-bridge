@@ -30,3 +30,8 @@ Cargo.lock
 
 # Local live_telemetry_loop session logs
 live-*.jsonl
+
+# Local replay_log session artifacts
+replay-*.jsonl
+replay-*.log
+live-*.log
