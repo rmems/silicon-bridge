@@ -4,10 +4,10 @@
 
 These binaries use only the **public** `silicon-bridge` API. After Cargo
 dependency resolution they run offline: no FPGA, no serial device, no private
-paths, and no sibling checkouts — **except** `uart_host_smoke` and
-`live_telemetry_loop`, which open a named serial port when built with
-`--features uart` (maintainer Basys 3 evidence only; not for default CI or
-casual `cargo run --example …`).
+paths, and no sibling checkouts — **except** `uart_host_smoke`,
+`live_telemetry_loop`, and `replay_log`, which open a named serial port
+when built with `--features uart` (maintainer Basys 3 evidence only; not
+for default CI or casual `cargo run --example …`).
 
 | Example | What it shows |
 |---|---|
@@ -16,6 +16,7 @@ casual `cargo run --example …`).
 | `spikenaut_profile_export` | Opt-in synthetic 16-neuron bundle + signed readout under the historical `Spikenaut-v2` layout tag |
 | `uart_host_smoke` | **Live UART** (`--features uart` only): one Basys 3 host-session exchange on an explicit port; see `scripts/smoke-hardware-uart.sh` |
 | `live_telemetry_loop` | **Live UART** (`--features uart` only): continuous GPU telemetry → stimuli loop with JSONL logging; rotates one live lane per delivered sample (the SoC decodes only the lowest nonzero lane per frame); requires `SILICON_BRIDGE_PORT`, optional `STIMULUS_GAIN` |
+| `replay_log` | **Live UART** (`--features uart` only): replays a recorded `live_telemetry_loop` JSONL capture back through the FPGA so on-chip STDP trains on a prior session; requires `SILICON_BRIDGE_PORT` and `REPLAY_LOG`, optional `REPLAY_LOOPS`, `TICK_MS` |
 
 ```bash
 cargo run --example generic_mem_export
@@ -24,7 +25,7 @@ cargo run --example spikenaut_profile_export
 ```
 
 Do not pass `--features uart` to the offline examples above. Live UART is
-limited to `uart_host_smoke`, `live_telemetry_loop`, and the maintainer smoke
-script documented in the README feature matrix.
+limited to `uart_host_smoke`, `live_telemetry_loop`, `replay_log`, and the
+maintainer smoke script documented in the README feature matrix.
 The `ping()` method sends a real 16-channel stimulus and is not part of
 these examples.
