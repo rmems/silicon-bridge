@@ -2324,17 +2324,10 @@ fn publish_exclusive(tmp: &Path, path: &Path, image: &str) -> Result<(), ExportE
                 path: path.to_path_buf(),
             })
         }
-        Err(source)
-            if !matches!(
-                source.kind(),
-                ErrorKind::Unsupported | ErrorKind::PermissionDenied
-            ) =>
-        {
-            Err(ExportError::Io {
-                path: path.to_path_buf(),
-                source,
-            })
-        }
+        Err(source) if !hard_link_unsupported(&source) => Err(ExportError::Io {
+            path: path.to_path_buf(),
+            source,
+        }),
         Err(_) => {
             let mut dest = match fs::OpenOptions::new()
                 .write(true)
@@ -2367,6 +2360,29 @@ fn publish_exclusive(tmp: &Path, path: &Path, image: &str) -> Result<(), ExportE
                 source,
             })
         }
+    }
+}
+
+/// Whether a `hard_link` error indicates the filesystem lacks hard-link
+/// support rather than a genuine failure. `Unsupported` and
+/// `PermissionDenied` cover Unix (`EPERM`/`EOPNOTSUPP`); on Windows,
+/// volumes without hard links (FAT/exFAT) surface `ERROR_INVALID_FUNCTION`
+/// or `ERROR_NOT_SUPPORTED`, which std does not reliably map to those
+/// kinds, so the raw codes are checked too.
+fn hard_link_unsupported(source: &io::Error) -> bool {
+    if matches!(
+        source.kind(),
+        ErrorKind::Unsupported | ErrorKind::PermissionDenied
+    ) {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        matches!(source.raw_os_error(), Some(1 | 50))
+    }
+    #[cfg(not(windows))]
+    {
+        false
     }
 }
 
@@ -2405,7 +2421,9 @@ fn sync_parent_dir(_path: &Path) {}
 /// path is never unlinked (it may already name someone else's file).
 /// A crashed publish can leave `.{name}.tmp-{pid}` or
 /// `.{name}.bak-{pid}` behind; neither is consumed as a `.mem` image.
-/// `.tmp` staging files are always safe to delete. A `.bak` file can
+/// `.tmp` staging files left behind by crashed or failed runs are safe
+/// to delete once no export is running — deleting one mid-publish breaks
+/// that export. A `.bak` file can
 /// hold the only surviving copy of the previous image (when a publish
 /// stopped between the backup rename and the install) — check that the
 /// destination exists and is complete before deleting it, or rename it
